@@ -1,4 +1,4 @@
-.PHONY: help dev test test-unit test-int lint migrate-up migrate-down migrate-create build docker-build docker-up docker-down generate openapi
+.PHONY: help dev test test-unit test-int lint migrate-up migrate-down migrate-create migrate-force build docker-build docker-up docker-down generate openapi
 
 help:
 	@echo "Available commands:"
@@ -11,6 +11,7 @@ help:
 	@echo "  make migrate-up     - Apply migrations"
 	@echo "  make migrate-down   - Rollback last migration"
 	@echo "  make migrate-create - Create new migration (usage: make migrate-create NAME=migration_name)"
+	@echo "  make migrate-force  - Force migration version (usage: make migrate-force VERSION=version_number)"
 	@echo "  make build          - Build binary"
 	@echo "  make docker-build   - Build Docker image"
 	@echo "  make docker-up      - Start docker-compose"
@@ -38,16 +39,21 @@ lint:
 
 migrate-up:
 	@command -v migrate > /dev/null 2>&1 || { echo "migrate not installed. Run: go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest"; exit 1; }
-	migrate -path migrations -database "$(DATABASE_URL)" up
+	@test -f .env && . .env || . .env.example; migrate -path migrations -database "$$DATABASE_URL" up
 
 migrate-down:
 	@command -v migrate > /dev/null 2>&1 || { echo "migrate not installed. Run: go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest"; exit 1; }
-	migrate -path migrations -database "$(DATABASE_URL)" down 1
+	@test -f .env && . .env || . .env.example; migrate -path migrations -database "$$DATABASE_URL" down 1
 
 migrate-create:
 	@if [ -z "$(NAME)" ]; then echo "Usage: make migrate-create NAME=migration_name"; exit 1; fi
 	@command -v migrate > /dev/null 2>&1 || { echo "migrate not installed. Run: go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest"; exit 1; }
 	migrate create -ext sql -dir migrations -seq $(NAME)
+
+migrate-force:
+	@if [ -z "$(VERSION)" ]; then echo "Usage: make migrate-force VERSION=version_number"; exit 1; fi
+	@command -v migrate > /dev/null 2>&1 || { echo "migrate not installed. Run: go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest"; exit 1; }
+	@test -f .env && . .env || . .env.example; migrate -path migrations -database "$$DATABASE_URL" force $(VERSION)
 
 build:
 	CGO_ENABLED=0 go build -o bin/statuspage ./cmd/statuspage
