@@ -12,6 +12,10 @@ import (
 	"github.com/bissquit/incident-management/internal/catalog"
 	catalogpostgres "github.com/bissquit/incident-management/internal/catalog/postgres"
 	"github.com/bissquit/incident-management/internal/config"
+	"github.com/bissquit/incident-management/internal/domain"
+	"github.com/bissquit/incident-management/internal/identity"
+	identitypostgres "github.com/bissquit/incident-management/internal/identity/postgres"
+	"github.com/bissquit/incident-management/internal/identity/jwt"
 	"github.com/bissquit/incident-management/internal/pkg/httputil"
 	"github.com/bissquit/incident-management/internal/pkg/postgres"
 	"github.com/go-chi/chi/v5"
@@ -98,12 +102,37 @@ func (a *App) setupRouter() *chi.Mux {
 	r.Get("/healthz", a.healthzHandler)
 	r.Get("/readyz", a.readyzHandler)
 
+	identityRepo := identitypostgres.NewRepository(a.db)
+	jwtAuth := jwt.NewAuthenticator(jwt.Config{
+		SecretKey:            a.config.JWT.SecretKey,
+		AccessTokenDuration:  a.config.JWT.AccessTokenDuration,
+		RefreshTokenDuration: a.config.JWT.RefreshTokenDuration,
+	}, identityRepo)
+	identityService := identity.NewService(identityRepo, jwtAuth)
+	identityHandler := identity.NewHandler(identityService)
+
 	catalogRepo := catalogpostgres.NewRepository(a.db)
 	catalogService := catalog.NewService(catalogRepo)
 	catalogHandler := catalog.NewHandler(catalogService)
 
 	r.Route("/api/v1", func(r chi.Router) {
-		catalogHandler.RegisterRoutes(r)
+		identityHandler.RegisterRoutes(r)
+
+		r.Group(func(r chi.Router) {
+			r.Use(httputil.AuthMiddleware(identityService))
+
+			identityHandler.RegisterProtectedRoutes(r)
+
+			r.Group(func(r chi.Router) {
+				r.Use(httputil.RequireRole(domain.RoleAdmin))
+				catalogHandler.RegisterRoutes(r)
+			})
+		})
+
+		r.Get("/services", catalogHandler.ListServices)
+		r.Get("/services/{slug}", catalogHandler.GetService)
+		r.Get("/groups", catalogHandler.ListGroups)
+		r.Get("/groups/{slug}", catalogHandler.GetGroup)
 	})
 
 	return r

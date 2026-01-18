@@ -17,6 +17,7 @@ type Config struct {
 	Server   ServerConfig
 	Database DatabaseConfig
 	Log      LogConfig
+	JWT      JWTConfig
 }
 
 // ServerConfig contains HTTP server settings.
@@ -39,6 +40,13 @@ type DatabaseConfig struct {
 type LogConfig struct {
 	Level  string
 	Format string
+}
+
+// JWTConfig contains JWT authentication settings.
+type JWTConfig struct {
+	SecretKey            string
+	AccessTokenDuration  time.Duration
+	RefreshTokenDuration time.Duration
 }
 
 // Load loads configuration from config.yaml and environment variables.
@@ -71,6 +79,11 @@ func Load() (*Config, error) {
 		Log: LogConfig{
 			Level:  k.String("LOG_LEVEL"),
 			Format: k.String("LOG_FORMAT"),
+		},
+		JWT: JWTConfig{
+			SecretKey:            k.String("JWT_SECRET_KEY"),
+			AccessTokenDuration:  k.Duration("JWT_ACCESS_TOKEN_DURATION"),
+			RefreshTokenDuration: k.Duration("JWT_REFRESH_TOKEN_DURATION"),
 		},
 	}
 
@@ -111,5 +124,15 @@ func setDefaults(cfg *Config) {
 	}
 	if cfg.Log.Format == "" {
 		cfg.Log.Format = "json"
+	}
+
+	if cfg.JWT.SecretKey == "" {
+		cfg.JWT.SecretKey = "change-me-in-production"
+	}
+	if cfg.JWT.AccessTokenDuration == 0 {
+		cfg.JWT.AccessTokenDuration = 15 * time.Minute
+	}
+	if cfg.JWT.RefreshTokenDuration == 0 {
+		cfg.JWT.RefreshTokenDuration = 168 * time.Hour
 	}
 }
