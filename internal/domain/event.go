@@ -65,3 +65,34 @@ type EventUpdate struct {
 	CreatedBy         string      `json:"created_by"`
 	CreatedAt         time.Time   `json:"created_at"`
 }
+
+// IsValidForType checks if the status is valid for the given event type.
+func (s EventStatus) IsValidForType(eventType EventType) bool {
+	switch eventType {
+	case EventTypeIncident:
+		return s == EventStatusInvestigating ||
+			s == EventStatusIdentified ||
+			s == EventStatusMonitoring ||
+			s == EventStatusResolved
+	case EventTypeMaintenance:
+		return s == EventStatusScheduled ||
+			s == EventStatusInProgress ||
+			s == EventStatusCompleted
+	}
+	return false
+}
+
+// IsValid checks if the event type is valid.
+func (t EventType) IsValid() bool {
+	return t == EventTypeIncident || t == EventTypeMaintenance
+}
+
+// IsValid checks if the severity is valid.
+func (s Severity) IsValid() bool {
+	return s == SeverityMinor || s == SeverityMajor || s == SeverityCritical
+}
+
+// IsResolved checks if the status represents a resolved/completed state.
+func (s EventStatus) IsResolved() bool {
+	return s == EventStatusResolved || s == EventStatusCompleted
+}

@@ -13,6 +13,8 @@ import (
 	catalogpostgres "github.com/bissquit/incident-management/internal/catalog/postgres"
 	"github.com/bissquit/incident-management/internal/config"
 	"github.com/bissquit/incident-management/internal/domain"
+	"github.com/bissquit/incident-management/internal/events"
+	eventspostgres "github.com/bissquit/incident-management/internal/events/postgres"
 	"github.com/bissquit/incident-management/internal/identity"
 	identitypostgres "github.com/bissquit/incident-management/internal/identity/postgres"
 	"github.com/bissquit/incident-management/internal/identity/jwt"
@@ -115,8 +117,14 @@ func (a *App) setupRouter() *chi.Mux {
 	catalogService := catalog.NewService(catalogRepo)
 	catalogHandler := catalog.NewHandler(catalogService)
 
+	eventsRepo := eventspostgres.NewRepository(a.db)
+	eventsService := events.NewService(eventsRepo)
+	eventsHandler := events.NewHandler(eventsService)
+
 	r.Route("/api/v1", func(r chi.Router) {
 		identityHandler.RegisterRoutes(r)
+
+		eventsHandler.RegisterPublicRoutes(r)
 
 		r.Group(func(r chi.Router) {
 			r.Use(httputil.AuthMiddleware(identityService))
@@ -124,8 +132,14 @@ func (a *App) setupRouter() *chi.Mux {
 			identityHandler.RegisterProtectedRoutes(r)
 
 			r.Group(func(r chi.Router) {
+				r.Use(httputil.RequireRole(domain.RoleOperator))
+				eventsHandler.RegisterOperatorRoutes(r)
+			})
+
+			r.Group(func(r chi.Router) {
 				r.Use(httputil.RequireRole(domain.RoleAdmin))
 				catalogHandler.RegisterRoutes(r)
+				eventsHandler.RegisterAdminRoutes(r)
 			})
 		})
 

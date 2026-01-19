@@ -12,3 +12,13 @@ type EventTemplate struct {
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
 }
+
+// TemplateData holds data for template rendering.
+type TemplateData struct {
+	ServiceName      string
+	ServiceGroupName string
+	StartedAt        *time.Time
+	ResolvedAt       *time.Time
+	ScheduledStart   *time.Time
+	ScheduledEnd     *time.Time
+}
