@@ -18,6 +18,10 @@ import (
 	"github.com/bissquit/incident-management/internal/identity"
 	identitypostgres "github.com/bissquit/incident-management/internal/identity/postgres"
 	"github.com/bissquit/incident-management/internal/identity/jwt"
+	"github.com/bissquit/incident-management/internal/notifications"
+	"github.com/bissquit/incident-management/internal/notifications/email"
+	notificationspostgres "github.com/bissquit/incident-management/internal/notifications/postgres"
+	"github.com/bissquit/incident-management/internal/notifications/telegram"
 	"github.com/bissquit/incident-management/internal/pkg/httputil"
 	"github.com/bissquit/incident-management/internal/pkg/postgres"
 	"github.com/go-chi/chi/v5"
@@ -121,6 +125,13 @@ func (a *App) setupRouter() *chi.Mux {
 	eventsService := events.NewService(eventsRepo)
 	eventsHandler := events.NewHandler(eventsService)
 
+	notificationsRepo := notificationspostgres.NewRepository(a.db)
+	emailSender := email.NewSender(email.Config{})
+	telegramSender := telegram.NewSender(telegram.Config{})
+	dispatcher := notifications.NewDispatcher(notificationsRepo, emailSender, telegramSender)
+	notificationsService := notifications.NewService(notificationsRepo, dispatcher)
+	notificationsHandler := notifications.NewHandler(notificationsService)
+
 	r.Route("/api/v1", func(r chi.Router) {
 		identityHandler.RegisterRoutes(r)
 
@@ -130,6 +141,7 @@ func (a *App) setupRouter() *chi.Mux {
 			r.Use(httputil.AuthMiddleware(identityService))
 
 			identityHandler.RegisterProtectedRoutes(r)
+			notificationsHandler.RegisterRoutes(r)
 
 			r.Group(func(r chi.Router) {
 				r.Use(httputil.RequireRole(domain.RoleOperator))
