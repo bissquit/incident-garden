@@ -15,6 +15,185 @@
 
 ---
 
+## 📊 Текущий статус проекта
+
+**Последнее обновление:** 2026-01-21
+
+### Что реализовано
+
+| Компонент                | Статус       | Описание                                                      |
+|--------------------------|--------------|---------------------------------------------------------------|
+| **Инфраструктура**       | ✅ Готово     | Docker Compose, Makefile, конфигурация                        |
+| **База данных**          | ✅ Готово     | 5 миграций, полная схема                                      |
+| **Identity модуль**      | ✅ Готово     | JWT auth, register/login/refresh/logout, RBAC                 |
+| **Catalog модуль**       | ✅ Готово     | Services, Groups, Tags CRUD                                   |
+| **Events модуль**        | ✅ Готово     | Events, Updates, Templates, public status                     |
+| **Notifications модуль** | ✅ Структура  | Handler, Service, Repository, Dispatcher (senders — заглушки) |
+| **CI/CD**                | ✅ Готово     | GitHub Actions: lint, test, integration-test, build           |
+| **Интеграционные тесты** | ✅ Готово     | 20 тестов, testcontainers                                     |
+
+### Структура файлов
+
+```
+incident-management/
+├── cmd/statuspage/main.go           # Точка входа
+├── internal/
+│   ├── app/app.go                   # DI, роутинг, lifecycle
+│   ├── config/config.go             # Конфигурация (koanf)
+│   ├── domain/                      # Бизнес-сущности
+│   │   ├── event.go
+│   │   ├── notification.go
+│   │   ├── service.go
+│   │   ├── subscription.go
+│   │   ├── template.go
+│   │   └── user.go
+│   ├── identity/                    # Auth модуль
+│   │   ├── handler.go
+│   │   ├── service.go
+│   │   ├── repository.go
+│   │   ├── authenticator.go
+│   │   ├── jwt/authenticator.go
+│   │   └── postgres/repository.go
+│   ├── catalog/                     # Services, Groups, Tags
+│   │   ├── handler.go
+│   │   ├── service.go
+│   │   ├── service_test.go
+│   │   ├── repository.go
+│   │   └── postgres/repository.go
+│   ├── events/                      # Events, Updates, Templates
+│   │   ├── handler.go
+│   │   ├── service.go
+│   │   ├── service_test.go
+│   │   ├── repository.go
+│   │   ├── template_renderer.go
+│   │   ├── errors.go
+│   │   └── postgres/repository.go
+│   ├── notifications/               # Channels, Subscriptions, Dispatch
+│   │   ├── handler.go
+│   │   ├── service.go
+│   │   ├── repository.go
+│   │   ├── dispatcher.go
+│   │   ├── sender.go
+│   │   ├── errors.go
+│   │   ├── email/sender.go
+│   │   ├── telegram/sender.go
+│   │   └── postgres/repository.go
+│   ├── testutil/                    # Тестовые утилиты
+│   │   ├── client.go
+│   │   ├── container.go
+│   │   └── fixtures.go
+│   └── pkg/
+│       ├── httputil/
+│       │   ├── middleware.go
+│       │   └── response.go
+│       └── postgres/postgres.go
+├── migrations/
+│   ├── 000001_init.up.sql
+│   ├── 000002_add_refresh_tokens.up.sql
+│   ├── 000003_add_default_admin.up.sql
+│   ├── 000004_add_default_user.up.sql
+│   └── 000005_add_default_operator.up.sql
+├── tests/integration/
+│   ├── main_test.go
+│   ├── auth_test.go
+│   ├── catalog_test.go
+│   ├── events_test.go
+│   └── rbac_test.go
+├── .github/workflows/
+│   └── ci.yml                       # lint, test, integration-test, build
+├── docker-compose.yml
+├── Makefile
+└── go.mod
+```
+
+### API Endpoints (реализованы)
+
+**Public (без авторизации):**
+- `GET /healthz`, `GET /readyz` — health checks
+- `GET /api/v1/status` — текущий статус
+- `GET /api/v1/status/history` — история событий
+- `GET /api/v1/services`, `GET /api/v1/services/{slug}` — список/детали сервисов
+- `GET /api/v1/groups`, `GET /api/v1/groups/{slug}` — список/детали групп
+
+**Auth (без роли):**
+- `POST /api/v1/auth/register` — регистрация
+- `POST /api/v1/auth/login` — вход
+- `POST /api/v1/auth/refresh` — обновление токенов
+- `POST /api/v1/auth/logout` — выход
+- `GET /api/v1/me` — текущий пользователь
+- `GET|POST|PATCH|DELETE /api/v1/me/channels` — каналы уведомлений
+- `GET|POST|DELETE /api/v1/me/subscriptions` — подписки
+
+**Operator+ (роль operator или admin):**
+- `POST /api/v1/events` — создать событие
+- `GET /api/v1/events`, `GET /api/v1/events/{id}` — список/детали событий
+- `POST /api/v1/events/{id}/updates` — добавить обновление
+- `GET /api/v1/events/{id}/updates` — список обновлений
+
+**Admin:**
+- `DELETE /api/v1/events/{id}` — удалить событие
+- `POST|GET|DELETE /api/v1/templates` — управление шаблонами
+- `POST /api/v1/templates/{slug}/preview` — превью шаблона
+- `POST|PATCH|DELETE /api/v1/services` — управление сервисами
+- `POST|PATCH|DELETE /api/v1/groups` — управление группами
+
+### API Response Format (контракт)
+
+```json
+// Success
+{
+  "data": { ... }
+}
+
+// Error
+{
+  "error": {
+    "message": "error description"
+  }
+}
+
+// Validation Error
+{
+  "error": {
+    "message": "validation error",
+    "details": "field validation failed"
+  }
+}
+```
+
+### Тестовые пользователи (создаются миграциями)
+
+| Email | Password | Role |
+|-------|----------|------|
+| admin@example.com | admin123 | admin |
+| operator@example.com | admin123 | operator |
+| user@example.com | user123 | user |
+
+### Команды для работы
+
+```bash
+# Запуск
+make docker-up          # Поднять PostgreSQL
+make dev                # Запустить приложение (hot-reload)
+
+# Тесты
+make test               # Все тесты
+make test-unit          # Unit тесты
+make test-integration   # Интеграционные тесты (testcontainers)
+make lint               # Линтеры
+
+# Миграции
+make migrate-up         # Применить миграции
+make migrate-down       # Откатить последнюю
+make migrate-create NAME=xxx  # Создать новую
+
+# Сборка
+make build              # Собрать бинарник
+make docker-build       # Собрать Docker образ
+```
+
+---
+
 ## 📖 Функциональные требования (User Stories)
 
 ### Сервисы (Services)
@@ -41,7 +220,7 @@
     - **Статус** (зависит от типа):
         - Для incident: `investigating` → `identified` → `monitoring` → `resolved`
         - Для maintenance: `scheduled` → `in_progress` → `completed`
-    - Severity: `minor`, `major`, `critical` (только для incidents)
+    - Severity: `minor`, `major`, `critical` (только для incidents, обязательно)
     - Описание
     - **Временные метки**:
         - `created_at` — когда создана запись
@@ -210,6 +389,16 @@
               │ created_by (FK)     │────> users
               │ created_at          │
               └─────────────────────┘
+
+              ┌─────────────────────┐
+              │   refresh_tokens    │
+              ├─────────────────────┤
+              │ id (PK)             │
+              │ user_id (FK)        │────> users
+              │ token (unique)      │
+              │ expires_at          │
+              │ created_at          │
+              └─────────────────────┘
 ```
 
 ### Enums (CHECK constraints)
@@ -230,7 +419,7 @@
 -- incident:    'investigating', 'identified', 'monitoring', 'resolved'
 -- maintenance: 'scheduled', 'in_progress', 'completed'
 
--- events.severity (только для incident)
+-- events.severity (только для incident, обязательно)
 'minor', 'major', 'critical'
 ```
 
@@ -246,7 +435,7 @@
 5. **API-first** — контракт важнее реализации
 
 ### Архитектурный стиль
-- **Начинаем с модульного монолита** с чётким разделением bounded contexts
+- **Модульный монолит** с чётким разделением bounded contexts
 - Готовность к разделению на микросервисы при необходимости
 - Если потребуется разделение → выносить сервисы в отдельные репозитории с OpenAPI-контрактами
 
@@ -274,226 +463,45 @@
 ### Core
 | Компонент   | Технология               | Обоснование                         |
 |-------------|--------------------------|-------------------------------------|
-| Язык        | Go 1.22+                 | Производительность, простота деплоя |
-| HTTP Router | chi или echo             | Лёгкие, идиоматичные                |
+| Язык        | Go 1.25                  | Производительность, простота деплоя |
+| HTTP Router | chi                      | Лёгкий, идиоматичный                |
 | Validation  | go-playground/validator  | Стандарт де-факто                   |
-| Config      | env + yaml (koanf)       | 12-factor совместимость             |
+| Config      | koanf                    | 12-factor совместимость             |
 | Logging     | slog (stdlib)            | Стандартная библиотека Go 1.21+     |
-| Metrics     | prometheus/client_golang | Cloud-native стандарт               |
 
 ### Data
 | Компонент  | Технология          | Обоснование                  |
 |------------|---------------------|------------------------------|
-| Database   | PostgreSQL 15+      | Надёжность, JSON поддержка   |
+| Database   | PostgreSQL 16       | Надёжность, JSON поддержка   |
 | Migrations | golang-migrate      | Простота, CLI + library      |
-| SQL        | pgx + sqlc или sqlx | Type-safety без ORM overhead |
+| SQL        | pgx                 | Высокая производительность   |
 
 ### Infrastructure
 | Компонент       | Технология                  | Обоснование                   |
 |-----------------|-----------------------------|-------------------------------|
 | Контейнеризация | Docker + multi-stage builds | Минимальный образ             |
 | Local dev       | Docker Compose              | Простота локальной разработки |
-| Production      | Helm Chart                  | Kubernetes-native деплой      |
 | CI/CD           | GitHub Actions              | Интеграция с GitHub Flow      |
-
-### Notifications (выбрать при реализации)
-| Канал    | Варианты                  |
-|----------|---------------------------|
-| Email    | SMTP / SendGrid / AWS SES |
-| Telegram | telegram-bot-api          |
-
----
-
-## 📁 Структура проекта
-
-```
-statuspage/
-├── cmd/
-│   └── statuspage/
-│       └── main.go              # Точка входа
-├── internal/
-│   ├── app/
-│   │   └── app.go               # Инициализация приложения, DI
-│   ├── config/
-│   │   └── config.go            # Загрузка конфигурации
-│   ├── domain/                  # Бизнес-сущности (чистые, без зависимостей)
-│   │   ├── service.go           # Service, ServiceGroup, ServiceTag
-│   │   ├── event.go             # Event, EventUpdate, EventType, EventStatus
-│   │   ├── template.go          # EventTemplate
-│   │   ├── user.go              # User, Role
-│   │   ├── notification.go      # NotificationChannel, ChannelType
-│   │   └── subscription.go      # Subscription
-│   ├── identity/                # Bounded Context: Auth & RBAC
-│   │   ├── handler.go
-│   │   ├── service.go
-│   │   ├── authenticator.go     # Interface для JWT/OIDC
-│   │   ├── jwt/                 # JWT implementation
-│   │   │   └── authenticator.go
-│   │   ├── repository.go
-│   │   └── postgres/
-│   │       └── repository.go
-│   ├── catalog/                 # Bounded Context: Services, Groups, Tags
-│   │   ├── handler.go
-│   │   ├── service.go
-│   │   ├── repository.go
-│   │   └── postgres/
-│   │       └── repository.go
-│   ├── events/                  # Bounded Context: Events, Updates, Templates
-│   │   ├── handler.go
-│   │   ├── service.go
-│   │   ├── template_renderer.go # Go template processing
-│   │   ├── repository.go
-│   │   └── postgres/
-│   │       └── repository.go
-│   ├── notifications/           # Bounded Context: Channels, Subscriptions, Dispatch
-│   │   ├── handler.go
-│   │   ├── service.go
-│   │   ├── dispatcher.go        # Координатор отправки
-│   │   ├── sender.go            # Interface для каналов
-│   │   ├── email/
-│   │   │   └── sender.go
-│   │   ├── telegram/
-│   │   │   └── sender.go
-│   │   ├── repository.go
-│   │   └── postgres/
-│   │       └── repository.go
-│   └── pkg/                     # Внутренние shared пакеты
-│       ├── httputil/            # HTTP helpers, middleware
-│       ├── postgres/            # DB connection, transactions
-│       └── validate/            # Validation helpers
-├── api/
-│   └── openapi/
-│       └── openapi.yaml         # OpenAPI 3.0 спецификация
-├── migrations/
-│   ├── 000001_init.up.sql
-│   └── 000001_init.down.sql
-├── deployments/
-│   ├── docker/
-│   │   ├── Dockerfile
-│   │   └── docker-compose.yml
-│   └── helm/
-│       └── statuspage/
-│           ├── Chart.yaml
-│           ├── values.yaml
-│           └── templates/
-├── scripts/
-│   └── ...                      # Dev scripts
-├── .github/
-│   └── workflows/
-│       ├── ci.yml
-│       └── release.yml
-├── .golangci.yml
-├── go.mod
-├── go.sum
-├── Makefile
-├── README.md
-└── CLAUDE.md
-```
-
-### Принципы структуры
-- **internal/** — весь код приложения, не импортируется извне
-- **domain/** — чистые структуры без зависимостей, используются всеми модулями
-- **Каждый bounded context** — самодостаточен (handler → service → repository)
-- **pkg/** внутри internal — только для реально shared кода между contexts
-- **Dependency Injection** — через конструкторы, собирается в `app/app.go`
-
----
-
-## 🔄 GitHub Flow
-
-### Ветки
-- `main` — стабильная ветка, всегда deployable
-- `feature/<name>` — новый функционал
-- `fix/<name>` — исправления
-- `docs/<name>` — документация
-
-### Процесс
-1. Создать ветку от `main`
-2. Разработка + коммиты (conventional commits)
-3. Push → автоматический CI
-4. Pull Request → Code Review
-5. Merge в `main` → автоматический деплой (если настроен)
-
-### Conventional Commits
-```
-feat(incidents): add incident timeline updates
-fix(auth): correct JWT expiration handling  
-docs(api): update OpenAPI spec for subscriptions
-refactor(catalog): extract service validation
-test(notifications): add email sender unit tests
-chore(deps): upgrade pgx to v5
-```
-
----
-
-## ✅ Стандарты кода
-
-### Linting
-```yaml
-# .golangci.yml - минимальный рабочий конфиг
-linters:
-  enable:
-    - errcheck
-    - gosimple
-    - govet
-    - ineffassign
-    - staticcheck
-    - unused
-    - gofmt
-    - goimports
-    - misspell
-    - revive
-```
-
-### Обработка ошибок
-```go
-// ✅ Правильно: кастомные ошибки домена
-var (
-    ErrServiceNotFound  = errors.New("service not found")
-    ErrIncidentNotFound = errors.New("incident not found")
-)
-
-// ✅ Правильно: wrap с контекстом
-if err != nil {
-    return fmt.Errorf("fetch service %s: %w", id, err)
-}
-
-// ❌ Неправильно: потеря контекста
-if err != nil {
-    return err
-}
-```
-
-### Структура handler'а
-```go
-// ✅ Единообразная структура
-func (h *Handler) CreateIncident(w http.ResponseWriter, r *http.Request) {
-    // 1. Parse & Validate input
-    var req CreateIncidentRequest
-    if err := httputil.DecodeJSON(r, &req); err != nil {
-        httputil.Error(w, err, http.StatusBadRequest)
-        return
-    }
-    if err := h.validator.Struct(req); err != nil {
-        httputil.ValidationError(w, err)
-        return
-    }
-
-    // 2. Call service
-    incident, err := h.service.Create(r.Context(), req.ToDomain())
-    if err != nil {
-        httputil.HandleServiceError(w, err)
-        return
-    }
-
-    // 3. Return response
-    httputil.JSON(w, http.StatusCreated, incident)
-}
-```
+| Tests           | testcontainers-go           | Реальная БД в тестах          |
 
 ---
 
 ## 🧪 Стратегия тестирования
+
+### Текущее покрытие
+- **Unit тесты:** catalog/service_test.go, events/service_test.go
+- **Integration тесты:** tests/integration/ (20 тестов)
+    - auth_test.go — регистрация, логин, токены
+    - catalog_test.go — CRUD сервисов и групп
+    - events_test.go — lifecycle инцидентов и maintenance
+    - rbac_test.go — проверка ролей и доступов
+
+### Запуск тестов
+```bash
+make test               # Все тесты
+make test-unit          # Unit тесты
+make test-integration   # Интеграционные (с testcontainers)
+```
 
 ### Пирамида тестов
 ```
@@ -506,263 +514,138 @@ func (h *Handler) CreateIncident(w http.ResponseWriter, r *http.Request) {
    /────────────\
 ```
 
-### Unit тесты
-- **Что:** domain logic, validation, pure functions
-- **Как:** table-driven tests, no mocks если возможно
-- **Где:** `*_test.go` рядом с кодом
+---
 
-```go
-func TestIncident_CanTransitionTo(t *testing.T) {
-    tests := []struct {
-        name     string
-        from     Status
-        to       Status
-        expected bool
-    }{
-        {"investigating to identified", Investigating, Identified, true},
-        {"resolved to investigating", Resolved, Investigating, false},
-    }
-    for _, tt := range tests {
-        t.Run(tt.name, func(t *testing.T) {
-            incident := &Incident{Status: tt.from}
-            got := incident.CanTransitionTo(tt.to)
-            if got != tt.expected {
-                t.Errorf("got %v, want %v", got, tt.expected)
-            }
-        })
-    }
-}
-```
+## 📍 Этапы разработки (Roadmap)
 
-### Integration тесты
-- **Что:** repository + PostgreSQL, service layer
-- **Как:** testcontainers-go для реальной БД
-- **Где:** `internal/<module>/postgres/*_test.go`
+### Этап 0: Инициализация проекта ✅
+**Цель:** готовый скелет проекта с инструментами разработки
 
-```go
-func TestServiceRepository_Create(t *testing.T) {
-    ctx := context.Background()
-    db := testutil.NewPostgresContainer(t)
-    repo := postgres.NewServiceRepository(db)
-    
-    svc := &domain.Service{Name: "API", Slug: "api"}
-    err := repo.Create(ctx, svc)
-    
-    require.NoError(t, err)
-    assert.NotEmpty(t, svc.ID)
-}
-```
-
-### E2E тесты
-- **Что:** критические user flows через HTTP API
-- **Как:** запуск приложения + HTTP клиент
-- **Где:** `tests/e2e/`
+**Задачи:**
+- [x] `go mod init`
+- [x] Структура директорий
+- [x] Makefile с командами
+- [x] .golangci.yml
+- [x] .gitignore
+- [x] README.md
 
 ---
 
-## 🚀 Makefile команды
+### Этап 1: Локальное окружение разработки ✅
+**Цель:** запускаемое приложение с подключением к БД
 
-```makefile
-.PHONY: help dev test lint migrate build docker
-
-help:           ## Показать справку
-dev:            ## Запустить локально с hot-reload (air)
-test:           ## Запустить все тесты
-test-unit:      ## Только unit тесты
-test-int:       ## Только integration тесты  
-lint:           ## Запустить линтеры
-migrate-up:     ## Применить миграции
-migrate-down:   ## Откатить миграцию
-migrate-create: ## Создать новую миграцию
-build:          ## Собрать бинарник
-docker-build:   ## Собрать Docker образ
-docker-up:      ## Запустить docker-compose
-docker-down:    ## Остановить docker-compose
-generate:       ## Сгенерировать код (sqlc, mocks)
-openapi:        ## Валидировать OpenAPI спеку
-```
+**Задачи:**
+- [x] docker-compose.yml (PostgreSQL 16)
+- [x] internal/config — загрузка конфигурации
+- [x] internal/pkg/postgres — подключение к БД
+- [x] cmd/statuspage/main.go — точка входа
+- [x] Health endpoints: GET /healthz, GET /readyz
 
 ---
 
-## 🔐 Модель безопасности
+### Этап 2: Домен и миграции ✅
+**Цель:** определены бизнес-сущности и структура БД
 
-### RBAC роли
-| Роль         | Права                                            |
-|--------------|--------------------------------------------------|
-| **user**     | Просмотр статусов, подписка на уведомления       |
-| **operator** | + CRUD инцидентов, обновление статусов сервисов  |
-| **admin**    | + CRUD сервисов/групп, управление пользователями |
-
-### Стратегия аутентификации
-
-**Принцип:** абстракция через интерфейс для поддержки разных провайдеров.
-
-```go
-// internal/identity/auth.go
-type Authenticator interface {
-    // Authenticate проверяет токен/credentials и возвращает пользователя
-    Authenticate(ctx context.Context, credential string) (*User, error)
-    
-    // Type возвращает тип аутентификации (jwt, oidc, apikey)
-    Type() string
-}
-
-type AuthManager struct {
-    authenticators map[string]Authenticator
-    primary        string // какой использовать по умолчанию
-}
-```
-
-**Реализации (по приоритету внедрения):**
-
-| Приоритет | Провайдер     | Описание                      | Когда добавлять |
-|-----------|---------------|-------------------------------|-----------------|
-| P0        | JWT Local     | Встроенная JWT аутентификация | MVP             |
-| P1        | API Key       | Для интеграций и CI/CD        | После MVP       |
-| P2        | OIDC/Keycloak | SSO через внешний IdP         | По требованию   |
-
-**JWT Local (MVP):**
-- Access token: 15 min
-- Refresh token: 7 days
-- Refresh токены хранятся в БД для возможности revoke
-- Эндпоинты: `/auth/login`, `/auth/refresh`, `/auth/logout`
-
-**OIDC/Keycloak (будущее):**
-- Использовать `coreos/go-oidc` + `golang.org/x/oauth2`
-- Конфигурация через ENV: `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`
-- Эндпоинты: `/auth/sso/login`, `/auth/sso/callback`
-- Маппинг ролей из claims Keycloak → внутренние роли
-
-**Важно:** пользователь в системе один и тот же независимо от способа входа.
-Связь через email или внешний ID (subject из OIDC).
+**Задачи:**
+- [x] internal/domain — все доменные структуры
+- [x] migrations/000001_init.up.sql — начальная миграция
+- [x] migrations/000002-000005 — дополнительные миграции
+- [x] Makefile команды для миграций
 
 ---
 
-## 📊 Observability
+### Этап 3: Модуль Catalog (Services, Groups, Tags) ✅
+**Цель:** CRUD для сервисов, групп и тегов
 
-### Health checks
-- `GET /healthz` — liveness (приложение работает)
-- `GET /readyz` — readiness (готово принимать трафик, DB connected)
-
-### Метрики (Prometheus)
-- `http_requests_total{method, path, status}`
-- `http_request_duration_seconds{method, path}`
-- `db_connections_active`
-- `notifications_sent_total{channel, status}`
-
-### Логирование
-```go
-// Structured logging с slog
-slog.Info("incident created",
-    "incident_id", incident.ID,
-    "service_ids", serviceIDs,
-    "created_by", userID,
-)
-```
+**Задачи:**
+- [x] internal/catalog — handler, service, repository
+- [x] CRUD для сервисов с тегами
+- [x] CRUD для групп
+- [x] Unit тесты (service_test.go)
 
 ---
 
-## 📋 API Design Guidelines
+### Этап 4: Модуль Identity (Auth & RBAC) ✅
+**Цель:** аутентификация и авторизация
 
-### URL структура
-```
-# Сервисы и группы
-GET    /api/v1/services                 # Список сервисов (с тегами)
-GET    /api/v1/services/{slug}          # Сервис по slug
-POST   /api/v1/services                 # Создать (admin)
-PATCH  /api/v1/services/{slug}          # Обновить (admin)
-DELETE /api/v1/services/{slug}          # Удалить (admin)
-
-GET    /api/v1/services/{slug}/tags     # Теги сервиса
-PUT    /api/v1/services/{slug}/tags     # Обновить теги (admin)
-
-GET    /api/v1/groups                   # Список групп
-POST   /api/v1/groups                   # Создать группу (admin)
-PATCH  /api/v1/groups/{slug}            # Обновить группу (admin)
-DELETE /api/v1/groups/{slug}            # Удалить группу (admin)
-
-# События (инциденты + maintenance)
-GET    /api/v1/events                   # Список событий (фильтр по type, status)
-POST   /api/v1/events                   # Создать событие (operator)
-GET    /api/v1/events/{id}              # Событие с updates
-PATCH  /api/v1/events/{id}              # Обновить (operator)
-DELETE /api/v1/events/{id}              # Удалить (admin)
-
-POST   /api/v1/events/{id}/updates      # Добавить update (operator)
-GET    /api/v1/events/{id}/updates      # Список updates
-
-# Запланированные работы
-GET    /api/v1/scheduled                # Список запланированных maintenance
-POST   /api/v1/scheduled                # Запланировать maintenance (operator)
-
-# Шаблоны
-GET    /api/v1/templates                # Список шаблонов
-GET    /api/v1/templates/{slug}         # Шаблон по slug
-POST   /api/v1/templates                # Создать (admin)
-PATCH  /api/v1/templates/{slug}         # Обновить (admin)
-DELETE /api/v1/templates/{slug}         # Удалить (admin)
-POST   /api/v1/templates/{slug}/preview # Превью рендеринга (operator)
-
-# Публичное API (без авторизации)
-GET    /api/v1/status                   # Публичная сводка статуса
-GET    /api/v1/status/history           # История событий за период
-
-# Уведомления и подписки
-GET    /api/v1/me/channels              # Мои каналы уведомлений
-POST   /api/v1/me/channels              # Добавить канал
-PATCH  /api/v1/me/channels/{id}         # Обновить (вкл/выкл)
-DELETE /api/v1/me/channels/{id}         # Удалить канал
-POST   /api/v1/me/channels/{id}/verify  # Запросить верификацию
-
-GET    /api/v1/me/subscriptions         # Мои подписки
-POST   /api/v1/me/subscriptions         # Подписаться
-DELETE /api/v1/me/subscriptions/{id}    # Отписаться
-```
-
-### Response формат
-```json
-// Success
-{
-  "data": { ... },
-  "meta": { "total": 100, "page": 1, "per_page": 20 }
-}
-
-// Error
-{
-  "error": {
-    "code": "VALIDATION_ERROR",
-    "message": "Invalid input",
-    "details": [
-      { "field": "name", "message": "required" }
-    ]
-  }
-}
-```
+**Задачи:**
+- [x] internal/identity — Authenticator interface
+- [x] JWT implementation
+- [x] Middleware для проверки токенов
+- [x] RBAC middleware (user, operator, admin)
+- [x] Регистрация, логин, refresh, logout
 
 ---
 
-## ⚠️ Антипаттерны (что НЕ делать)
+### Этап 5: Модуль Events (Events, Updates, Templates) ✅
+**Цель:** управление событиями и шаблонами
 
-1. **Не использовать ORM** (GORM и подобные) — используем sqlc/sqlx
-2. **Не создавать God-objects** — каждый сервис делает одну вещь
-3. **Не игнорировать ошибки** — всегда проверять и оборачивать
-4. **Не хардкодить конфигурацию** — всё через ENV/config
-5. **Не писать бизнес-логику в handlers** — handlers только I/O
-6. **Не делать circular dependencies** между модулями
-7. **Не добавлять фичи без тестов** — test coverage для нового кода
+**Задачи:**
+- [x] internal/events — handler, service, repository
+- [x] Поддержка двух типов: incident, maintenance
+- [x] Разные статусы в зависимости от типа
+- [x] CRUD для шаблонов
+- [x] Go template renderer с макросами
+- [x] Timeline updates для событий
+- [x] Публичный эндпоинт статуса (GET /api/v1/status)
+- [x] Unit тесты (service_test.go)
+
+---
+
+### Этап 6: Модуль Notifications (Channels, Subscriptions, Dispatch) ✅ (частично)
+**Цель:** уведомления о событиях
+
+**Задачи:**
+- [x] internal/notifications — handler, service, repository, dispatcher
+- [x] CRUD для каналов пользователя
+- [x] CRUD для подписок
+- [ ] Реальная реализация Email sender (SMTP)
+- [ ] Реальная реализация Telegram sender
+- [ ] Верификация каналов
+- [ ] Интеграция dispatcher с events (вызов при notify_subscribers=true)
+
+---
+
+### Этап 7: CI/CD ✅
+**Цель:** автоматизация проверок и сборки
+
+**Задачи:**
+- [x] .github/workflows/ci.yml — lint, test, integration-test, build
+- [ ] .github/workflows/release.yml — сборка Docker образа, push в registry
+- [ ] Dockerfile (multi-stage)
+
+---
+
+### Этап 8: Helm Chart 🔜
+**Цель:** деплой в Kubernetes
+
+**Задачи:**
+- [ ] deployments/helm/statuspage/ — чарт
+- [ ] Configurable values (replicas, resources, ingress)
+- [ ] README для деплоя
+
+---
+
+### Этап 9 (будущее): OIDC/Keycloak интеграция
+**Цель:** SSO через внешний Identity Provider
+
+**Задачи:**
+- [ ] OIDC Authenticator implementation
+- [ ] Конфигурация через ENV
+- [ ] Маппинг ролей из claims
+- [ ] Документация по настройке Keycloak
 
 ---
 
 ## 🎯 Definition of Done
 
 Фича считается завершённой когда:
-- [ ] Код написан и соответствует стандартам
-- [ ] Unit тесты написаны (coverage > 70% для нового кода)
-- [ ] Integration тесты для критичных путей
+- [x] Код написан и соответствует стандартам
+- [x] Unit тесты написаны
+- [x] Integration тесты для критичных путей
 - [ ] OpenAPI спецификация обновлена
-- [ ] Линтеры проходят без ошибок
-- [ ] PR прошёл review
-- [ ] Документация обновлена (если нужно)
+- [x] Линтеры проходят без ошибок
+- [x] CI проходит
 
 ---
 
@@ -793,190 +676,33 @@ DELETE /api/v1/me/subscriptions/{id}    # Отписаться
 
 ---
 
-## 📍 Этапы разработки (Roadmap)
+## ⚠️ Известные ограничения и TODO
 
-Каждый этап — логически завершённый блок. После выполнения этапа Claude должен предоставить краткий отчёт:
-- Что сделано (список файлов/компонентов)
-- Как проверить/запустить
-- Что делать дальше
+### Notifications модуль
+- Email sender и Telegram sender — заглушки, не отправляют реальные сообщения
+- Нет интеграции dispatcher с events (не вызывается при создании event/update)
+- Нет верификации каналов
 
-### Этап 0: Инициализация проекта ✅
-**Цель:** готовый скелет проекта с инструментами разработки
+### Отсутствует
+- OpenAPI спецификация (api/openapi/openapi.yaml)
+- Dockerfile
+- Helm chart
+- Метрики Prometheus
+- Пагинация в списках
 
-**Задачи:**
-- [x] `go mod init`
-- [x] Структура директорий согласно разделу "Структура проекта"
-- [x] Makefile с базовыми командами
-- [x] .golangci.yml
-- [x] .gitignore
-- [x] README.md с описанием проекта
-
-**Результат:** можно склонировать репо и запустить `make help`
-
----
-
-### Этап 1: Локальное окружение разработки ✅
-**Цель:** запускаемое приложение с подключением к БД
-
-**Задачи:**
-- [x] docker-compose.yml (PostgreSQL 15)
-- [x] internal/config — загрузка конфигурации
-- [x] internal/pkg/postgres — подключение к БД
-- [x] cmd/statuspage/main.go — точка входа
-- [x] Health endpoints: GET /healthz, GET /readyz
-
-**Результат:** `make docker-up && make dev` → приложение стартует, отвечает на /healthz
+### Технический долг
+- Нет graceful degradation при недоступности notification senders
+- Нет rate limiting
+- Нет audit log
 
 ---
 
-### Этап 2: Домен и миграции
-**Цель:** определены бизнес-сущности и структура БД
+## ⚠️ Антипаттерны (что НЕ делать)
 
-**Задачи:**
-- [ ] internal/domain — все доменные структуры (см. раздел "Функциональные требования")
-- [ ] migrations/000001_init.up.sql — начальная миграция
-
-**Таблицы в миграции:**
-```
-users                    # Пользователи (email, password_hash, first_name, last_name, role)
-notification_channels    # Каналы уведомлений пользователя (type, target, is_enabled, is_verified)
-subscriptions            # Подписки пользователя
-subscription_services    # Связь подписка-сервисы (many-to-many)
-
-service_groups           # Группы сервисов (name, slug, description, order)
-services                 # Сервисы (name, slug, description, status, group_id, order)
-service_tags             # Теги сервисов (service_id, key, value)
-
-event_templates          # Шаблоны событий (slug, type, title_template, body_template)
-events                   # События (title, type, status, severity, description, 
-                         #          started_at, resolved_at, scheduled_start_at, scheduled_end_at,
-                         #          notify_subscribers, template_id, created_by)
-event_services           # Связь событие-сервисы (many-to-many)
-event_updates            # Обновления событий (event_id, status, message, notify_subscribers, created_by)
-```
-
-- [ ] Makefile команды для миграций
-
-**Результат:** `make migrate-up` создаёт все таблицы
-
----
-
-### Этап 3: Модуль Catalog (Services, Groups, Tags)
-**Цель:** CRUD для сервисов, групп и тегов
-
-**Задачи:**
-- [ ] internal/catalog — полная реализация (handler, service, repository)
-- [ ] CRUD для сервисов с тегами
-- [ ] CRUD для групп
-- [ ] OpenAPI спецификация для эндпоинтов
-- [ ] Unit + integration тесты
-
-**Результат:** можно создавать/читать/обновлять/удалять сервисы, группы, теги через API
-
----
-
-### Этап 4: Модуль Identity (Auth & RBAC)
-**Цель:** аутентификация и авторизация
-
-**Задачи:**
-- [ ] internal/identity — Authenticator interface
-- [ ] JWT implementation (первый провайдер)
-- [ ] Middleware для проверки токенов
-- [ ] RBAC middleware (user, operator, admin)
-- [ ] Регистрация, логин, refresh, logout
-- [ ] Тесты
-
-**Результат:** защищённые эндпоинты, разграничение по ролям
-
----
-
-### Этап 5: Модуль Events (Events, Updates, Templates)
-**Цель:** управление событиями и шаблонами
-
-**Задачи:**
-- [ ] internal/events — полная реализация
-- [ ] Поддержка двух типов: incident, maintenance
-- [ ] Разные статусы в зависимости от типа
-- [ ] CRUD для шаблонов
-- [ ] Go template renderer с макросами
-- [ ] Timeline updates для событий
-- [ ] Запланированные maintenance
-- [ ] Публичный эндпоинт статуса (GET /api/v1/status)
-- [ ] Тесты
-
-**Результат:** полный цикл работы с событиями и шаблонами
-
----
-
-### Этап 6: Модуль Notifications (Channels, Subscriptions, Dispatch)
-**Цель:** уведомления о событиях
-
-**Задачи:**
-- [ ] internal/notifications — каналы, подписки, dispatcher
-- [ ] CRUD для каналов пользователя
-- [ ] Верификация каналов (email confirmation, telegram verification)
-- [ ] CRUD для подписок
-- [ ] Email sender (SMTP)
-- [ ] Telegram sender
-- [ ] Dispatcher: учёт флага notify_subscribers
-- [ ] Фоновая отправка (горутины + каналы или простая очередь)
-- [ ] Тесты
-
-**Результат:** пользователи получают уведомления о событиях
-
----
-
-### Этап 7: CI/CD
-**Цель:** автоматизация проверок и сборки
-
-**Задачи:**
-- [ ] .github/workflows/ci.yml — lint, test, build
-- [ ] .github/workflows/release.yml — сборка Docker образа, push в registry
-- [ ] Dockerfile (multi-stage)
-
-**Результат:** PR запускает проверки, merge в main собирает образ
-
----
-
-### Этап 8: Helm Chart
-**Цель:** деплой в Kubernetes
-
-**Задачи:**
-- [ ] deployments/helm/statuspage/ — чарт
-- [ ] Configurable values (replicas, resources, ingress)
-- [ ] README для деплоя
-
-**Результат:** `helm install statuspage ./deployments/helm/statuspage`
-
----
-
-### Этап 9 (будущее): OIDC/Keycloak интеграция
-**Цель:** SSO через внешний Identity Provider
-
-**Задачи:**
-- [ ] OIDC Authenticator implementation
-- [ ] Конфигурация через ENV
-- [ ] Маппинг ролей из claims
-- [ ] Документация по настройке Keycloak
-
-**Результат:** пользователи могут входить через Keycloak
-
----
-
-### Формат отчёта после этапа
-
-```markdown
-## ✅ Этап N завершён: [Название]
-
-### Что сделано
-- Создан/изменён файл X — описание
-- Создан/изменён файл Y — описание
-
-### Как проверить
-\`\`\`bash
-команда для проверки
-\`\`\`
-
-### Следующий этап
-Краткое описание что делаем дальше
-```
+1. **Не использовать ORM** (GORM и подобные) — используем pgx
+2. **Не создавать God-objects** — каждый сервис делает одну вещь
+3. **Не игнорировать ошибки** — всегда проверять и оборачивать
+4. **Не хардкодить конфигурацию** — всё через ENV/config
+5. **Не писать бизнес-логику в handlers** — handlers только I/O
+6. **Не делать circular dependencies** между модулями
+7. **Не добавлять фичи без тестов** — test coverage для нового кода
