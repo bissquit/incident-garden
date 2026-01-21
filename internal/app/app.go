@@ -16,19 +16,19 @@ import (
 	"github.com/bissquit/incident-management/internal/events"
 	eventspostgres "github.com/bissquit/incident-management/internal/events/postgres"
 	"github.com/bissquit/incident-management/internal/identity"
-	identitypostgres "github.com/bissquit/incident-management/internal/identity/postgres"
 	"github.com/bissquit/incident-management/internal/identity/jwt"
+	identitypostgres "github.com/bissquit/incident-management/internal/identity/postgres"
 	"github.com/bissquit/incident-management/internal/notifications"
 	"github.com/bissquit/incident-management/internal/notifications/email"
 	notificationspostgres "github.com/bissquit/incident-management/internal/notifications/postgres"
 	"github.com/bissquit/incident-management/internal/notifications/telegram"
 	"github.com/bissquit/incident-management/internal/pkg/httputil"
 	"github.com/bissquit/incident-management/internal/pkg/postgres"
+	"github.com/bissquit/incident-management/internal/version"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
-
 
 // App represents the application instance.
 type App struct {
@@ -113,6 +113,7 @@ func (a *App) setupRouter() *chi.Mux {
 
 	r.Get("/healthz", a.healthzHandler)
 	r.Get("/readyz", a.readyzHandler)
+	r.Get("/version", a.versionHandler)
 
 	r.Get("/api/openapi.yaml", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/x-yaml")
@@ -213,6 +214,14 @@ func (a *App) readyzHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httputil.Text(w, http.StatusOK, "OK")
+}
+
+func (a *App) versionHandler(w http.ResponseWriter, _ *http.Request) {
+	httputil.JSON(w, http.StatusOK, map[string]string{
+		"version":    version.Version,
+		"commit":     version.GitCommit,
+		"build_date": version.BuildDate,
+	})
 }
 
 func initLogger(cfg config.LogConfig) *slog.Logger {
