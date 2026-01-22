@@ -1,53 +1,53 @@
 # CLAUDE.md — StatusPage Service
 
-## 🎯 Цель проекта
+## 🎯 Project Goal
 
-Открытый self-hosted сервис статус-страницы для отображения состояния сервисов и управления инцидентами. Аналог Atlassian Statuspage, Cachet, Instatus — но простой, легковесный и cloud-native.
+An open-source self-hosted status page service for displaying service states and managing incidents. An alternative to Atlassian Statuspage, Cachet, Instatus — but simple, lightweight, and cloud-native.
 
-**Ключевые возможности:**
-- Отображение статуса сервисов (operational, degraded, partial_outage, major_outage, maintenance)
-- Управление событиями (инциденты + плановые работы) с timeline обновлений
-- Шаблоны событий с поддержкой Go templates
-- Запланированные технические работы
+**Key Features:**
+- Service status display (operational, degraded, partial_outage, major_outage, maintenance)
+- Event management (incidents + scheduled maintenance) with timeline updates
+- Event templates with Go template support
+- Scheduled maintenance
 - RBAC: user → operator → admin
-- Подписки на уведомления (Email, Telegram) с гибкой настройкой каналов
-- REST API first (веб-интерфейс — отдельный проект)
+- Notification subscriptions (Email, Telegram) with flexible channel configuration
+- REST API first (web interface is a separate project)
 
 ---
 
-## 📊 Текущий статус проекта
+## 📊 Current Project Status
 
-**Последнее обновление:** 2026-01-21
+**Last update:** 2026-01-21
 
-### Что реализовано
+### What's Implemented
 
-| Компонент                | Статус       | Описание                                                      |
+| Component                | Status       | Description                                                   |
 |--------------------------|--------------|---------------------------------------------------------------|
-| **Инфраструктура**       | ✅ Готово     | Docker Compose, Makefile, конфигурация                        |
-| **База данных**          | ✅ Готово     | 5 миграций, полная схема                                      |
-| **Identity модуль**      | ✅ Готово     | JWT auth, register/login/refresh/logout, RBAC                 |
-| **Catalog модуль**       | ✅ Готово     | Services, Groups, Tags CRUD                                   |
-| **Events модуль**        | ✅ Готово     | Events, Updates, Templates, public status                     |
-| **Notifications модуль** | ✅ Структура  | Handler, Service, Repository, Dispatcher (senders — заглушки) |
-| **CI/CD**                | ✅ Готово     | GitHub Actions: lint, test, integration-test, build           |
-| **Интеграционные тесты** | ✅ Готово     | 20 тестов, testcontainers                                     |
+| **Infrastructure**       | ✅ Done       | Docker Compose, Makefile, configuration                       |
+| **Database**             | ✅ Done       | 5 migrations, complete schema                                 |
+| **Identity module**      | ✅ Done       | JWT auth, register/login/refresh/logout, RBAC                 |
+| **Catalog module**       | ✅ Done       | Services, Groups, Tags CRUD                                   |
+| **Events module**        | ✅ Done       | Events, Updates, Templates, public status                     |
+| **Notifications module** | ✅ Structure  | Handler, Service, Repository, Dispatcher (senders are stubs)  |
+| **CI/CD**                | ✅ Done       | GitHub Actions: lint, test, integration-test, build           |
+| **Integration tests**    | ✅ Done       | 20 tests, testcontainers                                      |
 
-### Структура файлов
+### File Structure
 
 ```
 incident-management/
-├── cmd/statuspage/main.go           # Точка входа
+├── cmd/statuspage/main.go           # Entry point
 ├── internal/
-│   ├── app/app.go                   # DI, роутинг, lifecycle
-│   ├── config/config.go             # Конфигурация (koanf)
-│   ├── domain/                      # Бизнес-сущности
+│   ├── app/app.go                   # DI, routing, lifecycle
+│   ├── config/config.go             # Configuration (koanf)
+│   ├── domain/                      # Business entities
 │   │   ├── event.go
 │   │   ├── notification.go
 │   │   ├── service.go
 │   │   ├── subscription.go
 │   │   ├── template.go
 │   │   └── user.go
-│   ├── identity/                    # Auth модуль
+│   ├── identity/                    # Auth module
 │   │   ├── handler.go
 │   │   ├── service.go
 │   │   ├── repository.go
@@ -78,7 +78,7 @@ incident-management/
 │   │   ├── email/sender.go
 │   │   ├── telegram/sender.go
 │   │   └── postgres/repository.go
-│   ├── testutil/                    # Тестовые утилиты
+│   ├── testutil/                    # Test utilities
 │   │   ├── client.go
 │   │   ├── container.go
 │   │   └── fixtures.go
@@ -106,38 +106,38 @@ incident-management/
 └── go.mod
 ```
 
-### API Endpoints (реализованы)
+### API Endpoints (implemented)
 
-**Public (без авторизации):**
+**Public (no authentication):**
 - `GET /healthz`, `GET /readyz` — health checks
-- `GET /api/v1/status` — текущий статус
-- `GET /api/v1/status/history` — история событий
-- `GET /api/v1/services`, `GET /api/v1/services/{slug}` — список/детали сервисов
-- `GET /api/v1/groups`, `GET /api/v1/groups/{slug}` — список/детали групп
+- `GET /api/v1/status` — current status
+- `GET /api/v1/status/history` — event history
+- `GET /api/v1/services`, `GET /api/v1/services/{slug}` — list/details of services
+- `GET /api/v1/groups`, `GET /api/v1/groups/{slug}` — list/details of groups
 
-**Auth (без роли):**
-- `POST /api/v1/auth/register` — регистрация
-- `POST /api/v1/auth/login` — вход
-- `POST /api/v1/auth/refresh` — обновление токенов
-- `POST /api/v1/auth/logout` — выход
-- `GET /api/v1/me` — текущий пользователь
-- `GET|POST|PATCH|DELETE /api/v1/me/channels` — каналы уведомлений
-- `GET|POST|DELETE /api/v1/me/subscriptions` — подписки
+**Auth (no role required):**
+- `POST /api/v1/auth/register` — registration
+- `POST /api/v1/auth/login` — login
+- `POST /api/v1/auth/refresh` — token refresh
+- `POST /api/v1/auth/logout` — logout
+- `GET /api/v1/me` — current user
+- `GET|POST|PATCH|DELETE /api/v1/me/channels` — notification channels
+- `GET|POST|DELETE /api/v1/me/subscriptions` — subscriptions
 
-**Operator+ (роль operator или admin):**
-- `POST /api/v1/events` — создать событие
-- `GET /api/v1/events`, `GET /api/v1/events/{id}` — список/детали событий
-- `POST /api/v1/events/{id}/updates` — добавить обновление
-- `GET /api/v1/events/{id}/updates` — список обновлений
+**Operator+ (operator or admin role):**
+- `POST /api/v1/events` — create event
+- `GET /api/v1/events`, `GET /api/v1/events/{id}` — list/details of events
+- `POST /api/v1/events/{id}/updates` — add update
+- `GET /api/v1/events/{id}/updates` — list of updates
 
 **Admin:**
-- `DELETE /api/v1/events/{id}` — удалить событие
-- `POST|GET|DELETE /api/v1/templates` — управление шаблонами
-- `POST /api/v1/templates/{slug}/preview` — превью шаблона
-- `POST|PATCH|DELETE /api/v1/services` — управление сервисами
-- `POST|PATCH|DELETE /api/v1/groups` — управление группами
+- `DELETE /api/v1/events/{id}` — delete event
+- `POST|GET|DELETE /api/v1/templates` — template management
+- `POST /api/v1/templates/{slug}/preview` — template preview
+- `POST|PATCH|DELETE /api/v1/services` — service management
+- `POST|PATCH|DELETE /api/v1/groups` — group management
 
-### API Response Format (контракт)
+### API Response Format (contract)
 
 ```json
 // Success
@@ -161,135 +161,135 @@ incident-management/
 }
 ```
 
-### Тестовые пользователи (создаются миграциями)
+### Test Users (created by migrations)
 
-| Email | Password | Role |
-|-------|----------|------|
-| admin@example.com | admin123 | admin |
-| operator@example.com | admin123 | operator |
-| user@example.com | user123 | user |
+| Email                | Password  | Role     |
+|----------------------|-----------|----------|
+| admin@example.com    | admin123  | admin    |
+| operator@example.com | admin123  | operator |
+| user@example.com     | user123   | user     |
 
-### Команды для работы
+### Working Commands
 
 ```bash
-# Запуск
-make docker-up          # Поднять PostgreSQL
-make dev                # Запустить приложение (hot-reload)
+# Run
+make docker-up          # Start PostgreSQL
+make dev                # Run application (hot-reload)
 
-# Тесты
-make test               # Все тесты
-make test-unit          # Unit тесты
-make test-integration   # Интеграционные тесты (testcontainers)
-make lint               # Линтеры
+# Tests
+make test               # All tests
+make test-unit          # Unit tests
+make test-integration   # Integration tests (testcontainers)
+make lint               # Linters
 
-# Миграции
-make migrate-up         # Применить миграции
-make migrate-down       # Откатить последнюю
-make migrate-create NAME=xxx  # Создать новую
+# Migrations
+make migrate-up         # Apply migrations
+make migrate-down       # Rollback last migration
+make migrate-create NAME=xxx  # Create new migration
 
-# Сборка
-make build              # Собрать бинарник
-make docker-build       # Собрать Docker образ
+# Build
+make build              # Build binary
+make docker-build       # Build Docker image
 ```
 
 ---
 
-## 📖 Функциональные требования (User Stories)
+## 📖 Functional Requirements (User Stories)
 
-### Сервисы (Services)
-- Содержит список сервисов, по которым формируются статусы
-- У каждого сервиса есть:
-    - Имя, slug (уникальный идентификатор)
-    - Статус: `operational`, `degraded`, `partial_outage`, `major_outage`, `maintenance`
-    - Описание (опционально)
-    - Принадлежность к группе сервисов (опционально)
-    - Порядок сортировки
-    - **Теги (ключ-значение)**: например "owner: Вася Петров", "owner_email: vasya@mail.com"
+### Services
+- Contains a list of services for which statuses are generated
+- Each service has:
+    - Name, slug (unique identifier)
+    - Status: `operational`, `degraded`, `partial_outage`, `major_outage`, `maintenance`
+    - Description (optional)
+    - Belongs to a service group (optional)
+    - Sort order
+    - **Tags (key-value)**: e.g., "owner: John Doe", "owner_email: john@mail.com"
 
-### Группы сервисов (Service Groups)
-- Группа содержит:
-    - Имя, slug
-    - Описание
-    - Порядок сортировки
-    - Список включённых сервисов (связь через service.group_id)
+### Service Groups
+- A group contains:
+    - Name, slug
+    - Description
+    - Sort order
+    - List of included services (linked via service.group_id)
 
-### События (Events) — объединяет инциденты и плановые работы
-- Каждое событие имеет:
-    - Имя (title)
-    - **Тип**: `incident` | `maintenance` (плановые работы)
-    - **Статус** (зависит от типа):
-        - Для incident: `investigating` → `identified` → `monitoring` → `resolved`
-        - Для maintenance: `scheduled` → `in_progress` → `completed`
-    - Severity: `minor`, `major`, `critical` (только для incidents, обязательно)
-    - Описание
-    - **Временные метки**:
-        - `created_at` — когда создана запись
-        - `started_at` — когда реально началось (может быть раньше created_at)
-        - `updated_at` — последнее обновление
-        - `resolved_at` — время завершения
-        - `scheduled_start_at` — запланированное начало (для maintenance)
-        - `scheduled_end_at` — запланированное окончание (для maintenance)
-    - **Флаг `notify_subscribers`** — отправлять ли уведомления
-    - **Ссылка на шаблон** (опционально)
-    - Связь с сервисами (many-to-many)
+### Events — combines incidents and scheduled maintenance
+- Each event has:
+    - Title
+    - **Type**: `incident` | `maintenance` (scheduled maintenance)
+    - **Status** (depends on type):
+        - For incident: `investigating` → `identified` → `monitoring` → `resolved`
+        - For maintenance: `scheduled` → `in_progress` → `completed`
+    - Severity: `minor`, `major`, `critical` (incidents only, required)
+    - Description
+    - **Timestamps**:
+        - `created_at` — when the record was created
+        - `started_at` — when it actually started (may be earlier than created_at)
+        - `updated_at` — last update
+        - `resolved_at` — completion time
+        - `scheduled_start_at` — scheduled start (for maintenance)
+        - `scheduled_end_at` — scheduled end (for maintenance)
+    - **`notify_subscribers` flag** — whether to send notifications
+    - **Template reference** (optional)
+    - Link to services (many-to-many)
 
-### Обновления событий (Event Updates)
-- К каждому событию можно добавлять сообщения (апдейты)
-- Каждое обновление содержит:
-    - Новый статус события
-    - Текст сообщения
-    - **Флаг `notify_subscribers`** — отправлять ли уведомление об этом апдейте
-    - Автор и время создания
+### Event Updates
+- Messages (updates) can be added to each event
+- Each update contains:
+    - New event status
+    - Message text
+    - **`notify_subscribers` flag** — whether to send notification for this update
+    - Author and creation time
 
-### Шаблоны событий (Event Templates)
-- Имеют:
-    - **Уникальный slug** (человекопонятный: `planned-maintenance-aws`, `incident-database-outage`)
-    - Тип: `incident` | `maintenance`
-    - Шаблон заголовка (title_template)
-    - Шаблон тела (body_template)
-- **Поддержка Go templates с макросами**:
-    - `{{.ServiceName}}` — имя сервиса
-    - `{{.ServiceGroupName}}` — имя группы
-    - `{{.StartedAt}}` — время начала
-    - `{{.ResolvedAt}}` — время завершения
-    - `{{.ScheduledStart}}` — запланированное начало
-    - `{{.ScheduledEnd}}` — запланированное окончание
-    - Расширяемо в будущем
+### Event Templates
+- Have:
+    - **Unique slug** (human-readable: `planned-maintenance-aws`, `incident-database-outage`)
+    - Type: `incident` | `maintenance`
+    - Title template (title_template)
+    - Body template (body_template)
+- **Go template support with macros**:
+    - `{{.ServiceName}}` — service name
+    - `{{.ServiceGroupName}}` — group name
+    - `{{.StartedAt}}` — start time
+    - `{{.ResolvedAt}}` — completion time
+    - `{{.ScheduledStart}}` — scheduled start
+    - `{{.ScheduledEnd}}` — scheduled end
+    - Extensible in the future
 
-### Запланированные работы (Scheduled Maintenance)
-- Это события типа `maintenance` со статусом `scheduled`
-- При создании указывается:
-    - Имя, описание
-    - Связанные сервисы
+### Scheduled Maintenance
+- These are events of type `maintenance` with status `scheduled`
+- When creating, specify:
+    - Name, description
+    - Related services
     - `scheduled_start_at`, `scheduled_end_at`
-- Завершение: оператор добавляет update со статусом `completed`
-    - Время можно выбрать вручную или использовать текущее
+- Completion: operator adds update with status `completed`
+    - Time can be selected manually or use current time
 
-### Пользователи (Users)
-- Поля:
-    - Email (обязательный, уникальный)
-    - Пароль (хэш)
-    - Имя, фамилия (опционально)
-    - Роль: `user`, `operator`, `admin`
-- По умолчанию уведомления отправляются на email
+### Users
+- Fields:
+    - Email (required, unique)
+    - Password (hash)
+    - First name, last name (optional)
+    - Role: `user`, `operator`, `admin`
+- By default, notifications are sent to email
 
-### Каналы уведомлений (Notification Channels)
-- Пользователь может добавлять каналы:
-    - Тип: `email`, `telegram`
-    - Target: адрес email или Telegram chat_id
-    - Флаг `is_enabled` — использовать или нет
-    - Флаг `is_verified` — подтверждён ли канал
-- Можно включать/выключать отдельные каналы или все сразу
+### Notification Channels
+- User can add channels:
+    - Type: `email`, `telegram`
+    - Target: email address or Telegram chat_id
+    - `is_enabled` flag — whether to use it
+    - `is_verified` flag — whether the channel is verified
+- Individual channels or all channels can be enabled/disabled
 
-### Подписки (Subscriptions)
-- Пользователь подписывается на уведомления
-- Можно подписаться:
-    - На все сервисы (subscription_services пустой)
-    - На конкретные сервисы (через subscription_services)
+### Subscriptions
+- User subscribes to notifications
+- Can subscribe to:
+    - All services (subscription_services is empty)
+    - Specific services (via subscription_services)
 
 ---
 
-## 🗄 Схема базы данных (Reference)
+## 🗄 Database Schema (Reference)
 
 ```
 ┌─────────────────┐       ┌─────────────────────┐
@@ -415,31 +415,31 @@ make docker-build       # Собрать Docker образ
 -- events.type, event_templates.type
 'incident', 'maintenance'
 
--- events.status (зависит от type)
+-- events.status (depends on type)
 -- incident:    'investigating', 'identified', 'monitoring', 'resolved'
 -- maintenance: 'scheduled', 'in_progress', 'completed'
 
--- events.severity (только для incident, обязательно)
+-- events.severity (incidents only, required)
 'minor', 'major', 'critical'
 ```
 
 ---
 
-## 🏗 Архитектурные принципы
+## 🏗 Architectural Principles
 
-### Главные правила
-1. **Простота > Гибкость** — не добавлять абстракции "про запас"
-2. **Правило 10/20** — если фича добавляет >20% сложности при <10% ценности → переосмыслить или отложить
-3. **Тестируемость** — любой компонент тестируется в изоляции
-4. **Cloud-native** — 12-factor app, stateless, конфигурация через ENV
-5. **API-first** — контракт важнее реализации
+### Main Rules
+1. **Simplicity > Flexibility** — don't add abstractions "just in case"
+2. **10/20 Rule** — if a feature adds >20% complexity while providing <10% value → rethink or postpone
+3. **Testability** — any component can be tested in isolation
+4. **Cloud-native** — 12-factor app, stateless, configuration via ENV
+5. **API-first** — contract is more important than implementation
 
-### Архитектурный стиль
-- **Модульный монолит** с чётким разделением bounded contexts
-- Готовность к разделению на микросервисы при необходимости
-- Если потребуется разделение → выносить сервисы в отдельные репозитории с OpenAPI-контрактами
+### Architectural Style
+- **Modular monolith** with clear bounded contexts separation
+- Ready to split into microservices when necessary
+- If splitting is needed → move services to separate repositories with OpenAPI contracts
 
-### Bounded Contexts (модули)
+### Bounded Contexts (modules)
 ```
 ┌───────────────────────────────────────────────────────────────┐
 │                      StatusPage API                           │
@@ -451,258 +451,258 @@ make docker-build       # Собрать Docker образ
 └─────────────┴─────────────┴─────────────┴─────────────────────┘
 ```
 
-**Правило разделения на микросервисы:** выносим модуль, только если:
-- У него принципиально другой паттерн нагрузки (notifications — асинхронный)
-- Требуется независимый деплой
-- Команда разработки масштабируется
+**Rule for splitting into microservices:** extract a module only if:
+- It has a fundamentally different load pattern (notifications are asynchronous)
+- Independent deployment is required
+- Development team is scaling
 
 ---
 
-## 🛠 Технологический стек
+## 🛠 Technology Stack
 
 ### Core
-| Компонент   | Технология               | Обоснование                         |
+| Component   | Technology               | Rationale                           |
 |-------------|--------------------------|-------------------------------------|
-| Язык        | Go 1.25                  | Производительность, простота деплоя |
-| HTTP Router | chi                      | Лёгкий, идиоматичный                |
-| Validation  | go-playground/validator  | Стандарт де-факто                   |
-| Config      | koanf                    | 12-factor совместимость             |
-| Logging     | slog (stdlib)            | Стандартная библиотека Go 1.21+     |
+| Language    | Go 1.25                  | Performance, simple deployment      |
+| HTTP Router | chi                      | Lightweight, idiomatic              |
+| Validation  | go-playground/validator  | De-facto standard                   |
+| Config      | koanf                    | 12-factor compatible                |
+| Logging     | slog (stdlib)            | Standard library Go 1.21+           |
 
 ### Data
-| Компонент  | Технология          | Обоснование                  |
-|------------|---------------------|------------------------------|
-| Database   | PostgreSQL 16       | Надёжность, JSON поддержка   |
-| Migrations | golang-migrate      | Простота, CLI + library      |
-| SQL        | pgx                 | Высокая производительность   |
+| Component  | Technology          | Rationale                        |
+|------------|---------------------|----------------------------------|
+| Database   | PostgreSQL 16       | Reliability, JSON support        |
+| Migrations | golang-migrate      | Simplicity, CLI + library        |
+| SQL        | pgx                 | High performance                 |
 
 ### Infrastructure
-| Компонент       | Технология                  | Обоснование                   |
-|-----------------|-----------------------------|-------------------------------|
-| Контейнеризация | Docker + multi-stage builds | Минимальный образ             |
-| Local dev       | Docker Compose              | Простота локальной разработки |
-| CI/CD           | GitHub Actions              | Интеграция с GitHub Flow      |
-| Tests           | testcontainers-go           | Реальная БД в тестах          |
+| Component       | Technology                  | Rationale                         |
+|-----------------|-----------------------------|-----------------------------------|
+| Containerization| Docker + multi-stage builds | Minimal image size                |
+| Local dev       | Docker Compose              | Simple local development          |
+| CI/CD           | GitHub Actions              | GitHub Flow integration           |
+| Tests           | testcontainers-go           | Real database in tests            |
 
 ---
 
-## 🧪 Стратегия тестирования
+## 🧪 Testing Strategy
 
-### Текущее покрытие
-- **Unit тесты:** catalog/service_test.go, events/service_test.go
-- **Integration тесты:** tests/integration/ (20 тестов)
-    - auth_test.go — регистрация, логин, токены
-    - catalog_test.go — CRUD сервисов и групп
-    - events_test.go — lifecycle инцидентов и maintenance
-    - rbac_test.go — проверка ролей и доступов
+### Current Coverage
+- **Unit tests:** catalog/service_test.go, events/service_test.go
+- **Integration tests:** tests/integration/ (20 tests)
+    - auth_test.go — registration, login, tokens
+    - catalog_test.go — services and groups CRUD
+    - events_test.go — incident and maintenance lifecycle
+    - rbac_test.go — role and access verification
 
-### Запуск тестов
+### Running Tests
 ```bash
-make test               # Все тесты
-make test-unit          # Unit тесты
-make test-integration   # Интеграционные (с testcontainers)
+make test               # All tests
+make test-unit          # Unit tests
+make test-integration   # Integration tests (with testcontainers)
 ```
 
-### Пирамида тестов
+### Test Pyramid
 ```
          /\
-        /  \     E2E (5%) — полные сценарии через API
+        /  \     E2E (5%) — full scenarios via API
        /────\
       /      \   Integration (25%) — service + real DB
      /────────\
-    /          \ Unit (70%) — изолированные функции
+    /          \ Unit (70%) — isolated functions
    /────────────\
 ```
 
 ---
 
-## 📍 Этапы разработки (Roadmap)
+## 📍 Development Roadmap
 
-### Этап 0: Инициализация проекта ✅
-**Цель:** готовый скелет проекта с инструментами разработки
+### Stage 0: Project Initialization ✅
+**Goal:** ready project skeleton with development tools
 
-**Задачи:**
+**Tasks:**
 - [x] `go mod init`
-- [x] Структура директорий
-- [x] Makefile с командами
+- [x] Directory structure
+- [x] Makefile with commands
 - [x] .golangci.yml
 - [x] .gitignore
 - [x] README.md
 
 ---
 
-### Этап 1: Локальное окружение разработки ✅
-**Цель:** запускаемое приложение с подключением к БД
+### Stage 1: Local Development Environment ✅
+**Goal:** runnable application with database connection
 
-**Задачи:**
+**Tasks:**
 - [x] docker-compose.yml (PostgreSQL 16)
-- [x] internal/config — загрузка конфигурации
-- [x] internal/pkg/postgres — подключение к БД
-- [x] cmd/statuspage/main.go — точка входа
+- [x] internal/config — configuration loading
+- [x] internal/pkg/postgres — database connection
+- [x] cmd/statuspage/main.go — entry point
 - [x] Health endpoints: GET /healthz, GET /readyz
 
 ---
 
-### Этап 2: Домен и миграции ✅
-**Цель:** определены бизнес-сущности и структура БД
+### Stage 2: Domain and Migrations ✅
+**Goal:** business entities and database structure defined
 
-**Задачи:**
-- [x] internal/domain — все доменные структуры
-- [x] migrations/000001_init.up.sql — начальная миграция
-- [x] migrations/000002-000005 — дополнительные миграции
-- [x] Makefile команды для миграций
+**Tasks:**
+- [x] internal/domain — all domain structures
+- [x] migrations/000001_init.up.sql — initial migration
+- [x] migrations/000002-000005 — additional migrations
+- [x] Makefile commands for migrations
 
 ---
 
-### Этап 3: Модуль Catalog (Services, Groups, Tags) ✅
-**Цель:** CRUD для сервисов, групп и тегов
+### Stage 3: Catalog Module (Services, Groups, Tags) ✅
+**Goal:** CRUD for services, groups, and tags
 
-**Задачи:**
+**Tasks:**
 - [x] internal/catalog — handler, service, repository
-- [x] CRUD для сервисов с тегами
-- [x] CRUD для групп
-- [x] Unit тесты (service_test.go)
+- [x] CRUD for services with tags
+- [x] CRUD for groups
+- [x] Unit tests (service_test.go)
 
 ---
 
-### Этап 4: Модуль Identity (Auth & RBAC) ✅
-**Цель:** аутентификация и авторизация
+### Stage 4: Identity Module (Auth & RBAC) ✅
+**Goal:** authentication and authorization
 
-**Задачи:**
+**Tasks:**
 - [x] internal/identity — Authenticator interface
 - [x] JWT implementation
-- [x] Middleware для проверки токенов
+- [x] Middleware for token verification
 - [x] RBAC middleware (user, operator, admin)
-- [x] Регистрация, логин, refresh, logout
+- [x] Registration, login, refresh, logout
 
 ---
 
-### Этап 5: Модуль Events (Events, Updates, Templates) ✅
-**Цель:** управление событиями и шаблонами
+### Stage 5: Events Module (Events, Updates, Templates) ✅
+**Goal:** event and template management
 
-**Задачи:**
+**Tasks:**
 - [x] internal/events — handler, service, repository
-- [x] Поддержка двух типов: incident, maintenance
-- [x] Разные статусы в зависимости от типа
-- [x] CRUD для шаблонов
-- [x] Go template renderer с макросами
-- [x] Timeline updates для событий
-- [x] Публичный эндпоинт статуса (GET /api/v1/status)
-- [x] Unit тесты (service_test.go)
+- [x] Support for two types: incident, maintenance
+- [x] Different statuses depending on type
+- [x] CRUD for templates
+- [x] Go template renderer with macros
+- [x] Timeline updates for events
+- [x] Public status endpoint (GET /api/v1/status)
+- [x] Unit tests (service_test.go)
 
 ---
 
-### Этап 6: Модуль Notifications (Channels, Subscriptions, Dispatch) ✅ (частично)
-**Цель:** уведомления о событиях
+### Stage 6: Notifications Module (Channels, Subscriptions, Dispatch) ✅ (partial)
+**Goal:** event notifications
 
-**Задачи:**
+**Tasks:**
 - [x] internal/notifications — handler, service, repository, dispatcher
-- [x] CRUD для каналов пользователя
-- [x] CRUD для подписок
-- [ ] Реальная реализация Email sender (SMTP)
-- [ ] Реальная реализация Telegram sender
-- [ ] Верификация каналов
-- [ ] Интеграция dispatcher с events (вызов при notify_subscribers=true)
+- [x] CRUD for user channels
+- [x] CRUD for subscriptions
+- [ ] Real Email sender implementation (SMTP)
+- [ ] Real Telegram sender implementation
+- [ ] Channel verification
+- [ ] Dispatcher integration with events (call when notify_subscribers=true)
 
 ---
 
-### Этап 7: CI/CD ✅
-**Цель:** автоматизация проверок и сборки
+### Stage 7: CI/CD ✅
+**Goal:** automated checks and build
 
-**Задачи:**
+**Tasks:**
 - [x] .github/workflows/ci.yml — lint, test, integration-test, build
-- [ ] .github/workflows/release.yml — сборка Docker образа, push в registry
+- [ ] .github/workflows/release.yml — Docker image build, push to registry
 - [ ] Dockerfile (multi-stage)
 
 ---
 
-### Этап 8: Helm Chart 🔜
-**Цель:** деплой в Kubernetes
+### Stage 8: Helm Chart 🔜
+**Goal:** Kubernetes deployment
 
-**Задачи:**
-- [ ] deployments/helm/statuspage/ — чарт
+**Tasks:**
+- [ ] deployments/helm/statuspage/ — chart
 - [ ] Configurable values (replicas, resources, ingress)
-- [ ] README для деплоя
+- [ ] Deployment README
 
 ---
 
-### Этап 9 (будущее): OIDC/Keycloak интеграция
-**Цель:** SSO через внешний Identity Provider
+### Stage 9 (future): OIDC/Keycloak Integration
+**Goal:** SSO via external Identity Provider
 
-**Задачи:**
+**Tasks:**
 - [ ] OIDC Authenticator implementation
-- [ ] Конфигурация через ENV
-- [ ] Маппинг ролей из claims
-- [ ] Документация по настройке Keycloak
+- [ ] Configuration via ENV
+- [ ] Role mapping from claims
+- [ ] Keycloak setup documentation
 
 ---
 
 ## 🎯 Definition of Done
 
-Фича считается завершённой когда:
-- [x] Код написан и соответствует стандартам
-- [x] Unit тесты написаны
-- [x] Integration тесты для критичных путей
-- [ ] OpenAPI спецификация обновлена
-- [x] Линтеры проходят без ошибок
-- [x] CI проходит
+A feature is considered complete when:
+- [x] Code is written and meets standards
+- [x] Unit tests are written
+- [x] Integration tests for critical paths
+- [x] OpenAPI specification is updated
+- [x] Linters pass without errors
+- [x] CI passes
 
 ---
 
-## 💬 Как работать с Claude
+## 💬 How to Work with Claude
 
-### При запросе новой фичи:
-1. Опиши бизнес-требование
-2. Я предложу дизайн и оценю сложность
-3. Обсудим trade-offs
-4. Реализуем итеративно
+### When requesting a new feature:
+1. Describe the business requirement
+2. I'll propose a design and estimate complexity
+3. Discuss trade-offs
+4. Implement iteratively
 
-### При обсуждении архитектуры:
-1. Я буду задавать уточняющие вопросы
-2. Предложу несколько вариантов с pros/cons
-3. Применю "правило 10/20" для оценки сложности
+### When discussing architecture:
+1. I'll ask clarifying questions
+2. Propose several options with pros/cons
+3. Apply the "10/20 rule" to assess complexity
 
-### При написании кода:
-1. Сначала — интерфейс/контракт
-2. Затем — реализация
-3. Параллельно — тесты
-4. В конце — интеграция
+### When writing code:
+1. First — interface/contract
+2. Then — implementation
+3. In parallel — tests
+4. Finally — integration
 
-### Флаги для особых режимов:
-- `[REVIEW]` — прошу проверить мой код
-- `[REFACTOR]` — нужен рефакторинг существующего
-- `[DEBUG]` — помоги найти проблему
-- `[DESIGN]` — обсудить архитектуру до кода
+### Flags for special modes:
+- `[REVIEW]` — please review my code
+- `[REFACTOR]` — need to refactor existing code
+- `[DEBUG]` — help find an issue
+- `[DESIGN]` — discuss architecture before code
 
 ---
 
-## ⚠️ Известные ограничения и TODO
+## ⚠️ Known Limitations and TODO
 
-### Notifications модуль
-- Email sender и Telegram sender — заглушки, не отправляют реальные сообщения
-- Нет интеграции dispatcher с events (не вызывается при создании event/update)
-- Нет верификации каналов
+### Notifications Module
+- Email sender and Telegram sender are stubs, don't send actual messages
+- No dispatcher integration with events (not called when creating event/update)
+- No channel verification
 
-### Отсутствует
-- OpenAPI спецификация (api/openapi/openapi.yaml)
+### Missing
+- OpenAPI specification (api/openapi/openapi.yaml)
 - Dockerfile
 - Helm chart
-- Метрики Prometheus
-- Пагинация в списках
+- Prometheus metrics
+- Pagination in lists
 
-### Технический долг
-- Нет graceful degradation при недоступности notification senders
-- Нет rate limiting
-- Нет audit log
+### Technical Debt
+- No graceful degradation when notification senders are unavailable
+- No rate limiting
+- No audit log
 
 ---
 
-## ⚠️ Антипаттерны (что НЕ делать)
+## ⚠️ Anti-patterns (what NOT to do)
 
-1. **Не использовать ORM** (GORM и подобные) — используем pgx
-2. **Не создавать God-objects** — каждый сервис делает одну вещь
-3. **Не игнорировать ошибки** — всегда проверять и оборачивать
-4. **Не хардкодить конфигурацию** — всё через ENV/config
-5. **Не писать бизнес-логику в handlers** — handlers только I/O
-6. **Не делать circular dependencies** между модулями
-7. **Не добавлять фичи без тестов** — test coverage для нового кода
+1. **Don't use ORM** (GORM and similar) — use pgx
+2. **Don't create God-objects** — each service does one thing
+3. **Don't ignore errors** — always check and wrap
+4. **Don't hardcode configuration** — everything via ENV/config
+5. **Don't write business logic in handlers** — handlers for I/O only
+6. **Don't make circular dependencies** between modules
+7. **Don't add features without tests** — test coverage for new code

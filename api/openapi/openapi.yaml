@@ -1,0 +1,1759 @@
+openapi: 3.0.3
+info:
+  title: StatusPage API
+  description: API for managing service statuses and incidents
+  version: 1.0.0
+  contact:
+    name: API Support
+
+servers:
+  - url: http://localhost:8080
+    description: Local development
+
+tags:
+  - name: auth
+    description: Authentication and session management
+  - name: services
+    description: Service management
+  - name: groups
+    description: Service group management
+  - name: events
+    description: Event management (incidents and maintenance)
+  - name: templates
+    description: Event templates
+  - name: channels
+    description: User notification channels
+  - name: subscriptions
+    description: Notification subscriptions
+  - name: status
+    description: Public status
+
+paths:
+  /healthz:
+    get:
+      summary: Liveness probe
+      operationId: healthz
+      responses:
+        '200':
+          description: OK
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: OK
+
+  /readyz:
+    get:
+      summary: Readiness probe
+      operationId: readyz
+      responses:
+        '200':
+          description: Ready
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: OK
+        '503':
+          description: Not ready
+
+  /api/v1/auth/register:
+    post:
+      tags: [auth]
+      summary: Register a new user
+      operationId: register
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '409':
+          $ref: '#/components/responses/ConflictError'
+
+  /api/v1/auth/login:
+    post:
+      tags: [auth]
+      summary: Log in to the system
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/v1/auth/refresh:
+    post:
+      tags: [auth]
+      summary: Refresh tokens
+      operationId: refreshTokens
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+      responses:
+        '200':
+          description: Tokens refreshed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenPair'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/v1/auth/logout:
+    post:
+      tags: [auth]
+      summary: Log out from the system
+      operationId: logout
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+      responses:
+        '204':
+          description: Logout successful
+
+  /api/v1/me:
+    get:
+      tags: [auth]
+      summary: Get current user
+      operationId: getCurrentUser
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: User data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/v1/services:
+    get:
+      tags: [services]
+      summary: List services
+      description: Public endpoint, no authentication required
+      operationId: listServices
+      parameters:
+        - name: group_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/ServiceStatus'
+      responses:
+        '200':
+          description: List of services
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServicesResponse'
+
+    post:
+      tags: [services]
+      summary: Create a service
+      operationId: createService
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateServiceRequest'
+      responses:
+        '201':
+          description: Service created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '409':
+          $ref: '#/components/responses/ConflictError'
+
+  /api/v1/services/{slug}:
+    get:
+      tags: [services]
+      summary: Get a service by slug
+      operationId: getService
+      parameters:
+        - $ref: '#/components/parameters/ServiceSlug'
+      responses:
+        '200':
+          description: Service data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+    patch:
+      tags: [services]
+      summary: Update a service
+      operationId: updateService
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ServiceSlug'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateServiceRequest'
+      responses:
+        '200':
+          description: Service updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+    delete:
+      tags: [services]
+      summary: Delete a service
+      operationId: deleteService
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ServiceSlug'
+      responses:
+        '204':
+          description: Service deleted
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /api/v1/services/{slug}/tags:
+    get:
+      tags: [services]
+      summary: Get service tags
+      operationId: getServiceTags
+      parameters:
+        - $ref: '#/components/parameters/ServiceSlug'
+      responses:
+        '200':
+          description: Service tags
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TagsResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+    put:
+      tags: [services]
+      summary: Update service tags
+      operationId: updateServiceTags
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ServiceSlug'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTagsRequest'
+      responses:
+        '200':
+          description: Tags updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TagsResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /api/v1/groups:
+    get:
+      tags: [groups]
+      summary: List groups
+      operationId: listGroups
+      responses:
+        '200':
+          description: List of groups
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GroupsResponse'
+
+    post:
+      tags: [groups]
+      summary: Create a group
+      operationId: createGroup
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateGroupRequest'
+      responses:
+        '201':
+          description: Group created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GroupResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '409':
+          $ref: '#/components/responses/ConflictError'
+
+  /api/v1/groups/{slug}:
+    get:
+      tags: [groups]
+      summary: Get a group by slug
+      operationId: getGroup
+      parameters:
+        - $ref: '#/components/parameters/GroupSlug'
+      responses:
+        '200':
+          description: Group data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GroupResponse'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+    patch:
+      tags: [groups]
+      summary: Update a group
+      operationId: updateGroup
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/GroupSlug'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateGroupRequest'
+      responses:
+        '200':
+          description: Group updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GroupResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+    delete:
+      tags: [groups]
+      summary: Delete a group
+      operationId: deleteGroup
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/GroupSlug'
+      responses:
+        '204':
+          description: Group deleted
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /api/v1/events:
+    get:
+      tags: [events]
+      summary: List events
+      operationId: listEvents
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: type
+          in: query
+          schema:
+            $ref: '#/components/schemas/EventType'
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/EventStatus'
+      responses:
+        '200':
+          description: List of events
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventsResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+
+    post:
+      tags: [events]
+      summary: Create an event
+      description: |
+        Creates an incident or maintenance.
+        For incident, severity must be specified.
+        Status must correspond to the event type.
+      operationId: createEvent
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateEventRequest'
+      responses:
+        '201':
+          description: Event created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+
+  /api/v1/events/{id}:
+    get:
+      tags: [events]
+      summary: Get an event
+      operationId: getEvent
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+      responses:
+        '200':
+          description: Event data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+    delete:
+      tags: [events]
+      summary: Delete an event
+      description: Requires admin role
+      operationId: deleteEvent
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+      responses:
+        '204':
+          description: Event deleted
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /api/v1/events/{id}/updates:
+    get:
+      tags: [events]
+      summary: List event updates
+      operationId: listEventUpdates
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+      responses:
+        '200':
+          description: List of updates
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventUpdatesResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+    post:
+      tags: [events]
+      summary: Add an update to an event
+      description: Also updates the event status
+      operationId: addEventUpdate
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddEventUpdateRequest'
+      responses:
+        '201':
+          description: Update added
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventUpdateResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /api/v1/templates:
+    get:
+      tags: [templates]
+      summary: List templates
+      operationId: listTemplates
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: List of templates
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TemplatesResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+
+    post:
+      tags: [templates]
+      summary: Create a template
+      description: Requires admin role
+      operationId: createTemplate
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTemplateRequest'
+      responses:
+        '201':
+          description: Template created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TemplateResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+
+  /api/v1/templates/{slug}:
+    get:
+      tags: [templates]
+      summary: Get a template
+      operationId: getTemplate
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/TemplateSlug'
+      responses:
+        '200':
+          description: Template data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TemplateResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /api/v1/templates/{slug}/preview:
+    post:
+      tags: [templates]
+      summary: Preview a template
+      description: Renders the template with provided data
+      operationId: previewTemplate
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/TemplateSlug'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PreviewTemplateRequest'
+      responses:
+        '200':
+          description: Rendering result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PreviewTemplateResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /api/v1/templates/{id}:
+    delete:
+      tags: [templates]
+      summary: Delete a template
+      operationId: deleteTemplate
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Template deleted
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /api/v1/me/channels:
+    get:
+      tags: [channels]
+      summary: My notification channels
+      operationId: listMyChannels
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: List of channels
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChannelsResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+    post:
+      tags: [channels]
+      summary: Add a notification channel
+      operationId: createChannel
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateChannelRequest'
+      responses:
+        '201':
+          description: Channel created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChannelResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /api/v1/me/channels/{id}:
+    patch:
+      tags: [channels]
+      summary: Update a channel (enable/disable)
+      operationId: updateChannel
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ChannelId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateChannelRequest'
+      responses:
+        '200':
+          description: Channel updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChannelResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+    delete:
+      tags: [channels]
+      summary: Delete a channel
+      operationId: deleteChannel
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ChannelId'
+      responses:
+        '204':
+          description: Channel deleted
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /api/v1/me/channels/{id}/verify:
+    post:
+      tags: [channels]
+      summary: Verify a channel
+      operationId: verifyChannel
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ChannelId'
+      responses:
+        '200':
+          description: Channel verified
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChannelResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /api/v1/me/subscriptions:
+    get:
+      tags: [subscriptions]
+      summary: My subscription
+      operationId: getMySubscription
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Subscription data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriptionResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+    post:
+      tags: [subscriptions]
+      summary: Create or update a subscription
+      operationId: updateSubscription
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateSubscriptionRequest'
+      responses:
+        '200':
+          description: Subscription updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriptionResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+    delete:
+      tags: [subscriptions]
+      summary: Delete a subscription
+      operationId: deleteSubscription
+      security:
+        - BearerAuth: []
+      responses:
+        '204':
+          description: Subscription deleted
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /api/v1/status:
+    get:
+      tags: [status]
+      summary: Current public status
+      description: No authentication required
+      operationId: getPublicStatus
+      responses:
+        '200':
+          description: Current system status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicStatusResponse'
+
+  /api/v1/status/history:
+    get:
+      tags: [status]
+      summary: Event history
+      description: No authentication required
+      operationId: getStatusHistory
+      responses:
+        '200':
+          description: Event history
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicStatusResponse'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    ServiceSlug:
+      name: slug
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Unique service slug
+
+    GroupSlug:
+      name: slug
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Unique group slug
+
+    EventId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Event UUID
+
+    TemplateSlug:
+      name: slug
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Unique template slug
+
+    ChannelId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Notification channel UUID
+
+  responses:
+    ValidationError:
+      description: Validation error
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: validation error
+                  details:
+                    type: string
+
+    UnauthorizedError:
+      description: Authentication required
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: missing authorization header
+
+    ForbiddenError:
+      description: Insufficient permissions
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: insufficient permissions
+
+    NotFoundError:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: service not found
+
+    ConflictError:
+      description: Conflict (e.g., duplicate slug)
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: slug already exists
+
+  schemas:
+    ServiceStatus:
+      type: string
+      enum:
+        - operational
+        - degraded
+        - partial_outage
+        - major_outage
+        - maintenance
+
+    EventType:
+      type: string
+      enum:
+        - incident
+        - maintenance
+
+    EventStatus:
+      type: string
+      enum:
+        - investigating
+        - identified
+        - monitoring
+        - resolved
+        - scheduled
+        - in_progress
+        - completed
+      description: |
+        For incident: investigating, identified, monitoring, resolved
+        For maintenance: scheduled, in_progress, completed
+
+    Severity:
+      type: string
+      enum:
+        - minor
+        - major
+        - critical
+
+    ChannelType:
+      type: string
+      enum:
+        - email
+        - telegram
+
+    Role:
+      type: string
+      enum:
+        - user
+        - operator
+        - admin
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        first_name:
+          type: string
+        last_name:
+          type: string
+        role:
+          $ref: '#/components/schemas/Role'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+        - id
+        - email
+        - role
+        - created_at
+        - updated_at
+
+    Service:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+        description:
+          type: string
+        status:
+          $ref: '#/components/schemas/ServiceStatus'
+        group_id:
+          type: string
+          format: uuid
+          nullable: true
+        order:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+        - id
+        - name
+        - slug
+        - status
+        - order
+        - created_at
+        - updated_at
+
+    ServiceGroup:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+        description:
+          type: string
+        order:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+        - id
+        - name
+        - slug
+        - order
+        - created_at
+        - updated_at
+
+    Event:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        type:
+          $ref: '#/components/schemas/EventType'
+        status:
+          $ref: '#/components/schemas/EventStatus'
+        severity:
+          $ref: '#/components/schemas/Severity'
+          nullable: true
+        description:
+          type: string
+        started_at:
+          type: string
+          format: date-time
+          nullable: true
+        resolved_at:
+          type: string
+          format: date-time
+          nullable: true
+        scheduled_start_at:
+          type: string
+          format: date-time
+          nullable: true
+        scheduled_end_at:
+          type: string
+          format: date-time
+          nullable: true
+        notify_subscribers:
+          type: boolean
+        template_id:
+          type: string
+          format: uuid
+          nullable: true
+        created_by:
+          type: string
+          format: uuid
+        service_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+        - id
+        - title
+        - type
+        - status
+        - description
+        - notify_subscribers
+        - created_by
+        - created_at
+        - updated_at
+
+    EventUpdate:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        event_id:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/EventStatus'
+        message:
+          type: string
+        notify_subscribers:
+          type: boolean
+        created_by:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+      required:
+        - id
+        - event_id
+        - status
+        - message
+        - notify_subscribers
+        - created_by
+        - created_at
+
+    EventTemplate:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        slug:
+          type: string
+        type:
+          $ref: '#/components/schemas/EventType'
+        title_template:
+          type: string
+        body_template:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+        - id
+        - slug
+        - type
+        - title_template
+        - body_template
+        - created_at
+        - updated_at
+
+    NotificationChannel:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        type:
+          $ref: '#/components/schemas/ChannelType'
+        target:
+          type: string
+        is_enabled:
+          type: boolean
+        is_verified:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+        - id
+        - user_id
+        - type
+        - target
+        - is_enabled
+        - is_verified
+        - created_at
+        - updated_at
+
+    Subscription:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        service_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: Empty array means subscription to all services
+        created_at:
+          type: string
+          format: date-time
+      required:
+        - id
+        - user_id
+        - service_ids
+        - created_at
+
+    TokenPair:
+      type: object
+      properties:
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+        expires_in:
+          type: integer
+          description: Access token lifetime in seconds
+      required:
+        - access_token
+        - refresh_token
+        - expires_in
+
+    RegisterRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+        first_name:
+          type: string
+        last_name:
+          type: string
+      required:
+        - email
+        - password
+
+    LoginRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+      required:
+        - email
+        - password
+
+    RefreshRequest:
+      type: object
+      properties:
+        refresh_token:
+          type: string
+      required:
+        - refresh_token
+
+    CreateServiceRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        slug:
+          type: string
+          minLength: 1
+          maxLength: 255
+          pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+        description:
+          type: string
+        status:
+          $ref: '#/components/schemas/ServiceStatus'
+        group_id:
+          type: string
+          format: uuid
+          nullable: true
+        order:
+          type: integer
+          default: 0
+        tags:
+          type: object
+          additionalProperties:
+            type: string
+      required:
+        - name
+        - slug
+
+    UpdateServiceRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        slug:
+          type: string
+          minLength: 1
+          maxLength: 255
+          pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+        description:
+          type: string
+        status:
+          $ref: '#/components/schemas/ServiceStatus'
+        group_id:
+          type: string
+          format: uuid
+          nullable: true
+        order:
+          type: integer
+      required:
+        - name
+        - slug
+        - status
+
+    UpdateTagsRequest:
+      type: object
+      properties:
+        tags:
+          type: object
+          additionalProperties:
+            type: string
+      required:
+        - tags
+
+    CreateGroupRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        slug:
+          type: string
+          minLength: 1
+          maxLength: 255
+          pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+        description:
+          type: string
+        order:
+          type: integer
+          default: 0
+      required:
+        - name
+        - slug
+
+    UpdateGroupRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        slug:
+          type: string
+          minLength: 1
+          maxLength: 255
+          pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+        description:
+          type: string
+        order:
+          type: integer
+      required:
+        - name
+        - slug
+
+    CreateEventRequest:
+      type: object
+      properties:
+        title:
+          type: string
+        type:
+          $ref: '#/components/schemas/EventType'
+        status:
+          $ref: '#/components/schemas/EventStatus'
+        severity:
+          $ref: '#/components/schemas/Severity'
+          description: Required for type=incident
+        description:
+          type: string
+        started_at:
+          type: string
+          format: date-time
+        scheduled_start_at:
+          type: string
+          format: date-time
+        scheduled_end_at:
+          type: string
+          format: date-time
+        notify_subscribers:
+          type: boolean
+          default: false
+        template_id:
+          type: string
+          format: uuid
+        service_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+      required:
+        - title
+        - type
+        - status
+        - description
+
+    AddEventUpdateRequest:
+      type: object
+      properties:
+        status:
+          $ref: '#/components/schemas/EventStatus'
+        message:
+          type: string
+        notify_subscribers:
+          type: boolean
+          default: false
+      required:
+        - status
+        - message
+
+    CreateTemplateRequest:
+      type: object
+      properties:
+        slug:
+          type: string
+          pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$'
+        type:
+          $ref: '#/components/schemas/EventType'
+        title_template:
+          type: string
+        body_template:
+          type: string
+      required:
+        - slug
+        - type
+        - title_template
+        - body_template
+
+    PreviewTemplateRequest:
+      type: object
+      properties:
+        service_name:
+          type: string
+        service_group_name:
+          type: string
+        started_at:
+          type: string
+          format: date-time
+        resolved_at:
+          type: string
+          format: date-time
+        scheduled_start:
+          type: string
+          format: date-time
+        scheduled_end:
+          type: string
+          format: date-time
+
+    CreateChannelRequest:
+      type: object
+      properties:
+        type:
+          $ref: '#/components/schemas/ChannelType'
+        target:
+          type: string
+          description: Email address or Telegram chat_id
+      required:
+        - type
+        - target
+
+    UpdateChannelRequest:
+      type: object
+      properties:
+        is_enabled:
+          type: boolean
+      required:
+        - is_enabled
+
+    UpdateSubscriptionRequest:
+      type: object
+      properties:
+        service_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: Empty array for subscription to all services
+
+    UserResponse:
+      type: object
+      properties:
+        data:
+          $ref: '#/components/schemas/User'
+
+    LoginResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            user:
+              $ref: '#/components/schemas/User'
+            tokens:
+              $ref: '#/components/schemas/TokenPair'
+
+    ServiceResponse:
+      type: object
+      properties:
+        data:
+          $ref: '#/components/schemas/Service'
+
+    ServicesResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Service'
+
+    GroupResponse:
+      type: object
+      properties:
+        data:
+          $ref: '#/components/schemas/ServiceGroup'
+
+    GroupsResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ServiceGroup'
+
+    EventResponse:
+      type: object
+      properties:
+        data:
+          $ref: '#/components/schemas/Event'
+
+    EventsResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Event'
+
+    EventUpdateResponse:
+      type: object
+      properties:
+        data:
+          $ref: '#/components/schemas/EventUpdate'
+
+    EventUpdatesResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/EventUpdate'
+
+    TemplateResponse:
+      type: object
+      properties:
+        data:
+          $ref: '#/components/schemas/EventTemplate'
+
+    TemplatesResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/EventTemplate'
+
+    PreviewTemplateResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            title:
+              type: string
+            body:
+              type: string
+
+    ChannelResponse:
+      type: object
+      properties:
+        data:
+          $ref: '#/components/schemas/NotificationChannel'
+
+    ChannelsResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/NotificationChannel'
+
+    SubscriptionResponse:
+      type: object
+      properties:
+        data:
+          $ref: '#/components/schemas/Subscription'
+
+    TagsResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            tags:
+              type: object
+              additionalProperties:
+                type: string
+
+    PublicStatusResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            events:
+              type: array
+              items:
+                $ref: '#/components/schemas/Event'

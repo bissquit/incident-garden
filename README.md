@@ -1,138 +1,138 @@
 # StatusPage Service
 
-Открытый self-hosted сервис статус-страницы для отображения состояния сервисов и управления инцидентами.
+An open-source self-hosted status page service for displaying service states and managing incidents.
 
-## О проекте
+## About the Project
 
-StatusPage — это простой и легковесный cloud-native сервис для управления статус-страницей и инцидентами. Аналог Atlassian Statuspage, Cachet, Instatus, но с упором на простоту и self-hosting.
+StatusPage is a simple and lightweight cloud-native service for managing status pages and incidents. An alternative to Atlassian Statuspage, Cachet, and Instatus, but with a focus on simplicity and self-hosting.
 
-### Ключевые возможности
+### Key Features
 
-- 📊 Отображение статуса сервисов (operational, degraded, partial_outage, major_outage, maintenance)
-- 🚨 Управление инцидентами с timeline обновлений
+- 📊 Service status display (operational, degraded, partial_outage, major_outage, maintenance)
+- 🚨 Incident management with timeline updates
 - 👥 RBAC: user → operator → admin
-- 🔔 Подписки на уведомления (Email, Telegram)
-- 🔌 REST API first (веб-интерфейс — отдельный проект)
+- 🔔 Notification subscriptions (Email, Telegram)
+- 🔌 REST API first (web interface is a separate project)
 
-## Быстрый старт
+## Quick Start
 
-### Требования
+### Requirements
 
 - Go 1.22+
 - Docker & Docker Compose
 - Make
 
-### Установка
+### Installation
 
 ```bash
 git clone https://github.com/bissquit/incident-management.git
 cd incident-management
 ```
 
-### Локальная разработка
+### Local Development
 
 ```bash
-# Показать доступные команды
+# Show available commands
 make help
 
-# Запустить с docker-compose
+# Run with docker-compose
 make docker-up
 
-# Запустить в режиме разработки (с hot-reload)
+# Run in development mode (with hot-reload)
 make dev
 ```
 
-## Структура проекта
+## Project Structure
 
 ```
-├── cmd/statuspage/          # Точка входа приложения
-├── internal/                # Внутренний код
-│   ├── app/                 # Инициализация приложения
-│   ├── config/              # Конфигурация
-│   ├── domain/              # Доменные сущности
-│   ├── identity/            # Аутентификация и RBAC
-│   ├── catalog/             # Управление сервисами
-│   ├── incidents/           # Управление инцидентами
-│   ├── notifications/       # Уведомления
-│   └── pkg/                 # Общие утилиты
-├── api/openapi/             # OpenAPI спецификация
-├── migrations/              # Миграции БД
-└── deployments/             # Docker и Helm чарты
+├── cmd/statuspage/          # Application entry point
+├── internal/                # Internal code
+│   ├── app/                 # Application initialization
+│   ├── config/              # Configuration
+│   ├── domain/              # Domain entities
+│   ├── identity/            # Authentication and RBAC
+│   ├── catalog/             # Service management
+│   ├── incidents/           # Incident management
+│   ├── notifications/       # Notifications
+│   └── pkg/                 # Common utilities
+├── api/openapi/             # OpenAPI specification
+├── migrations/              # Database migrations
+└── deployments/             # Docker and Helm charts
 ```
 
-## Разработка
+## Development
 
-### Команды Make
+### Make Commands
 
 ```bash
-make test           # Запустить все тесты
-make test-unit      # Только unit тесты
-make test-int       # Только integration тесты
-make lint           # Запустить линтеры
-make build          # Собрать бинарник
+make test           # Run all tests
+make test-unit      # Unit tests only
+make test-int       # Integration tests only
+make lint           # Run linters
+make build          # Build binary
 ```
 
-### Миграции
+### Migrations
 
 ```bash
-make migrate-up                       # Применить миграции
-make migrate-down                     # Откатить миграцию
-make migrate-create NAME=add_users    # Создать новую миграцию
+make migrate-up                       # Apply migrations
+make migrate-down                     # Rollback migration
+make migrate-create NAME=add_users    # Create new migration
 ```
 
-## Документация
+## Documentation
 
 ### API Documentation
 
-Полная документация REST API доступна в [docs/api/](./docs/api/):
+Full REST API documentation is available in [docs/api/](./docs/api/):
 
-- [Обзор и основы](./docs/api/README.md)
-- [Аутентификация](./docs/api/01-auth.md)
-- [Каталог сервисов](./docs/api/02-catalog.md)
-- [События (инциденты и плановые работы)](./docs/api/03-events.md)
-- [Шаблоны событий](./docs/api/04-templates.md)
-- [Уведомления](./docs/api/05-notifications.md)
-- [Публичные эндпоинты](./docs/api/06-public-status.md)
+- [Overview and basics](./docs/api/README.md)
+- [Authentication](./docs/api/01-auth.md)
+- [Service catalog](./docs/api/02-catalog.md)
+- [Events (incidents and scheduled maintenance)](./docs/api/03-events.md)
+- [Event templates](./docs/api/04-templates.md)
+- [Notifications](./docs/api/05-notifications.md)
+- [Public endpoints](./docs/api/06-public-status.md)
 
-### Тестовые пользователи
+### Test Users
 
-По умолчанию в системе созданы тестовые пользователи:
+By default, test users are created in the system:
 
-| Email | Password | Role | Описание |
-|-------|----------|------|----------|
-| admin@example.com | admin123 | admin | Полный доступ ко всем функциям |
-| operator@example.com | admin123 | operator | Управление инцидентами и событиями |
-| user@example.com | user123 | user | Базовый пользователь |
+| Email                | Password  | Role     | Description                   |
+|----------------------|-----------|----------|-------------------------------|
+| admin@example.com    | admin123  | admin    | Full access to all features   |
+| operator@example.com | admin123  | operator | Incident and event management |
+| user@example.com     | user123   | user     | Basic user                    |
 
-**⚠️ ВАЖНО:** Только для разработки и тестирования!
+**⚠️ IMPORTANT:** For development and testing only!
 
-### Архитектура
+### Architecture
 
-Подробная документация по архитектуре, принципам и roadmap доступна в [CLAUDE.md](./CLAUDE.md).
+Detailed documentation on architecture, principles, and roadmap is available in [CLAUDE.md](./CLAUDE.md).
 
-## Технологии
+## Technologies
 
-- **Язык**: Go 1.22+
+- **Language**: Go 1.22+
 - **HTTP Router**: chi
-- **База данных**: PostgreSQL 15+
-- **Миграции**: golang-migrate
-- **Логирование**: slog (stdlib)
-- **Метрики**: Prometheus
+- **Database**: PostgreSQL 15+
+- **Migrations**: golang-migrate
+- **Logging**: slog (stdlib)
+- **Metrics**: Prometheus
 
 ## CI/CD
 
-Проект использует GitHub Actions для автоматизации:
+The project uses GitHub Actions for automation:
 
-- **Lint**: проверка кода с помощью golangci-lint
-- **Test**: запуск unit и integration тестов с PostgreSQL
-- **Build**: сборка бинарника и проверка успешной компиляции
+- **Lint**: code checking with golangci-lint
+- **Test**: running unit and integration tests with PostgreSQL
+- **Build**: binary build and successful compilation check
 
-Конфигурация CI доступна в [.github/workflows/ci.yml](./.github/workflows/ci.yml)
+CI configuration is available in [.github/workflows/ci.yml](./.github/workflows/ci.yml)
 
-## Лицензия
+## License
 
 Apache License 2.0
 
-## Контрибьюция
+## Contributing
 
-Приветствуются любые контрибьюции\! Пожалуйста, создавайте issues и pull requests.
+Any contributions are welcome! Please create issues and pull requests.

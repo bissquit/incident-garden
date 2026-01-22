@@ -1,4 +1,4 @@
-.PHONY: help dev test test-unit test-integration test-all lint migrate-up migrate-down migrate-create migrate-force build docker-build docker-up docker-down generate openapi
+.PHONY: help dev test test-unit test-integration test-all lint migrate-up migrate-down migrate-create migrate-force build docker-build docker-up docker-down generate openapi-validate
 
 help:
 	@echo "Available commands:"
@@ -18,7 +18,7 @@ help:
 	@echo "  make docker-up       - Start docker-compose"
 	@echo "  make docker-down     - Stop docker-compose"
 	@echo "  make generate        - Generate code (sqlc, mocks)"
-	@echo "  make openapi         - Validate OpenAPI spec"
+	@echo "  make openapi-validate - Validate OpenAPI spec"
 
 dev:
 	@command -v air > /dev/null 2>&1 || { echo "air not installed. Run: go install github.com/air-verse/air@latest"; exit 1; }
@@ -73,6 +73,14 @@ docker-down:
 generate:
 	@echo "Code generation not yet configured"
 
-openapi:
-	@command -v openapi-generator-cli > /dev/null 2>&1 || { echo "openapi-generator-cli not installed"; exit 1; }
-	openapi-generator-cli validate -i api/openapi/openapi.yaml
+openapi-validate:
+	@if command -v swagger-cli > /dev/null 2>&1; then \
+		swagger-cli validate api/openapi/openapi.yaml; \
+	elif command -v oapi-codegen > /dev/null 2>&1; then \
+		oapi-codegen -generate types api/openapi/openapi.yaml > /dev/null; \
+	else \
+		echo "No OpenAPI validator found. Install one of:"; \
+		echo "  npm install -g @apidevtools/swagger-cli"; \
+		echo "  go install github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@latest"; \
+		exit 1; \
+	fi
