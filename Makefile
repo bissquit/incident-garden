@@ -21,6 +21,9 @@ help:
 	@echo "  make docker-ps       - Show stack status"
 	@echo "  make docker-restart  - Restart application"
 	@echo "  make docker-postgres - Start only PostgreSQL"
+	@echo "  make release-dry-run - Test GoReleaser (no publish)"
+	@echo "  make release-check   - Validate GoReleaser config"
+	@echo "  make changelog       - Show unreleased changes"
 	@echo "  make generate        - Generate code (sqlc, mocks)"
 	@echo "  make openapi-validate - Validate OpenAPI spec"
 
@@ -117,3 +120,21 @@ REGISTRY ?= ghcr.io/$(shell git config --get remote.origin.url | sed 's/.*github
 docker-push:
 	docker tag $(IMAGE_NAME):$(IMAGE_TAG) $(REGISTRY)/$(IMAGE_NAME):$(IMAGE_TAG)
 	docker push $(REGISTRY)/$(IMAGE_NAME):$(IMAGE_TAG)
+
+# =============================================================================
+# Release
+# =============================================================================
+
+.PHONY: release-dry-run
+release-dry-run:
+	@command -v goreleaser > /dev/null 2>&1 || { echo "goreleaser not installed. Run: go install github.com/goreleaser/goreleaser/v2@latest"; exit 1; }
+	goreleaser release --snapshot --clean --skip=publish
+
+.PHONY: release-check
+release-check:
+	@command -v goreleaser > /dev/null 2>&1 || { echo "goreleaser not installed. Run: go install github.com/goreleaser/goreleaser/v2@latest"; exit 1; }
+	goreleaser check
+
+.PHONY: changelog
+changelog:
+	@git log $$(git describe --tags --abbrev=0 2>/dev/null || echo "")..HEAD --oneline
