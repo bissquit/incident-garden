@@ -119,9 +119,9 @@ func (a *App) setupRouter() *chi.Mux {
 		http.ServeFile(w, r, "api/openapi/openapi.yaml")
 	})
 
-	r.Get("/docs", func(w http.ResponseWriter, r *http.Request) {
+	r.Get("/docs", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		w.Write([]byte(`<!DOCTYPE html>
+		_, _ = w.Write([]byte(`<!DOCTYPE html>
 <html>
 <head>
     <title>StatusPage API</title>
