@@ -37,5 +37,8 @@ temp/
 # Air
 tmp/
 
+# GoReleaser
+dist/
+
 # other
 .claude

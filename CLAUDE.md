@@ -697,6 +697,137 @@ A feature is considered complete when:
 
 ---
 
+## 📝 Go Code Style & Linter Requirements
+
+### golangci-lint Configuration
+The project uses `.golangci.yml` with strict linting rules. **ALWAYS** follow these requirements when writing Go code:
+
+#### 1. Package Comments (Required)
+Every package MUST have a package-level comment:
+```go
+// Package version contains build version information.
+package version
+
+// Package catalog provides service and group management functionality.
+package catalog
+```
+
+#### 2. Exported Symbols Comments (Required)
+ALL exported types, functions, constants, and variables MUST have comments:
+```go
+// User represents a system user with authentication credentials.
+type User struct {
+    ID    int64
+    Email string
+}
+
+// NewService creates a new catalog service instance.
+func NewService(repo Repository) *Service {
+    return &Service{repo: repo}
+}
+
+// Version is the current application version.
+// This value is updated automatically by Release Please.
+var Version = "0.0.0"
+
+// MaxRetries defines the maximum number of retry attempts.
+const MaxRetries = 3
+```
+
+#### 3. Error Handling (Required)
+- NEVER ignore errors
+- Always check and wrap errors with context
+```go
+// ✅ Good
+if err := db.Ping(ctx); err != nil {
+    return fmt.Errorf("ping database: %w", err)
+}
+
+// ❌ Bad
+_ = db.Ping(ctx)
+```
+
+#### 4. Context Usage
+- Always pass `context.Context` as first parameter
+- Use `context.Background()` only at top level
+```go
+// ✅ Good
+func (s *Service) GetUser(ctx context.Context, id int64) (*User, error)
+
+// ❌ Bad
+func (s *Service) GetUser(id int64) (*User, error)
+```
+
+#### 5. Naming Conventions
+- Use `camelCase` for unexported, `PascalCase` for exported
+- Avoid stuttering: `user.UserService` → `user.Service`
+- Use meaningful names: `ctx` (context), `err` (error), `i` (index only in loops)
+
+#### 6. Common Linter Errors to Avoid
+
+**revive: package-comments**
+```go
+// ❌ Missing package comment
+package mypackage
+
+// ✅ With package comment
+// Package mypackage provides functionality for X.
+package mypackage
+```
+
+**revive: exported**
+```go
+// ❌ Exported without comment
+var Version = "0.0.0"
+
+// ✅ Exported with comment
+// Version is the current application version.
+var Version = "0.0.0"
+```
+
+**errcheck: unchecked error**
+```go
+// ❌ Ignored error
+rows.Close()
+
+// ✅ Checked error
+defer func() {
+    if err := rows.Close(); err != nil {
+        log.Error("close rows", "error", err)
+    }
+}()
+```
+
+**staticcheck: unused**
+```go
+// ❌ Unused variable
+func foo() {
+    x := 1
+    return
+}
+
+// ✅ Remove or use it
+func foo() {
+    return
+}
+```
+
+### Running Linters Locally
+```bash
+# Before committing ALWAYS run:
+make lint
+
+# Fix common issues automatically:
+golangci-lint run --fix
+```
+
+### CI/CD Integration
+- Linters run automatically on every PR
+- **Zero tolerance**: PR cannot be merged with linter errors
+- Fix all issues before pushing
+
+---
+
 ## ⚠️ Anti-patterns (what NOT to do)
 
 1. **Don't use ORM** (GORM and similar) — use pgx
@@ -706,3 +837,5 @@ A feature is considered complete when:
 5. **Don't write business logic in handlers** — handlers for I/O only
 6. **Don't make circular dependencies** between modules
 7. **Don't add features without tests** — test coverage for new code
+8. **Don't skip linter checks** — always run `make lint` before committing
+9. **Don't commit without package/export comments** — linters will fail in CI

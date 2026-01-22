@@ -35,11 +35,16 @@ cd incident-management
 # Show available commands
 make help
 
-# Run with docker-compose
-make docker-up
+# Option 1: Full stack with Docker (PostgreSQL + migrations + app)
+make docker-build    # Build image
+make docker-up       # Start stack
 
-# Run in development mode (with hot-reload)
-make dev
+# Option 2: Only PostgreSQL with Docker, app locally
+make docker-postgres # Start only PostgreSQL
+make dev             # Run app with hot-reload
+
+# View logs
+make docker-logs
 ```
 
 ## Project Structure
@@ -79,6 +84,78 @@ make migrate-up                       # Apply migrations
 make migrate-down                     # Rollback migration
 make migrate-create NAME=add_users    # Create new migration
 ```
+
+## 🐳 Docker
+
+### Quick Start
+
+1. Copy `.env.example` to `.env` and configure:
+```bash
+cp .env.example .env
+# Edit .env - IMPORTANT: change JWT_SECRET_KEY and POSTGRES_PASSWORD
+# Set POSTGRES_PORT if needed (default: 5442)
+```
+
+2. Build and start:
+```bash
+make docker-build    # Build image
+make docker-up       # Start full stack (PostgreSQL + migrations + app)
+```
+
+3. Verify:
+```bash
+# Health check
+curl http://localhost:8080/healthz
+
+# API
+curl http://localhost:8080/api/v1/status
+
+# View logs
+make docker-logs
+```
+
+### Docker Commands
+
+```bash
+# Full stack
+make docker-build    # Build Docker image
+make docker-up       # Start full stack (PostgreSQL + migrations + app)
+make docker-down     # Stop full stack
+make docker-logs     # Show logs
+make docker-ps       # Show container status
+make docker-restart  # Restart application
+
+# PostgreSQL only (for local development)
+make docker-postgres # Start only PostgreSQL on POSTGRES_PORT (default: 5442)
+
+# Registry
+make docker-push     # Push image to GitHub Container Registry
+```
+
+### Using Pre-built Image
+
+Pull from GitHub Container Registry:
+```bash
+docker pull ghcr.io/bissquit/incident-management:latest
+```
+
+Or specify in `.env`:
+```bash
+IMAGE_NAME=ghcr.io/bissquit/incident-management
+IMAGE_TAG=v1.0.0
+```
+
+### Configuration
+
+Environment variables in `.env`:
+- `POSTGRES_PORT` - PostgreSQL host port (default: 5442)
+- `APP_PORT` - Application host port (default: 8080)
+- `IMAGE_NAME` - Docker image name (default: statuspage)
+- `IMAGE_TAG` - Docker image tag (default: latest)
+- `JWT_SECRET_KEY` - **Required**, min 32 characters
+- `POSTGRES_PASSWORD` - **Change in production**
+
+**Note:** All Docker Compose commands explicitly use `.env` file from project root via `--env-file .env` flag.
 
 ## Documentation
 

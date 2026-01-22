@@ -1,0 +1,131 @@
+version: 2
+
+project_name: statuspage
+
+before:
+  hooks:
+    - go mod tidy
+    - go mod verify
+
+builds:
+  - id: statuspage
+    main: ./cmd/statuspage
+    binary: statuspage
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/bissquit/incident-management/internal/version.Version={{.Version}}
+      - -X github.com/bissquit/incident-management/internal/version.GitCommit={{.Commit}}
+      - -X github.com/bissquit/incident-management/internal/version.BuildDate={{.Date}}
+
+archives:
+  - id: default
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- .Os }}_
+      {{- .Arch }}
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    files:
+      - README.md
+      - LICENSE*
+      - migrations/*
+      - api/openapi/*
+
+dockers:
+  - id: amd64
+    goos: linux
+    goarch: amd64
+    image_templates:
+      - "ghcr.io/bissquit/incident-management:{{ .Version }}-amd64"
+      - "ghcr.io/bissquit/incident-management:latest-amd64"
+    dockerfile: deployments/docker/Dockerfile.goreleaser
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.title={{ .ProjectName }}"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+      - "--label=org.opencontainers.image.source={{ .GitURL }}"
+      - "--label=org.opencontainers.image.revision={{ .FullCommit }}"
+      - "--label=org.opencontainers.image.created={{ .Date }}"
+    extra_files:
+      - migrations
+      - api
+
+  - id: arm64
+    goos: linux
+    goarch: arm64
+    image_templates:
+      - "ghcr.io/bissquit/incident-management:{{ .Version }}-arm64"
+      - "ghcr.io/bissquit/incident-management:latest-arm64"
+    dockerfile: deployments/docker/Dockerfile.goreleaser
+    use: buildx
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--label=org.opencontainers.image.title={{ .ProjectName }}"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+      - "--label=org.opencontainers.image.source={{ .GitURL }}"
+      - "--label=org.opencontainers.image.revision={{ .FullCommit }}"
+      - "--label=org.opencontainers.image.created={{ .Date }}"
+    extra_files:
+      - migrations
+      - api
+
+docker_manifests:
+  - name_template: "ghcr.io/bissquit/incident-management:{{ .Version }}"
+    image_templates:
+      - "ghcr.io/bissquit/incident-management:{{ .Version }}-amd64"
+      - "ghcr.io/bissquit/incident-management:{{ .Version }}-arm64"
+
+  - name_template: "ghcr.io/bissquit/incident-management:latest"
+    image_templates:
+      - "ghcr.io/bissquit/incident-management:latest-amd64"
+      - "ghcr.io/bissquit/incident-management:latest-arm64"
+
+checksum:
+  name_template: 'checksums.txt'
+  algorithm: sha256
+
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+      - '^ci:'
+      - Merge pull request
+      - Merge branch
+
+release:
+  github:
+    owner: bissquit
+    name: incident-management
+  draft: false
+  prerelease: auto
+  mode: replace
+  header: |
+    ## StatusPage {{ .Version }}
+    
+    ### Docker
+    ```bash
+    docker pull ghcr.io/bissquit/incident-management:{{ .Version }}
+    ```
+  footer: |
+    **Full Changelog**: https://github.com/bissquit/incident-management/compare/{{ .PreviousTag }}...{{ .Tag }}
+
+announce:
+  skip: true
