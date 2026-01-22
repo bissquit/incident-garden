@@ -1,4 +1,4 @@
-# IncidentGarden
+# :deciduous_tree: IncidentGarden
 
 Hi, dude! You're reading the only paragraph written by a human. The rest is created by AI, even a name of the project.
 
