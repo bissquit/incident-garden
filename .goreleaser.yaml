@@ -99,16 +99,7 @@ checksum:
   algorithm: sha256
 
 changelog:
-  use: github
-  sort: asc
-  filters:
-    exclude:
-      - '^docs:'
-      - '^test:'
-      - '^chore:'
-      - '^ci:'
-      - Merge pull request
-      - Merge branch
+  disable: true
 
 release:
   github:
@@ -116,15 +107,14 @@ release:
     name: incident-garden
   draft: false
   prerelease: auto
-  mode: replace
+  mode: append
   header: |
-    ## StatusPage {{ .Version }}
-    
-    ### Docker
+    ## Docker Images
     ```bash
     docker pull ghcr.io/bissquit/incident-garden:{{ .Version }}
     ```
   footer: |
+    ---
     **Full Changelog**: https://github.com/bissquit/incident-garden/compare/{{ .PreviousTag }}...{{ .Tag }}
 
 announce:
