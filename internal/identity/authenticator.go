@@ -4,7 +4,7 @@ package identity
 import (
 	"context"
 
-	"github.com/bissquit/incident-management/internal/domain"
+	"github.com/bissquit/incident-garden/internal/domain"
 )
 
 // TokenPair contains access and refresh tokens.

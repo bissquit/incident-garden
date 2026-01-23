@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/bissquit/incident-management/internal/domain"
+	"github.com/bissquit/incident-garden/internal/domain"
 )
 
 // Catalog service errors.

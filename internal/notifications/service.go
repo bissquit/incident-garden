@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/bissquit/incident-management/internal/domain"
+	"github.com/bissquit/incident-garden/internal/domain"
 )
 
 // Service errors.

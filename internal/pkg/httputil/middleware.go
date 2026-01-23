@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/bissquit/incident-management/internal/domain"
+	"github.com/bissquit/incident-garden/internal/domain"
 )
 
 type contextKey string

@@ -6,7 +6,7 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/bissquit/incident-management/internal/domain"
+	"github.com/bissquit/incident-garden/internal/domain"
 )
 
 // TemplateRenderer renders Go templates for events.

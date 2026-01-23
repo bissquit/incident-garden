@@ -1,4 +1,4 @@
-module github.com/bissquit/incident-management
+module github.com/bissquit/incident-garden
 
 go 1.25.0
 

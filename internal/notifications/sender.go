@@ -3,7 +3,7 @@ package notifications
 import (
 	"context"
 
-	"github.com/bissquit/incident-management/internal/domain"
+	"github.com/bissquit/incident-garden/internal/domain"
 )
 
 // Notification represents a notification to be sent.

@@ -9,8 +9,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/bissquit/incident-management/internal/domain"
-	"github.com/bissquit/incident-management/internal/identity"
+	"github.com/bissquit/incident-garden/internal/domain"
+	"github.com/bissquit/incident-garden/internal/identity"
 	"github.com/golang-jwt/jwt/v5"
 )
 

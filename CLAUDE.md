@@ -1,4 +1,4 @@
-# CLAUDE.md — StatusPage Service
+# CLAUDE.md — IncidentGarden
 
 ## 🎯 Project Goal
 
@@ -35,7 +35,7 @@ An open-source self-hosted status page service for displaying service states and
 ### File Structure
 
 ```
-incident-management/
+incident-garden/
 ├── cmd/statuspage/main.go           # Entry point
 ├── internal/
 │   ├── app/app.go                   # DI, routing, lifecycle
@@ -611,22 +611,39 @@ make test-integration   # Integration tests (with testcontainers)
 
 **Tasks:**
 - [x] .github/workflows/ci.yml — lint, test, integration-test, build
-- [ ] .github/workflows/release.yml — Docker image build, push to registry
-- [ ] Dockerfile (multi-stage)
+- [x] .github/workflows/release-please.yml — automated releases with Release Please
+- [x] .github/workflows/release.yml — GoReleaser with Docker images
+- [x] Dockerfile (multi-stage) — deployments/docker/Dockerfile
+- [x] Docker Compose — local development and production setup
+- [x] GoReleaser config — multi-arch Docker images (amd64, arm64)
+- [x] GitHub Container Registry integration
 
 ---
 
-### Stage 8: Helm Chart 🔜
+### Stage 8: OpenAPI Specification ✅
+**Goal:** API documentation and contract
+
+**Tasks:**
+- [x] api/openapi/openapi.yaml — complete OpenAPI 3.0 specification
+- [x] All endpoints documented with request/response schemas
+- [x] Authentication and authorization documented
+- [x] Error responses documented
+
+---
+
+### Stage 9: Helm Chart 🔜
 **Goal:** Kubernetes deployment
 
 **Tasks:**
-- [ ] deployments/helm/statuspage/ — chart
+- [ ] deployments/helm/statuspage/ — chart templates
+- [ ] Chart.yaml and values.yaml
 - [ ] Configurable values (replicas, resources, ingress)
 - [ ] Deployment README
+- [ ] PostgreSQL dependency configuration
 
 ---
 
-### Stage 9 (future): OIDC/Keycloak Integration
+### Stage 10 (future): OIDC/Keycloak Integration
 **Goal:** SSO via external Identity Provider
 
 **Tasks:**
@@ -646,6 +663,7 @@ A feature is considered complete when:
 - [x] OpenAPI specification is updated
 - [x] Linters pass without errors
 - [x] CI passes
+- [x] Docker image builds and publishes successfully
 
 ---
 
@@ -684,9 +702,7 @@ A feature is considered complete when:
 - No channel verification
 
 ### Missing
-- OpenAPI specification (api/openapi/openapi.yaml)
-- Dockerfile
-- Helm chart
+- Helm chart (in progress, directory exists)
 - Prometheus metrics
 - Pagination in lists
 

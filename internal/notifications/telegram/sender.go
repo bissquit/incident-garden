@@ -5,8 +5,8 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/bissquit/incident-management/internal/domain"
-	"github.com/bissquit/incident-management/internal/notifications"
+	"github.com/bissquit/incident-garden/internal/domain"
+	"github.com/bissquit/incident-garden/internal/notifications"
 )
 
 // Config holds telegram sender configuration.

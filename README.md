@@ -1,10 +1,10 @@
-# StatusPage Service
+# :deciduous_tree: IncidentGarden
 
-An open-source self-hosted status page service for displaying service states and managing incidents.
+Hi, dude! You're reading the only paragraph written by a human. The rest is created by AI, even a name of the project.
 
 ## About the Project
 
-StatusPage is a simple and lightweight cloud-native service for managing status pages and incidents. An alternative to Atlassian Statuspage, Cachet, and Instatus, but with a focus on simplicity and self-hosting.
+IncidentGarden is a simple and lightweight cloud-native service for managing status pages and incidents. An alternative to Atlassian Statuspage, Cachet, and Instatus, but with a focus on simplicity and self-hosting.
 
 ### Key Features
 
@@ -25,8 +25,8 @@ StatusPage is a simple and lightweight cloud-native service for managing status 
 ### Installation
 
 ```bash
-git clone https://github.com/bissquit/incident-management.git
-cd incident-management
+git clone https://github.com/bissquit/incident-garden.git
+cd incident-garden
 ```
 
 ### Local Development
@@ -136,12 +136,12 @@ make docker-push     # Push image to GitHub Container Registry
 
 Pull from GitHub Container Registry:
 ```bash
-docker pull ghcr.io/bissquit/incident-management:latest
+docker pull ghcr.io/bissquit/incident-garden:latest
 ```
 
 Or specify in `.env`:
 ```bash
-IMAGE_NAME=ghcr.io/bissquit/incident-management
+IMAGE_NAME=ghcr.io/bissquit/incident-garden
 IMAGE_TAG=v1.0.0
 ```
 

@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bissquit/incident-management/internal/app"
-	"github.com/bissquit/incident-management/internal/config"
-	"github.com/bissquit/incident-management/internal/testutil"
+	"github.com/bissquit/incident-garden/internal/app"
+	"github.com/bissquit/incident-garden/internal/config"
+	"github.com/bissquit/incident-garden/internal/testutil"
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"

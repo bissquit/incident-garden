@@ -3,7 +3,7 @@ package events
 import (
 	"testing"
 
-	"github.com/bissquit/incident-management/internal/domain"
+	"github.com/bissquit/incident-garden/internal/domain"
 )
 
 func TestEventStatus_IsValidForType(t *testing.T) {

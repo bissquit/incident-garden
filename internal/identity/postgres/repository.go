@@ -6,8 +6,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/bissquit/incident-management/internal/domain"
-	"github.com/bissquit/incident-management/internal/identity"
+	"github.com/bissquit/incident-garden/internal/domain"
+	"github.com/bissquit/incident-garden/internal/identity"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )

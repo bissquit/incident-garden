@@ -4,7 +4,7 @@ package notifications
 import (
 	"context"
 
-	"github.com/bissquit/incident-management/internal/domain"
+	"github.com/bissquit/incident-garden/internal/domain"
 )
 
 // Repository defines the interface for notifications data access.

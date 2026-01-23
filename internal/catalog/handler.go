@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/bissquit/incident-management/internal/domain"
+	"github.com/bissquit/incident-garden/internal/domain"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-playground/validator/v10"
 )

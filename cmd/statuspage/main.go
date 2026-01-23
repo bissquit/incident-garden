@@ -9,8 +9,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/bissquit/incident-management/internal/app"
-	"github.com/bissquit/incident-management/internal/config"
+	"github.com/bissquit/incident-garden/internal/app"
+	"github.com/bissquit/incident-garden/internal/config"
 )
 
 func main() {

@@ -3,7 +3,7 @@ package catalog
 import (
 	"context"
 
-	"github.com/bissquit/incident-management/internal/domain"
+	"github.com/bissquit/incident-garden/internal/domain"
 )
 
 // Repository defines the interface for catalog data operations.
