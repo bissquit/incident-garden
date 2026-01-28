@@ -142,7 +142,7 @@ func (r *Repository) ListEvents(ctx context.Context, filters events.EventFilters
 	}
 	defer rows.Close()
 
-	var eventsList []*domain.Event
+	eventsList := make([]*domain.Event, 0)
 	for rows.Next() {
 		var event domain.Event
 		err := rows.Scan(
@@ -258,7 +258,7 @@ func (r *Repository) ListEventUpdates(ctx context.Context, eventID string) ([]*d
 	}
 	defer rows.Close()
 
-	var updates []*domain.EventUpdate
+	updates := make([]*domain.EventUpdate, 0)
 	for rows.Next() {
 		var update domain.EventUpdate
 		err := rows.Scan(
@@ -366,7 +366,7 @@ func (r *Repository) ListTemplates(ctx context.Context) ([]*domain.EventTemplate
 	}
 	defer rows.Close()
 
-	var templates []*domain.EventTemplate
+	templates := make([]*domain.EventTemplate, 0)
 	for rows.Next() {
 		var template domain.EventTemplate
 		err := rows.Scan(
@@ -457,7 +457,7 @@ func (r *Repository) GetEventServices(ctx context.Context, eventID string) ([]st
 	}
 	defer rows.Close()
 
-	var serviceIDs []string
+	serviceIDs := make([]string, 0)
 	for rows.Next() {
 		var serviceID string
 		if err := rows.Scan(&serviceID); err != nil {

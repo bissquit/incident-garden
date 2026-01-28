@@ -79,7 +79,7 @@ func (r *Repository) ListUserChannels(ctx context.Context, userID string) ([]dom
 	}
 	defer rows.Close()
 
-	var channels []domain.NotificationChannel
+	channels := make([]domain.NotificationChannel, 0)
 	for rows.Next() {
 		var channel domain.NotificationChannel
 		err := rows.Scan(
@@ -199,7 +199,7 @@ func (r *Repository) getSubscriptionServices(ctx context.Context, subscriptionID
 	}
 	defer rows.Close()
 
-	var serviceIDs []string
+	serviceIDs := make([]string, 0)
 	for rows.Next() {
 		var serviceID string
 		if err := rows.Scan(&serviceID); err != nil {
@@ -274,7 +274,7 @@ func (r *Repository) GetSubscribersForServices(ctx context.Context, serviceIDs [
 	}
 	defer rows.Close()
 
-	var subscribers []notifications.SubscriberInfo
+	subscribers := make([]notifications.SubscriberInfo, 0)
 	for rows.Next() {
 		var sub notifications.SubscriberInfo
 		if err := rows.Scan(&sub.UserID, &sub.Email); err != nil {
@@ -308,7 +308,7 @@ func (r *Repository) getEnabledVerifiedChannels(ctx context.Context, userID stri
 	}
 	defer rows.Close()
 
-	var channels []domain.NotificationChannel
+	channels := make([]domain.NotificationChannel, 0)
 	for rows.Next() {
 		var channel domain.NotificationChannel
 		err := rows.Scan(

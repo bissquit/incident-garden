@@ -110,7 +110,7 @@ func (r *Repository) ListGroups(ctx context.Context) ([]domain.ServiceGroup, err
 	}
 	defer rows.Close()
 
-	var groups []domain.ServiceGroup
+	groups := make([]domain.ServiceGroup, 0)
 	for rows.Next() {
 		var group domain.ServiceGroup
 		err := rows.Scan(
@@ -269,7 +269,7 @@ func (r *Repository) ListServices(ctx context.Context, filter catalog.ServiceFil
 	}
 	defer rows.Close()
 
-	var services []domain.Service
+	services := make([]domain.Service, 0)
 	for rows.Next() {
 		var service domain.Service
 		err := rows.Scan(
@@ -390,7 +390,7 @@ func (r *Repository) GetServiceTags(ctx context.Context, serviceID string) ([]do
 	}
 	defer rows.Close()
 
-	var tags []domain.ServiceTag
+	tags := make([]domain.ServiceTag, 0)
 	for rows.Next() {
 		var tag domain.ServiceTag
 		err := rows.Scan(&tag.ID, &tag.ServiceID, &tag.Key, &tag.Value)

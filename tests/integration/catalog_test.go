@@ -3,6 +3,7 @@
 package integration
 
 import (
+	"encoding/json"
 	"net/http"
 	"testing"
 
@@ -172,4 +173,51 @@ func TestCatalog_DuplicateSlug(t *testing.T) {
 	resp.Body.Close()
 
 	client.DELETE("/api/v1/services/" + slug)
+}
+
+func TestCatalog_EmptyList_ReturnsEmptyArray(t *testing.T) {
+	// This test verifies that list endpoints return empty arrays [] instead of null
+	// when no data exists. This is important for API consistency and type safety.
+
+	client := testutil.NewClient(testClient.BaseURL)
+	client.LoginAsAdmin(t)
+
+	// First, clean up any existing services by deleting them
+	resp, err := client.GET("/api/v1/services")
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var listResult struct {
+		Data []struct {
+			Slug string `json:"slug"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &listResult)
+
+	// Delete all existing services
+	for _, svc := range listResult.Data {
+		resp, err := client.DELETE("/api/v1/services/" + svc.Slug)
+		require.NoError(t, err)
+		resp.Body.Close()
+	}
+
+	// Now verify that the empty list returns [] not null
+	resp, err = client.GET("/api/v1/services")
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	// Parse the raw JSON to verify it's an empty array, not null
+	var rawResponse map[string]json.RawMessage
+	err = json.NewDecoder(resp.Body).Decode(&rawResponse)
+	require.NoError(t, err)
+	resp.Body.Close()
+
+	dataRaw := rawResponse["data"]
+	require.NotNil(t, dataRaw, "response should have 'data' field")
+
+	// Check that data is an empty array [], not null
+	// null in JSON is represented as "null" string
+	// empty array is represented as "[]"
+	dataStr := string(dataRaw)
+	assert.Equal(t, "[]", dataStr, "empty list should return [] not null")
 }

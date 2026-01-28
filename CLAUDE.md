@@ -779,7 +779,29 @@ func (s *Service) GetUser(id int64) (*User, error)
 - Avoid stuttering: `user.UserService` → `user.Service`
 - Use meaningful names: `ctx` (context), `err` (error), `i` (index only in loops)
 
-#### 6. Common Linter Errors to Avoid
+#### 6. Slice Initialization for JSON Responses (Required)
+When returning slices in list endpoints, ALWAYS use `make([]T, 0)` instead of `var slice []T` to ensure empty arrays serialize to `[]` instead of `null`:
+```go
+// ✅ Good - returns {"data":[]} when empty
+func (r *Repository) ListItems(ctx context.Context) ([]Item, error) {
+    items := make([]Item, 0)  // Initialize as empty slice
+    // ... query and append ...
+    return items, nil
+}
+
+// ❌ Bad - returns {"data":null} when empty
+func (r *Repository) ListItems(ctx context.Context) ([]Item, error) {
+    var items []Item  // nil slice
+    // ... query and append ...
+    return items, nil
+}
+```
+This is important for:
+- **API contract consistency**: OpenAPI defines `data` as array, not nullable
+- **Type safety**: Clients shouldn't handle two different "empty" states
+- **Frontend compatibility**: `null` and `[]` are different types in JavaScript/TypeScript
+
+#### 7. Common Linter Errors to Avoid
 
 **revive: package-comments**
 ```go
