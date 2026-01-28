@@ -4,6 +4,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/knadh/koanf/parsers/yaml"
@@ -18,6 +19,12 @@ type Config struct {
 	Database DatabaseConfig
 	Log      LogConfig
 	JWT      JWTConfig
+	CORS     CORSConfig
+}
+
+// CORSConfig contains CORS settings.
+type CORSConfig struct {
+	AllowedOrigins []string
 }
 
 // ServerConfig contains HTTP server settings.
@@ -85,6 +92,9 @@ func Load() (*Config, error) {
 			AccessTokenDuration:  k.Duration("JWT_ACCESS_TOKEN_DURATION"),
 			RefreshTokenDuration: k.Duration("JWT_REFRESH_TOKEN_DURATION"),
 		},
+		CORS: CORSConfig{
+			AllowedOrigins: parseOrigins(k.String("CORS_ALLOWED_ORIGINS")),
+		},
 	}
 
 	setDefaults(cfg)
@@ -135,4 +145,23 @@ func setDefaults(cfg *Config) {
 	if cfg.JWT.RefreshTokenDuration == 0 {
 		cfg.JWT.RefreshTokenDuration = 168 * time.Hour
 	}
+
+	if len(cfg.CORS.AllowedOrigins) == 0 {
+		cfg.CORS.AllowedOrigins = []string{"http://localhost:3000"}
+	}
+}
+
+func parseOrigins(origins string) []string {
+	if origins == "" {
+		return nil
+	}
+	parts := strings.Split(origins, ",")
+	result := make([]string, 0, len(parts))
+	for _, p := range parts {
+		trimmed := strings.TrimSpace(p)
+		if trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	return result
 }

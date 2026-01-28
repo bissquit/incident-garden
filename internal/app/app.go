@@ -105,6 +105,8 @@ func (a *App) Router() http.Handler {
 func (a *App) setupRouter() *chi.Mux {
 	r := chi.NewRouter()
 
+	// CORS must be first to handle preflight requests before other middleware
+	r.Use(httputil.CORSMiddleware(a.config.CORS.AllowedOrigins))
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Logger)
