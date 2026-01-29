@@ -1106,10 +1106,11 @@ components:
           type: string
         status:
           $ref: '#/components/schemas/ServiceStatus'
-        group_id:
-          type: string
-          format: uuid
-          nullable: true
+        group_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
         order:
           type: integer
         created_at:
@@ -1123,6 +1124,7 @@ components:
         - name
         - slug
         - status
+        - group_ids
         - order
         - created_at
         - updated_at
@@ -1403,10 +1405,11 @@ components:
           type: string
         status:
           $ref: '#/components/schemas/ServiceStatus'
-        group_id:
-          type: string
-          format: uuid
-          nullable: true
+        group_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
         order:
           type: integer
           default: 0
@@ -1434,10 +1437,11 @@ components:
           type: string
         status:
           $ref: '#/components/schemas/ServiceStatus'
-        group_id:
-          type: string
-          format: uuid
-          nullable: true
+        group_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
         order:
           type: integer
       required:

@@ -130,21 +130,22 @@ func TestCatalog_Service_WithGroup(t *testing.T) {
 
 	serviceSlug := testutil.RandomSlug("service")
 	resp, err = client.POST("/api/v1/services", map[string]interface{}{
-		"name":     "Service in Group",
-		"slug":     serviceSlug,
-		"group_id": groupID,
+		"name":      "Service in Group",
+		"slug":      serviceSlug,
+		"group_ids": []string{groupID},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusCreated, resp.StatusCode)
 
 	var serviceResult struct {
 		Data struct {
-			GroupID *string `json:"group_id"`
+			GroupIDs []string `json:"group_ids"`
 		} `json:"data"`
 	}
 	testutil.DecodeJSON(t, resp, &serviceResult)
-	require.NotNil(t, serviceResult.Data.GroupID)
-	assert.Equal(t, groupID, *serviceResult.Data.GroupID)
+	require.NotNil(t, serviceResult.Data.GroupIDs)
+	require.Len(t, serviceResult.Data.GroupIDs, 1)
+	assert.Equal(t, groupID, serviceResult.Data.GroupIDs[0])
 
 	client.DELETE("/api/v1/services/" + serviceSlug)
 	client.DELETE("/api/v1/groups/" + groupSlug)

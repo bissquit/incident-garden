@@ -8,7 +8,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-statuspage}
       POSTGRES_DB: ${POSTGRES_DB:-statuspage}
     ports:
-      - "${POSTGRES_PORT:-5442}:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -29,7 +29,7 @@ services:
       - ../../migrations:/migrations:ro
     command: [
       "-path", "/migrations",
-      "-database", "postgresql://${POSTGRES_USER:-statuspage}:${POSTGRES_PASSWORD:-statuspage}@postgres:${POSTGRES_PORT:-5442}/${POSTGRES_DB:-statuspage}?sslmode=disable",
+      "-database", "postgresql://${POSTGRES_USER:-statuspage}:${POSTGRES_PASSWORD:-statuspage}@postgres:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-statuspage}?sslmode=disable",
       "up"
     ]
     networks:
@@ -47,7 +47,7 @@ services:
     ports:
       - "${APP_PORT:-8080}:8080"
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-statuspage}:${POSTGRES_PASSWORD:-statuspage}@postgres:${POSTGRES_PORT:-5442}/${POSTGRES_DB:-statuspage}?sslmode=disable
+      DATABASE_URL: postgresql://${POSTGRES_USER:-statuspage}:${POSTGRES_PASSWORD:-statuspage}@postgres:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-statuspage}?sslmode=disable
       SERVER_HOST: 0.0.0.0
       SERVER_PORT: 8080
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY is required}

@@ -21,7 +21,7 @@ type Service struct {
 	Slug        string        `json:"slug"`
 	Description string        `json:"description"`
 	Status      ServiceStatus `json:"status"`
-	GroupID     *string       `json:"group_id,omitempty"`
+	GroupIDs    []string      `json:"group_ids"`
 	Order       int           `json:"order"`
 	CreatedAt   time.Time     `json:"created_at"`
 	UpdatedAt   time.Time     `json:"updated_at"`

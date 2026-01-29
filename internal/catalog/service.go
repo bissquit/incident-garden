@@ -109,7 +109,18 @@ func (s *Service) CreateService(ctx context.Context, service *domain.Service) er
 		service.Status = domain.ServiceStatusOperational
 	}
 
-	return s.repo.CreateService(ctx, service)
+	if err := s.repo.CreateService(ctx, service); err != nil {
+		return err
+	}
+
+	// Set service groups if provided
+	if len(service.GroupIDs) > 0 {
+		if err := s.repo.SetServiceGroups(ctx, service.ID, service.GroupIDs); err != nil {
+			return fmt.Errorf("set service groups: %w", err)
+		}
+	}
+
+	return nil
 }
 
 // GetServiceBySlug returns a service by its slug.
@@ -148,7 +159,16 @@ func (s *Service) UpdateService(ctx context.Context, service *domain.Service) er
 		}
 	}
 
-	return s.repo.UpdateService(ctx, service)
+	if err := s.repo.UpdateService(ctx, service); err != nil {
+		return err
+	}
+
+	// Update service groups
+	if err := s.repo.SetServiceGroups(ctx, service.ID, service.GroupIDs); err != nil {
+		return fmt.Errorf("set service groups: %w", err)
+	}
+
+	return nil
 }
 
 // DeleteService deletes a service.
@@ -178,6 +198,11 @@ func (s *Service) UpdateServiceTags(ctx context.Context, serviceID string, tagsM
 // GetServiceTags returns all tags for a service.
 func (s *Service) GetServiceTags(ctx context.Context, serviceID string) ([]domain.ServiceTag, error) {
 	return s.repo.GetServiceTags(ctx, serviceID)
+}
+
+// GetGroupServices returns all service IDs in a group.
+func (s *Service) GetGroupServices(ctx context.Context, groupID string) ([]string, error) {
+	return s.repo.GetGroupServices(ctx, groupID)
 }
 
 func validateSlug(slug string) error {

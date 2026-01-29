@@ -24,6 +24,10 @@ type Repository interface {
 
 	SetServiceTags(ctx context.Context, serviceID string, tags []domain.ServiceTag) error
 	GetServiceTags(ctx context.Context, serviceID string) ([]domain.ServiceTag, error)
+
+	SetServiceGroups(ctx context.Context, serviceID string, groupIDs []string) error
+	GetServiceGroups(ctx context.Context, serviceID string) ([]string, error)
+	GetGroupServices(ctx context.Context, groupID string) ([]string, error)
 }
 
 // ServiceFilter represents filter criteria for listing services.

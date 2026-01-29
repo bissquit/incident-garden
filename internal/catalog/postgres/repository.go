@@ -177,8 +177,8 @@ func (r *Repository) DeleteGroup(ctx context.Context, id string) error {
 // CreateService creates a new service in the database.
 func (r *Repository) CreateService(ctx context.Context, service *domain.Service) error {
 	query := `
-		INSERT INTO services (name, slug, description, status, group_id, "order")
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO services (name, slug, description, status, "order")
+		VALUES ($1, $2, $3, $4, $5)
 		RETURNING id, created_at, updated_at
 	`
 	err := r.db.QueryRow(ctx, query,
@@ -186,7 +186,6 @@ func (r *Repository) CreateService(ctx context.Context, service *domain.Service)
 		service.Slug,
 		service.Description,
 		service.Status,
-		service.GroupID,
 		service.Order,
 	).Scan(&service.ID, &service.CreatedAt, &service.UpdatedAt)
 
@@ -199,7 +198,7 @@ func (r *Repository) CreateService(ctx context.Context, service *domain.Service)
 // GetServiceBySlug retrieves a service by its slug.
 func (r *Repository) GetServiceBySlug(ctx context.Context, slug string) (*domain.Service, error) {
 	query := `
-		SELECT id, name, slug, description, status, group_id, "order", created_at, updated_at
+		SELECT id, name, slug, description, status, "order", created_at, updated_at
 		FROM services
 		WHERE slug = $1
 	`
@@ -210,7 +209,6 @@ func (r *Repository) GetServiceBySlug(ctx context.Context, slug string) (*domain
 		&service.Slug,
 		&service.Description,
 		&service.Status,
-		&service.GroupID,
 		&service.Order,
 		&service.CreatedAt,
 		&service.UpdatedAt,
@@ -222,13 +220,21 @@ func (r *Repository) GetServiceBySlug(ctx context.Context, slug string) (*domain
 		}
 		return nil, fmt.Errorf("get service by slug: %w", err)
 	}
+
+	// Load groups for the service
+	groupIDs, err := r.GetServiceGroups(ctx, service.ID)
+	if err != nil {
+		return nil, fmt.Errorf("get service groups: %w", err)
+	}
+	service.GroupIDs = groupIDs
+
 	return &service, nil
 }
 
 // GetServiceByID retrieves a service by its ID.
 func (r *Repository) GetServiceByID(ctx context.Context, id string) (*domain.Service, error) {
 	query := `
-		SELECT id, name, slug, description, status, group_id, "order", created_at, updated_at
+		SELECT id, name, slug, description, status, "order", created_at, updated_at
 		FROM services
 		WHERE id = $1
 	`
@@ -239,7 +245,6 @@ func (r *Repository) GetServiceByID(ctx context.Context, id string) (*domain.Ser
 		&service.Slug,
 		&service.Description,
 		&service.Status,
-		&service.GroupID,
 		&service.Order,
 		&service.CreatedAt,
 		&service.UpdatedAt,
@@ -251,19 +256,49 @@ func (r *Repository) GetServiceByID(ctx context.Context, id string) (*domain.Ser
 		}
 		return nil, fmt.Errorf("get service by id: %w", err)
 	}
+
+	// Load groups for the service
+	groupIDs, err := r.GetServiceGroups(ctx, service.ID)
+	if err != nil {
+		return nil, fmt.Errorf("get service groups: %w", err)
+	}
+	service.GroupIDs = groupIDs
+
 	return &service, nil
 }
 
 // ListServices retrieves all services matching the provided filter.
 func (r *Repository) ListServices(ctx context.Context, filter catalog.ServiceFilter) ([]domain.Service, error) {
-	query := `
-		SELECT id, name, slug, description, status, group_id, "order", created_at, updated_at
-		FROM services
-		WHERE ($1::uuid IS NULL OR group_id = $1)
-		  AND ($2::text IS NULL OR status = $2)
-		ORDER BY "order", name
-	`
-	rows, err := r.db.Query(ctx, query, filter.GroupID, filter.Status)
+	var query string
+	var args []interface{}
+
+	if filter.GroupID != nil {
+		// Filter by group using JOIN on service_group_members
+		query = `
+			SELECT DISTINCT s.id, s.name, s.slug, s.description, s.status, s."order", s.created_at, s.updated_at
+			FROM services s
+			JOIN service_group_members sgm ON s.id = sgm.service_id
+			WHERE sgm.group_id = $1
+		`
+		args = append(args, *filter.GroupID)
+
+		if filter.Status != nil {
+			query += " AND s.status = $2"
+			args = append(args, *filter.Status)
+		}
+	} else {
+		// No group filter
+		query = `
+			SELECT id, name, slug, description, status, "order", created_at, updated_at
+			FROM services
+			WHERE ($1::text IS NULL OR status = $1)
+		`
+		args = append(args, filter.Status)
+	}
+
+	query += ` ORDER BY "order", name`
+
+	rows, err := r.db.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list services: %w", err)
 	}
@@ -278,7 +313,6 @@ func (r *Repository) ListServices(ctx context.Context, filter catalog.ServiceFil
 			&service.Slug,
 			&service.Description,
 			&service.Status,
-			&service.GroupID,
 			&service.Order,
 			&service.CreatedAt,
 			&service.UpdatedAt,
@@ -293,6 +327,15 @@ func (r *Repository) ListServices(ctx context.Context, filter catalog.ServiceFil
 		return nil, fmt.Errorf("iterate services: %w", err)
 	}
 
+	// Load groups for each service
+	for i := range services {
+		groupIDs, err := r.GetServiceGroups(ctx, services[i].ID)
+		if err != nil {
+			return nil, fmt.Errorf("get service groups: %w", err)
+		}
+		services[i].GroupIDs = groupIDs
+	}
+
 	return services, nil
 }
 
@@ -300,7 +343,7 @@ func (r *Repository) ListServices(ctx context.Context, filter catalog.ServiceFil
 func (r *Repository) UpdateService(ctx context.Context, service *domain.Service) error {
 	query := `
 		UPDATE services
-		SET name = $2, slug = $3, description = $4, status = $5, group_id = $6, "order" = $7, updated_at = NOW()
+		SET name = $2, slug = $3, description = $4, status = $5, "order" = $6, updated_at = NOW()
 		WHERE id = $1
 		RETURNING updated_at
 	`
@@ -310,7 +353,6 @@ func (r *Repository) UpdateService(ctx context.Context, service *domain.Service)
 		service.Slug,
 		service.Description,
 		service.Status,
-		service.GroupID,
 		service.Order,
 	).Scan(&service.UpdatedAt)
 
@@ -405,4 +447,90 @@ func (r *Repository) GetServiceTags(ctx context.Context, serviceID string) ([]do
 	}
 
 	return tags, nil
+}
+
+// SetServiceGroups replaces all group memberships for a service.
+func (r *Repository) SetServiceGroups(ctx context.Context, serviceID string, groupIDs []string) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer func() {
+		if err := tx.Rollback(ctx); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
+			slog.Error("failed to rollback transaction", "error", err)
+		}
+	}()
+
+	// Delete old group memberships
+	_, err = tx.Exec(ctx, `DELETE FROM service_group_members WHERE service_id = $1`, serviceID)
+	if err != nil {
+		return fmt.Errorf("delete old group memberships: %w", err)
+	}
+
+	// Insert new group memberships
+	for _, groupID := range groupIDs {
+		_, err = tx.Exec(ctx,
+			`INSERT INTO service_group_members (service_id, group_id) VALUES ($1, $2)`,
+			serviceID, groupID)
+		if err != nil {
+			return fmt.Errorf("insert group membership: %w", err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit transaction: %w", err)
+	}
+	return nil
+}
+
+// GetServiceGroups returns all group IDs for a service.
+func (r *Repository) GetServiceGroups(ctx context.Context, serviceID string) ([]string, error) {
+	rows, err := r.db.Query(ctx,
+		`SELECT group_id FROM service_group_members WHERE service_id = $1 ORDER BY group_id`,
+		serviceID)
+	if err != nil {
+		return nil, fmt.Errorf("get service groups: %w", err)
+	}
+	defer rows.Close()
+
+	groupIDs := make([]string, 0)
+	for rows.Next() {
+		var groupID string
+		if err := rows.Scan(&groupID); err != nil {
+			return nil, fmt.Errorf("scan group id: %w", err)
+		}
+		groupIDs = append(groupIDs, groupID)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate group ids: %w", err)
+	}
+
+	return groupIDs, nil
+}
+
+// GetGroupServices returns all service IDs in a group.
+func (r *Repository) GetGroupServices(ctx context.Context, groupID string) ([]string, error) {
+	rows, err := r.db.Query(ctx,
+		`SELECT service_id FROM service_group_members WHERE group_id = $1 ORDER BY service_id`,
+		groupID)
+	if err != nil {
+		return nil, fmt.Errorf("get group services: %w", err)
+	}
+	defer rows.Close()
+
+	serviceIDs := make([]string, 0)
+	for rows.Next() {
+		var serviceID string
+		if err := rows.Scan(&serviceID); err != nil {
+			return nil, fmt.Errorf("scan service id: %w", err)
+		}
+		serviceIDs = append(serviceIDs, serviceID)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate service ids: %w", err)
+	}
+
+	return serviceIDs, nil
 }

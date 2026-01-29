@@ -93,7 +93,7 @@ make migrate-create NAME=add_users    # Create new migration
 ```bash
 cp .env.example .env
 # Edit .env - IMPORTANT: change JWT_SECRET_KEY and POSTGRES_PASSWORD
-# Set POSTGRES_PORT if needed (default: 5442)
+# Set POSTGRES_PORT if needed (default: 5432)
 ```
 
 2. Build and start:
@@ -126,7 +126,7 @@ make docker-ps       # Show container status
 make docker-restart  # Restart application
 
 # PostgreSQL only (for local development)
-make docker-postgres # Start only PostgreSQL on POSTGRES_PORT (default: 5442)
+make docker-postgres # Start only PostgreSQL on POSTGRES_PORT (default: 5432)
 
 # Registry
 make docker-push     # Push image to GitHub Container Registry
@@ -148,7 +148,7 @@ IMAGE_TAG=v1.0.0
 ### Configuration
 
 Environment variables in `.env`:
-- `POSTGRES_PORT` - PostgreSQL host port (default: 5442)
+- `POSTGRES_PORT` - PostgreSQL host port (default: 5432)
 - `APP_PORT` - Application host port (default: 8080)
 - `IMAGE_NAME` - Docker image name (default: statuspage)
 - `IMAGE_TAG` - Docker image tag (default: latest)

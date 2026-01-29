@@ -17,39 +17,44 @@ VALUES
 -- ============================================================================
 
 -- Services in Core Platform group
-INSERT INTO services (id, name, slug, description, status, group_id, "order")
+INSERT INTO services (id, name, slug, description, status, "order")
 VALUES
     ('20000000-0000-0000-0000-000000000001', 'API Gateway', 'api-gateway',
-     'Main API gateway handling all incoming requests', 'operational',
-     '10000000-0000-0000-0000-000000000001', 1),
+     'Main API gateway handling all incoming requests', 'operational', 1),
 
     ('20000000-0000-0000-0000-000000000002', 'Authentication Service', 'auth-service',
-     'User authentication and authorization', 'operational',
-     '10000000-0000-0000-0000-000000000001', 2),
+     'User authentication and authorization', 'operational', 2),
 
     ('20000000-0000-0000-0000-000000000003', 'Database Cluster', 'database-cluster',
-     'Primary PostgreSQL database cluster', 'operational',
-     '10000000-0000-0000-0000-000000000001', 3);
+     'Primary PostgreSQL database cluster', 'operational', 3);
 
 -- Services in User-Facing Apps group
-INSERT INTO services (id, name, slug, description, status, group_id, "order")
+INSERT INTO services (id, name, slug, description, status, "order")
 VALUES
     ('20000000-0000-0000-0000-000000000004', 'Web Application', 'web-app',
-     'Main web application interface', 'operational',
-     '10000000-0000-0000-0000-000000000002', 1),
+     'Main web application interface', 'operational', 1),
 
     ('20000000-0000-0000-0000-000000000005', 'Mobile API', 'mobile-api',
-     'API endpoints for mobile applications', 'operational',
-     '10000000-0000-0000-0000-000000000002', 2);
+     'API endpoints for mobile applications', 'operational', 2);
 
 -- Standalone services
-INSERT INTO services (id, name, slug, description, status, group_id, "order")
+INSERT INTO services (id, name, slug, description, status, "order")
 VALUES
     ('20000000-0000-0000-0000-000000000006', 'CDN', 'cdn',
-     'Content Delivery Network for static assets', 'operational', NULL, 1),
+     'Content Delivery Network for static assets', 'operational', 1),
 
     ('20000000-0000-0000-0000-000000000007', 'Payment Gateway', 'payment-gateway',
-     'Third-party payment processing integration', 'operational', NULL, 2);
+     'Third-party payment processing integration', 'operational', 2);
+
+-- Service to Group memberships (M:N relationships)
+INSERT INTO service_group_members (service_id, group_id) VALUES
+    -- Core Platform group
+    ('20000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001'),
+    ('20000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000001'),
+    ('20000000-0000-0000-0000-000000000003', '10000000-0000-0000-0000-000000000001'),
+    -- User-Facing Apps group
+    ('20000000-0000-0000-0000-000000000004', '10000000-0000-0000-0000-000000000002'),
+    ('20000000-0000-0000-0000-000000000005', '10000000-0000-0000-0000-000000000002');
 
 -- ============================================================================
 -- EVENT TEMPLATES

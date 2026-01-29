@@ -79,7 +79,7 @@ type CreateServiceRequest struct {
 	Slug        string            `json:"slug" validate:"required,min=1,max=255"`
 	Description string            `json:"description"`
 	Status      string            `json:"status" validate:"omitempty,oneof=operational degraded partial_outage major_outage maintenance"`
-	GroupID     *string           `json:"group_id"`
+	GroupIDs    []string          `json:"group_ids"`
 	Order       int               `json:"order"`
 	Tags        map[string]string `json:"tags"`
 }
@@ -91,24 +91,29 @@ func (r *CreateServiceRequest) ToDomain() *domain.Service {
 		status = domain.ServiceStatusOperational
 	}
 
+	groupIDs := r.GroupIDs
+	if groupIDs == nil {
+		groupIDs = make([]string, 0)
+	}
+
 	return &domain.Service{
 		Name:        r.Name,
 		Slug:        r.Slug,
 		Description: r.Description,
 		Status:      status,
-		GroupID:     r.GroupID,
+		GroupIDs:    groupIDs,
 		Order:       r.Order,
 	}
 }
 
 // UpdateServiceRequest represents the request body for updating a service.
 type UpdateServiceRequest struct {
-	Name        string  `json:"name" validate:"required,min=1,max=255"`
-	Slug        string  `json:"slug" validate:"required,min=1,max=255"`
-	Description string  `json:"description"`
-	Status      string  `json:"status" validate:"required,oneof=operational degraded partial_outage major_outage maintenance"`
-	GroupID     *string `json:"group_id"`
-	Order       int     `json:"order"`
+	Name        string   `json:"name" validate:"required,min=1,max=255"`
+	Slug        string   `json:"slug" validate:"required,min=1,max=255"`
+	Description string   `json:"description"`
+	Status      string   `json:"status" validate:"required,oneof=operational degraded partial_outage major_outage maintenance"`
+	GroupIDs    []string `json:"group_ids"`
+	Order       int      `json:"order"`
 }
 
 // UpdateServiceTagsRequest represents the request body for updating service tags.
@@ -303,7 +308,10 @@ func (h *Handler) UpdateService(w http.ResponseWriter, r *http.Request) {
 	existing.Slug = req.Slug
 	existing.Description = req.Description
 	existing.Status = domain.ServiceStatus(req.Status)
-	existing.GroupID = req.GroupID
+	existing.GroupIDs = req.GroupIDs
+	if existing.GroupIDs == nil {
+		existing.GroupIDs = make([]string, 0)
+	}
 	existing.Order = req.Order
 
 	if err := h.service.UpdateService(r.Context(), existing); err != nil {
