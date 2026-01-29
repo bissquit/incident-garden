@@ -53,6 +53,7 @@ type Event struct {
 	CreatedAt         time.Time    `json:"created_at"`
 	UpdatedAt         time.Time    `json:"updated_at"`
 	ServiceIDs        []string     `json:"service_ids"`
+	GroupIDs          []string     `json:"group_ids"`
 }
 
 // EventUpdate represents a status update for an event.
@@ -95,4 +96,25 @@ func (s Severity) IsValid() bool {
 // IsResolved checks if the status represents a resolved/completed state.
 func (s EventStatus) IsResolved() bool {
 	return s == EventStatusResolved || s == EventStatusCompleted
+}
+
+// ChangeAction represents the type of change to event services.
+type ChangeAction string
+
+// Change actions.
+const (
+	ChangeActionAdded   ChangeAction = "added"
+	ChangeActionRemoved ChangeAction = "removed"
+)
+
+// EventServiceChange represents a change to event's affected services.
+type EventServiceChange struct {
+	ID        string       `json:"id"`
+	EventID   string       `json:"event_id"`
+	Action    ChangeAction `json:"action"`
+	ServiceID *string      `json:"service_id,omitempty"`
+	GroupID   *string      `json:"group_id,omitempty"`
+	Reason    string       `json:"reason,omitempty"`
+	CreatedBy string       `json:"created_by"`
+	CreatedAt time.Time    `json:"created_at"`
 }

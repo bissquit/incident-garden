@@ -327,6 +327,19 @@ make test-integration   # Integration (testcontainers)
 - Integration: `tests/integration/<module>_test.go`
 - Utilities: `internal/testutil/` (client.go, container.go, fixtures.go)
 
+### Test environment
+
+Prepare test environment for each task. Start database instance:
+```shell
+docker compose -f deployments/docker/docker-compose-postgres.yml up -d
+```
+
+Don't forget to clean environment after task is done:
+```shell
+docker compose -f deployments/docker/docker-compose-postgres.yml down ;\
+docker volume rm docker_postgres_data
+```
+
 ---
 
 ## 7. REFERENCE

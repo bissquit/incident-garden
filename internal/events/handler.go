@@ -41,6 +41,9 @@ func (h *Handler) RegisterOperatorRoutes(r chi.Router) {
 		r.Get("/{id}", h.GetEvent)
 		r.Post("/{id}/updates", h.AddUpdate)
 		r.Get("/{id}/updates", h.GetEventUpdates)
+		r.Post("/{id}/services", h.AddServices)
+		r.Delete("/{id}/services", h.RemoveServices)
+		r.Get("/{id}/changes", h.GetServiceChanges)
 	})
 }
 
@@ -70,6 +73,7 @@ type CreateEventRequest struct {
 	NotifySubscribers bool                 `json:"notify_subscribers"`
 	TemplateID        *string              `json:"template_id"`
 	ServiceIDs        []string             `json:"service_ids"`
+	GroupIDs          []string             `json:"group_ids"`
 }
 
 // CreateEvent handles POST /events.
@@ -327,6 +331,98 @@ func (h *Handler) GetStatusHistory(w http.ResponseWriter, r *http.Request) {
 	h.respondJSON(w, http.StatusOK, map[string]interface{}{
 		"events": events,
 	})
+}
+
+// AddServicesRequest represents the request body for adding services to an event.
+type AddServicesRequest struct {
+	ServiceIDs []string `json:"service_ids"`
+	GroupIDs   []string `json:"group_ids"`
+	Reason     string   `json:"reason"`
+}
+
+// AddServices handles POST /events/{id}/services.
+func (h *Handler) AddServices(w http.ResponseWriter, r *http.Request) {
+	eventID := chi.URLParam(r, "id")
+
+	var req AddServicesRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.respondError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+
+	if len(req.ServiceIDs) == 0 && len(req.GroupIDs) == 0 {
+		h.respondError(w, http.StatusBadRequest, "service_ids or group_ids required")
+		return
+	}
+
+	userID := httputil.GetUserID(r.Context())
+	err := h.service.AddServicesToEvent(r.Context(), eventID, AddServicesToEventInput(req), userID)
+
+	if err != nil {
+		h.handleServiceError(w, err)
+		return
+	}
+
+	// Возвращаем обновлённое событие
+	event, err := h.service.GetEvent(r.Context(), eventID)
+	if err != nil {
+		h.handleServiceError(w, err)
+		return
+	}
+
+	h.respondJSON(w, http.StatusOK, event)
+}
+
+// RemoveServicesRequest represents the request body for removing services from an event.
+type RemoveServicesRequest struct {
+	ServiceIDs []string `json:"service_ids" validate:"required,min=1"`
+	Reason     string   `json:"reason"`
+}
+
+// RemoveServices handles DELETE /events/{id}/services.
+func (h *Handler) RemoveServices(w http.ResponseWriter, r *http.Request) {
+	eventID := chi.URLParam(r, "id")
+
+	var req RemoveServicesRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		h.respondError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+
+	if err := h.validator.Struct(req); err != nil {
+		h.respondValidationError(w, err)
+		return
+	}
+
+	userID := httputil.GetUserID(r.Context())
+	err := h.service.RemoveServicesFromEvent(r.Context(), eventID, RemoveServicesFromEventInput(req), userID)
+
+	if err != nil {
+		h.handleServiceError(w, err)
+		return
+	}
+
+	// Возвращаем обновлённое событие
+	event, err := h.service.GetEvent(r.Context(), eventID)
+	if err != nil {
+		h.handleServiceError(w, err)
+		return
+	}
+
+	h.respondJSON(w, http.StatusOK, event)
+}
+
+// GetServiceChanges handles GET /events/{id}/changes.
+func (h *Handler) GetServiceChanges(w http.ResponseWriter, r *http.Request) {
+	eventID := chi.URLParam(r, "id")
+
+	changes, err := h.service.GetServiceChanges(r.Context(), eventID)
+	if err != nil {
+		h.handleServiceError(w, err)
+		return
+	}
+
+	h.respondJSON(w, http.StatusOK, changes)
 }
 
 func (h *Handler) respondJSON(w http.ResponseWriter, status int, data interface{}) {
