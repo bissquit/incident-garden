@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.2](https://github.com/bissquit/incident-garden/compare/v1.2.1...v1.2.2) (2026-01-29)
+
+
+### Bug Fixes
+
+* **db:** add demo data to initial db state ([#15](https://github.com/bissquit/incident-garden/issues/15)) ([ed70bea](https://github.com/bissquit/incident-garden/commit/ed70beabff89bee28ac983d8c8efb8b5e3bb8b53))
+
 ## [1.2.1](https://github.com/bissquit/incident-garden/compare/v1.2.0...v1.2.1) (2026-01-28)
 
 
