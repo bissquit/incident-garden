@@ -26,6 +26,13 @@ type Repository interface {
 
 	AssociateServices(ctx context.Context, eventID string, serviceIDs []string) error
 	GetEventServices(ctx context.Context, eventID string) ([]string, error)
+
+	AssociateGroups(ctx context.Context, eventID string, groupIDs []string) error
+	AddGroups(ctx context.Context, eventID string, groupIDs []string) error
+	GetEventGroups(ctx context.Context, eventID string) ([]string, error)
+
+	CreateServiceChange(ctx context.Context, change *domain.EventServiceChange) error
+	ListServiceChanges(ctx context.Context, eventID string) ([]*domain.EventServiceChange, error)
 }
 
 // EventFilters holds filter options for listing events.

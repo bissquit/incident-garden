@@ -159,7 +159,7 @@ func (a *App) setupRouter() *chi.Mux {
 	catalogHandler := catalog.NewHandler(catalogService)
 
 	eventsRepo := eventspostgres.NewRepository(a.db)
-	eventsService := events.NewService(eventsRepo)
+	eventsService := events.NewService(eventsRepo, catalogService)
 	eventsHandler := events.NewHandler(eventsService)
 
 	notificationsRepo := notificationspostgres.NewRepository(a.db)

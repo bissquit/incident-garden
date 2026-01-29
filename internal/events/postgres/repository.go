@@ -95,6 +95,12 @@ func (r *Repository) GetEvent(ctx context.Context, id string) (*domain.Event, er
 	}
 	event.ServiceIDs = serviceIDs
 
+	groupIDs, err := r.GetEventGroups(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("get event groups: %w", err)
+	}
+	event.GroupIDs = groupIDs
+
 	return &event, nil
 }
 
@@ -171,6 +177,12 @@ func (r *Repository) ListEvents(ctx context.Context, filters events.EventFilters
 			return nil, fmt.Errorf("get event services: %w", err)
 		}
 		event.ServiceIDs = serviceIDs
+
+		groupIDs, err := r.GetEventGroups(ctx, event.ID)
+		if err != nil {
+			return nil, fmt.Errorf("get event groups: %w", err)
+		}
+		event.GroupIDs = groupIDs
 
 		eventsList = append(eventsList, &event)
 	}
@@ -467,4 +479,118 @@ func (r *Repository) GetEventServices(ctx context.Context, eventID string) ([]st
 	}
 
 	return serviceIDs, nil
+}
+
+// AssociateGroups replaces all group associations for an event.
+func (r *Repository) AssociateGroups(ctx context.Context, eventID string, groupIDs []string) error {
+	deleteQuery := `DELETE FROM event_groups WHERE event_id = $1`
+	_, err := r.db.Exec(ctx, deleteQuery, eventID)
+	if err != nil {
+		return fmt.Errorf("delete existing event groups: %w", err)
+	}
+
+	if len(groupIDs) == 0 {
+		return nil
+	}
+
+	insertQuery := `INSERT INTO event_groups (event_id, group_id) VALUES ($1, $2)`
+	for _, groupID := range groupIDs {
+		_, err := r.db.Exec(ctx, insertQuery, eventID, groupID)
+		if err != nil {
+			return fmt.Errorf("associate group %s: %w", groupID, err)
+		}
+	}
+
+	return nil
+}
+
+// AddGroups adds groups to an event without removing existing ones.
+func (r *Repository) AddGroups(ctx context.Context, eventID string, groupIDs []string) error {
+	insertQuery := `INSERT INTO event_groups (event_id, group_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`
+	for _, groupID := range groupIDs {
+		_, err := r.db.Exec(ctx, insertQuery, eventID, groupID)
+		if err != nil {
+			return fmt.Errorf("add group %s: %w", groupID, err)
+		}
+	}
+	return nil
+}
+
+// GetEventGroups retrieves group IDs for an event.
+func (r *Repository) GetEventGroups(ctx context.Context, eventID string) ([]string, error) {
+	query := `SELECT group_id FROM event_groups WHERE event_id = $1`
+	rows, err := r.db.Query(ctx, query, eventID)
+	if err != nil {
+		return nil, fmt.Errorf("get event groups: %w", err)
+	}
+	defer rows.Close()
+
+	groupIDs := make([]string, 0)
+	for rows.Next() {
+		var groupID string
+		if err := rows.Scan(&groupID); err != nil {
+			return nil, fmt.Errorf("scan group id: %w", err)
+		}
+		groupIDs = append(groupIDs, groupID)
+	}
+
+	return groupIDs, nil
+}
+
+// CreateServiceChange records a change to event services.
+func (r *Repository) CreateServiceChange(ctx context.Context, change *domain.EventServiceChange) error {
+	query := `
+		INSERT INTO event_service_changes (event_id, action, service_id, group_id, reason, created_by)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		RETURNING id, created_at
+	`
+	err := r.db.QueryRow(ctx, query,
+		change.EventID,
+		change.Action,
+		change.ServiceID,
+		change.GroupID,
+		change.Reason,
+		change.CreatedBy,
+	).Scan(&change.ID, &change.CreatedAt)
+
+	if err != nil {
+		return fmt.Errorf("create service change: %w", err)
+	}
+	return nil
+}
+
+// ListServiceChanges retrieves all service changes for an event.
+func (r *Repository) ListServiceChanges(ctx context.Context, eventID string) ([]*domain.EventServiceChange, error) {
+	query := `
+		SELECT id, event_id, action, service_id, group_id, reason, created_by, created_at
+		FROM event_service_changes
+		WHERE event_id = $1
+		ORDER BY created_at ASC
+	`
+	rows, err := r.db.Query(ctx, query, eventID)
+	if err != nil {
+		return nil, fmt.Errorf("list service changes: %w", err)
+	}
+	defer rows.Close()
+
+	changes := make([]*domain.EventServiceChange, 0)
+	for rows.Next() {
+		var change domain.EventServiceChange
+		err := rows.Scan(
+			&change.ID,
+			&change.EventID,
+			&change.Action,
+			&change.ServiceID,
+			&change.GroupID,
+			&change.Reason,
+			&change.CreatedBy,
+			&change.CreatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("scan service change: %w", err)
+		}
+		changes = append(changes, &change)
+	}
+
+	return changes, nil
 }
