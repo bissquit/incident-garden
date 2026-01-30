@@ -34,6 +34,7 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 		r.Get("/{slug}", h.GetGroup)
 		r.Patch("/{slug}", h.UpdateGroup)
 		r.Delete("/{slug}", h.DeleteGroup)
+		r.Post("/{slug}/restore", h.RestoreGroup)
 	})
 
 	r.Route("/services", func(r chi.Router) {
@@ -42,6 +43,7 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 		r.Get("/{slug}", h.GetService)
 		r.Patch("/{slug}", h.UpdateService)
 		r.Delete("/{slug}", h.DeleteService)
+		r.Post("/{slug}/restore", h.RestoreService)
 		r.Get("/{slug}/tags", h.GetServiceTags)
 		r.Put("/{slug}/tags", h.UpdateServiceTags)
 	})
@@ -158,7 +160,13 @@ func (h *Handler) GetGroup(w http.ResponseWriter, r *http.Request) {
 
 // ListGroups handles GET /groups request.
 func (h *Handler) ListGroups(w http.ResponseWriter, r *http.Request) {
-	groups, err := h.service.ListGroups(r.Context())
+	filter := GroupFilter{}
+
+	if r.URL.Query().Get("include_archived") == "true" {
+		filter.IncludeArchived = true
+	}
+
+	groups, err := h.service.ListGroups(r.Context(), filter)
 	if err != nil {
 		h.handleServiceError(w, err)
 		return
@@ -219,6 +227,31 @@ func (h *Handler) DeleteGroup(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// RestoreGroup handles POST /groups/{slug}/restore request.
+func (h *Handler) RestoreGroup(w http.ResponseWriter, r *http.Request) {
+	slug := chi.URLParam(r, "slug")
+
+	group, err := h.service.GetGroupBySlug(r.Context(), slug)
+	if err != nil {
+		h.handleServiceError(w, err)
+		return
+	}
+
+	if err := h.service.RestoreGroup(r.Context(), group.ID); err != nil {
+		h.handleServiceError(w, err)
+		return
+	}
+
+	// Return the restored group
+	group, err = h.service.GetGroupBySlug(r.Context(), slug)
+	if err != nil {
+		h.handleServiceError(w, err)
+		return
+	}
+
+	h.respondJSON(w, http.StatusOK, group)
+}
+
 // CreateService handles POST /services request.
 func (h *Handler) CreateService(w http.ResponseWriter, r *http.Request) {
 	var req CreateServiceRequest
@@ -272,6 +305,10 @@ func (h *Handler) ListServices(w http.ResponseWriter, r *http.Request) {
 	if status := r.URL.Query().Get("status"); status != "" {
 		s := domain.ServiceStatus(status)
 		filter.Status = &s
+	}
+
+	if r.URL.Query().Get("include_archived") == "true" {
+		filter.IncludeArchived = true
 	}
 
 	services, err := h.service.ListServices(r.Context(), filter)
@@ -338,6 +375,31 @@ func (h *Handler) DeleteService(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// RestoreService handles POST /services/{slug}/restore request.
+func (h *Handler) RestoreService(w http.ResponseWriter, r *http.Request) {
+	slug := chi.URLParam(r, "slug")
+
+	service, err := h.service.GetServiceBySlug(r.Context(), slug)
+	if err != nil {
+		h.handleServiceError(w, err)
+		return
+	}
+
+	if err := h.service.RestoreService(r.Context(), service.ID); err != nil {
+		h.handleServiceError(w, err)
+		return
+	}
+
+	// Return the restored service
+	service, err = h.service.GetServiceBySlug(r.Context(), slug)
+	if err != nil {
+		h.handleServiceError(w, err)
+		return
+	}
+
+	h.respondJSON(w, http.StatusOK, service)
 }
 
 // GetServiceTags handles GET /services/{slug}/tags request.
@@ -442,6 +504,14 @@ func (h *Handler) handleServiceError(w http.ResponseWriter, err error) {
 		h.respondError(w, http.StatusConflict, err.Error())
 	case errors.Is(err, ErrInvalidSlug):
 		h.respondError(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, ErrServiceHasActiveEvents):
+		h.respondError(w, http.StatusConflict, err.Error())
+	case errors.Is(err, ErrGroupHasActiveEvents):
+		h.respondError(w, http.StatusConflict, err.Error())
+	case errors.Is(err, ErrAlreadyArchived):
+		h.respondError(w, http.StatusConflict, err.Error())
+	case errors.Is(err, ErrNotArchived):
+		h.respondError(w, http.StatusConflict, err.Error())
 	default:
 		slog.Error("internal error", "error", err)
 		h.respondError(w, http.StatusInternalServerError, "internal error")

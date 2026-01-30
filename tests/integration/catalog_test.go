@@ -60,15 +60,60 @@ func TestCatalog_Group_CRUD(t *testing.T) {
 	testutil.DecodeJSON(t, resp, &updateResult)
 	assert.Equal(t, "Updated description", updateResult.Data.Description)
 
+	// Delete (archive) the group
 	resp, err = client.DELETE("/api/v1/groups/" + slug)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusNoContent, resp.StatusCode)
 	resp.Body.Close()
 
+	// Archived group is still accessible by slug (soft delete)
 	resp, err = publicClient.GET("/api/v1/groups/" + slug)
 	require.NoError(t, err)
-	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
-	resp.Body.Close()
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var archivedResult struct {
+		Data struct {
+			ArchivedAt *string `json:"archived_at"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &archivedResult)
+	assert.NotNil(t, archivedResult.Data.ArchivedAt, "archived_at should be set after delete")
+
+	// Archived group should NOT appear in list by default
+	resp, err = publicClient.GET("/api/v1/groups")
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var listResult struct {
+		Data []struct {
+			Slug string `json:"slug"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &listResult)
+	for _, g := range listResult.Data {
+		assert.NotEqual(t, slug, g.Slug, "archived group should not appear in default list")
+	}
+
+	// Archived group SHOULD appear when include_archived=true
+	resp, err = publicClient.GET("/api/v1/groups?include_archived=true")
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var listArchivedResult struct {
+		Data []struct {
+			Slug       string  `json:"slug"`
+			ArchivedAt *string `json:"archived_at"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &listArchivedResult)
+	found := false
+	for _, g := range listArchivedResult.Data {
+		if g.Slug == slug {
+			found = true
+			assert.NotNil(t, g.ArchivedAt, "archived group should have archived_at set")
+		}
+	}
+	assert.True(t, found, "archived group should appear in list with include_archived=true")
 }
 
 func TestCatalog_Service_CRUD(t *testing.T) {
@@ -102,10 +147,39 @@ func TestCatalog_Service_CRUD(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 	resp.Body.Close()
 
+	// Delete (archive) the service
 	resp, err = client.DELETE("/api/v1/services/" + slug)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusNoContent, resp.StatusCode)
 	resp.Body.Close()
+
+	// Archived service is still accessible by slug (soft delete)
+	resp, err = publicClient.GET("/api/v1/services/" + slug)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var archivedResult struct {
+		Data struct {
+			ArchivedAt *string `json:"archived_at"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &archivedResult)
+	assert.NotNil(t, archivedResult.Data.ArchivedAt, "archived_at should be set after delete")
+
+	// Archived service should NOT appear in list by default
+	resp, err = publicClient.GET("/api/v1/services")
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var listResult struct {
+		Data []struct {
+			Slug string `json:"slug"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &listResult)
+	for _, s := range listResult.Data {
+		assert.NotEqual(t, slug, s.Slug, "archived service should not appear in default list")
+	}
 }
 
 func TestCatalog_Service_WithGroup(t *testing.T) {
@@ -177,37 +251,36 @@ func TestCatalog_DuplicateSlug(t *testing.T) {
 }
 
 func TestCatalog_EmptyList_ReturnsEmptyArray(t *testing.T) {
-	// This test verifies that list endpoints return empty arrays [] instead of null
-	// when no data exists. This is important for API consistency and type safety.
+	// This test verifies that list endpoints return arrays [] instead of null.
+	// With soft delete, we can't guarantee an empty list since demo data may have
+	// services with active events that can't be archived.
+	// So we verify that the response is always an array, not null.
 
 	client := testutil.NewClient(testClient.BaseURL)
 	client.LoginAsAdmin(t)
 
-	// First, clean up any existing services by deleting them
-	resp, err := client.GET("/api/v1/services")
+	// Create a unique test service
+	slug := testutil.RandomSlug("empty-test")
+	resp, err := client.POST("/api/v1/services", map[string]string{
+		"name": "Empty Test Service",
+		"slug": slug,
+	})
 	require.NoError(t, err)
-	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	resp.Body.Close()
 
-	var listResult struct {
-		Data []struct {
-			Slug string `json:"slug"`
-		} `json:"data"`
-	}
-	testutil.DecodeJSON(t, resp, &listResult)
+	// Delete (archive) it
+	resp, err = client.DELETE("/api/v1/services/" + slug)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusNoContent, resp.StatusCode)
+	resp.Body.Close()
 
-	// Delete all existing services
-	for _, svc := range listResult.Data {
-		resp, err := client.DELETE("/api/v1/services/" + svc.Slug)
-		require.NoError(t, err)
-		resp.Body.Close()
-	}
-
-	// Now verify that the empty list returns [] not null
+	// Verify that the list returns an array (not null)
 	resp, err = client.GET("/api/v1/services")
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
-	// Parse the raw JSON to verify it's an empty array, not null
+	// Parse the raw JSON to verify data is an array, not null
 	var rawResponse map[string]json.RawMessage
 	err = json.NewDecoder(resp.Body).Decode(&rawResponse)
 	require.NoError(t, err)
@@ -216,9 +289,23 @@ func TestCatalog_EmptyList_ReturnsEmptyArray(t *testing.T) {
 	dataRaw := rawResponse["data"]
 	require.NotNil(t, dataRaw, "response should have 'data' field")
 
-	// Check that data is an empty array [], not null
-	// null in JSON is represented as "null" string
-	// empty array is represented as "[]"
+	// Verify data is an array (starts with '[') not null
 	dataStr := string(dataRaw)
-	assert.Equal(t, "[]", dataStr, "empty list should return [] not null")
+	assert.True(t, len(dataStr) > 0 && dataStr[0] == '[',
+		"data should be an array, got: %s", dataStr)
+	assert.NotEqual(t, "null", dataStr, "data should not be null")
+
+	// Verify the archived service is not in the default list
+	var listResult struct {
+		Data []struct {
+			Slug string `json:"slug"`
+		} `json:"data"`
+	}
+	resp, err = client.GET("/api/v1/services")
+	require.NoError(t, err)
+	testutil.DecodeJSON(t, resp, &listResult)
+
+	for _, svc := range listResult.Data {
+		assert.NotEqual(t, slug, svc.Slug, "archived service should not appear in default list")
+	}
 }

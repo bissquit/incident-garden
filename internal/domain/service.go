@@ -25,17 +25,29 @@ type Service struct {
 	Order       int           `json:"order"`
 	CreatedAt   time.Time     `json:"created_at"`
 	UpdatedAt   time.Time     `json:"updated_at"`
+	ArchivedAt  *time.Time    `json:"archived_at,omitempty"`
+}
+
+// IsArchived returns true if the service is archived.
+func (s *Service) IsArchived() bool {
+	return s.ArchivedAt != nil
 }
 
 // ServiceGroup represents a group of related services.
 type ServiceGroup struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Slug        string    `json:"slug"`
-	Description string    `json:"description"`
-	Order       int       `json:"order"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID          string     `json:"id"`
+	Name        string     `json:"name"`
+	Slug        string     `json:"slug"`
+	Description string     `json:"description"`
+	Order       int        `json:"order"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
+	ArchivedAt  *time.Time `json:"archived_at,omitempty"`
+}
+
+// IsArchived returns true if the group is archived.
+func (g *ServiceGroup) IsArchived() bool {
+	return g.ArchivedAt != nil
 }
 
 // ServiceTag represents a key-value tag attached to a service.

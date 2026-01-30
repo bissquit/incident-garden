@@ -12,10 +12,14 @@ import (
 
 // Catalog service errors.
 var (
-	ErrGroupNotFound   = errors.New("service group not found")
-	ErrServiceNotFound = errors.New("service not found")
-	ErrSlugExists      = errors.New("slug already exists")
-	ErrInvalidSlug     = errors.New("invalid slug: must contain only lowercase letters, numbers, and hyphens")
+	ErrGroupNotFound          = errors.New("service group not found")
+	ErrServiceNotFound        = errors.New("service not found")
+	ErrSlugExists             = errors.New("slug already exists")
+	ErrInvalidSlug            = errors.New("invalid slug: must contain only lowercase letters, numbers, and hyphens")
+	ErrServiceHasActiveEvents = errors.New("cannot archive service: has active events")
+	ErrGroupHasActiveEvents   = errors.New("cannot archive group: has active events")
+	ErrAlreadyArchived        = errors.New("already archived")
+	ErrNotArchived            = errors.New("not archived")
 )
 
 var slugRegex = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
@@ -57,9 +61,9 @@ func (s *Service) GetGroupByID(ctx context.Context, id string) (*domain.ServiceG
 	return s.repo.GetGroupByID(ctx, id)
 }
 
-// ListGroups returns all service groups.
-func (s *Service) ListGroups(ctx context.Context) ([]domain.ServiceGroup, error) {
-	return s.repo.ListGroups(ctx)
+// ListGroups returns all service groups matching the filter.
+func (s *Service) ListGroups(ctx context.Context, filter GroupFilter) ([]domain.ServiceGroup, error) {
+	return s.repo.ListGroups(ctx, filter)
 }
 
 // UpdateGroup updates an existing service group.
@@ -86,9 +90,23 @@ func (s *Service) UpdateGroup(ctx context.Context, group *domain.ServiceGroup) e
 	return s.repo.UpdateGroup(ctx, group)
 }
 
-// DeleteGroup deletes a service group.
+// DeleteGroup archives a service group (soft delete).
 func (s *Service) DeleteGroup(ctx context.Context, id string) error {
-	return s.repo.DeleteGroup(ctx, id)
+	// Check for active events in services belonging to this group
+	activeCount, err := s.repo.GetActiveEventCountForGroup(ctx, id)
+	if err != nil {
+		return fmt.Errorf("check active events: %w", err)
+	}
+	if activeCount > 0 {
+		return ErrGroupHasActiveEvents
+	}
+
+	return s.repo.ArchiveGroup(ctx, id)
+}
+
+// RestoreGroup restores an archived group.
+func (s *Service) RestoreGroup(ctx context.Context, id string) error {
+	return s.repo.RestoreGroup(ctx, id)
 }
 
 // CreateService creates a new service.
@@ -171,9 +189,23 @@ func (s *Service) UpdateService(ctx context.Context, service *domain.Service) er
 	return nil
 }
 
-// DeleteService deletes a service.
+// DeleteService archives a service (soft delete).
 func (s *Service) DeleteService(ctx context.Context, id string) error {
-	return s.repo.DeleteService(ctx, id)
+	// Check for active events
+	activeCount, err := s.repo.GetActiveEventCountForService(ctx, id)
+	if err != nil {
+		return fmt.Errorf("check active events: %w", err)
+	}
+	if activeCount > 0 {
+		return ErrServiceHasActiveEvents
+	}
+
+	return s.repo.ArchiveService(ctx, id)
+}
+
+// RestoreService restores an archived service.
+func (s *Service) RestoreService(ctx context.Context, id string) error {
+	return s.repo.RestoreService(ctx, id)
 }
 
 // UpdateServiceTags replaces all tags for a service.
