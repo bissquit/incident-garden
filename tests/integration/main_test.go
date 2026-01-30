@@ -19,9 +19,28 @@ import (
 )
 
 var (
-	testServer *httptest.Server
-	testClient *testutil.Client
+	testServer    *httptest.Server
+	testClient    *testutil.Client
+	testValidator *testutil.OpenAPIValidator
 )
+
+// OpenAPI spec path relative to the tests/integration directory.
+const openAPISpecPath = "../../api/openapi/openapi.yaml"
+
+// newTestClient creates a new test client with OpenAPI validation enabled.
+// Use this at the beginning of each test that makes API calls.
+func newTestClient(t *testing.T) *testutil.Client {
+	t.Helper()
+	client := testutil.NewClientWithValidator(testServer.URL, testValidator)
+	client.SetT(t)
+	return client
+}
+
+// newTestClientWithoutValidation creates a test client without OpenAPI validation.
+// Use this for tests that intentionally test error responses or invalid scenarios.
+func newTestClientWithoutValidation() *testutil.Client {
+	return testutil.NewClient(testServer.URL)
+}
 
 func TestMain(m *testing.M) {
 	ctx := context.Background()
@@ -77,7 +96,15 @@ func TestMain(m *testing.M) {
 	}
 
 	testServer = httptest.NewServer(application.Router())
-	testClient = testutil.NewClient(testServer.URL)
+
+	// Load OpenAPI validator
+	testValidator, err = testutil.LoadOpenAPIValidator(openAPISpecPath)
+	if err != nil {
+		log.Fatalf("load OpenAPI validator: %v", err)
+	}
+
+	// Create client with OpenAPI validation enabled
+	testClient = testutil.NewClientWithValidator(testServer.URL, testValidator)
 
 	code := m.Run()
 

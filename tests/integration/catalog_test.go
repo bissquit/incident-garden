@@ -13,7 +13,7 @@ import (
 )
 
 func TestCatalog_Group_CRUD(t *testing.T) {
-	client := testutil.NewClient(testClient.BaseURL)
+	client := newTestClient(t)
 	client.LoginAsAdmin(t)
 
 	slug := testutil.RandomSlug("test-group")
@@ -37,7 +37,7 @@ func TestCatalog_Group_CRUD(t *testing.T) {
 	assert.Equal(t, slug, createResult.Data.Slug)
 	assert.Equal(t, "Test Group", createResult.Data.Name)
 
-	publicClient := testutil.NewClient(testClient.BaseURL)
+	publicClient := newTestClient(t)
 	resp, err = publicClient.GET("/api/v1/groups/" + slug)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
@@ -117,7 +117,7 @@ func TestCatalog_Group_CRUD(t *testing.T) {
 }
 
 func TestCatalog_Service_CRUD(t *testing.T) {
-	client := testutil.NewClient(testClient.BaseURL)
+	client := newTestClient(t)
 	client.LoginAsAdmin(t)
 
 	slug := testutil.RandomSlug("test-service")
@@ -141,7 +141,7 @@ func TestCatalog_Service_CRUD(t *testing.T) {
 	assert.Equal(t, slug, createResult.Data.Slug)
 	assert.Equal(t, "operational", createResult.Data.Status)
 
-	publicClient := testutil.NewClient(testClient.BaseURL)
+	publicClient := newTestClient(t)
 	resp, err = publicClient.GET("/api/v1/services/" + slug)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
@@ -183,7 +183,7 @@ func TestCatalog_Service_CRUD(t *testing.T) {
 }
 
 func TestCatalog_Service_WithGroup(t *testing.T) {
-	client := testutil.NewClient(testClient.BaseURL)
+	client := newTestClient(t)
 	client.LoginAsAdmin(t)
 
 	groupSlug := testutil.RandomSlug("group")
@@ -226,7 +226,7 @@ func TestCatalog_Service_WithGroup(t *testing.T) {
 }
 
 func TestCatalog_DuplicateSlug(t *testing.T) {
-	client := testutil.NewClient(testClient.BaseURL)
+	client := newTestClient(t)
 	client.LoginAsAdmin(t)
 
 	slug := testutil.RandomSlug("duplicate")
@@ -256,7 +256,7 @@ func TestCatalog_EmptyList_ReturnsEmptyArray(t *testing.T) {
 	// services with active events that can't be archived.
 	// So we verify that the response is always an array, not null.
 
-	client := testutil.NewClient(testClient.BaseURL)
+	client := newTestClient(t)
 	client.LoginAsAdmin(t)
 
 	// Create a unique test service

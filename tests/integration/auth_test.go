@@ -12,10 +12,11 @@ import (
 )
 
 func TestAuth_Register_Login_Flow(t *testing.T) {
+	client := newTestClient(t)
 	email := testutil.RandomEmail()
 	password := "password123"
 
-	resp, err := testClient.POST("/api/v1/auth/register", map[string]string{
+	resp, err := client.POST("/api/v1/auth/register", map[string]string{
 		"email":    email,
 		"password": password,
 	})
@@ -34,7 +35,7 @@ func TestAuth_Register_Login_Flow(t *testing.T) {
 	assert.Equal(t, "user", registerResult.Data.Role)
 	assert.NotEmpty(t, registerResult.Data.ID)
 
-	resp, err = testClient.POST("/api/v1/auth/login", map[string]string{
+	resp, err = client.POST("/api/v1/auth/login", map[string]string{
 		"email":    email,
 		"password": password,
 	})
@@ -59,7 +60,8 @@ func TestAuth_Register_Login_Flow(t *testing.T) {
 }
 
 func TestAuth_Login_InvalidCredentials(t *testing.T) {
-	resp, err := testClient.POST("/api/v1/auth/login", map[string]string{
+	client := newTestClient(t)
+	resp, err := client.POST("/api/v1/auth/login", map[string]string{
 		"email":    "nonexistent@example.com",
 		"password": "wrongpassword",
 	})
@@ -69,9 +71,10 @@ func TestAuth_Login_InvalidCredentials(t *testing.T) {
 }
 
 func TestAuth_Register_DuplicateEmail(t *testing.T) {
+	client := newTestClient(t)
 	email := testutil.RandomEmail()
 
-	resp, err := testClient.POST("/api/v1/auth/register", map[string]string{
+	resp, err := client.POST("/api/v1/auth/register", map[string]string{
 		"email":    email,
 		"password": "password123",
 	})
@@ -79,7 +82,7 @@ func TestAuth_Register_DuplicateEmail(t *testing.T) {
 	assert.Equal(t, http.StatusCreated, resp.StatusCode)
 	resp.Body.Close()
 
-	resp, err = testClient.POST("/api/v1/auth/register", map[string]string{
+	resp, err = client.POST("/api/v1/auth/register", map[string]string{
 		"email":    email,
 		"password": "password456",
 	})
@@ -89,7 +92,7 @@ func TestAuth_Register_DuplicateEmail(t *testing.T) {
 }
 
 func TestAuth_Me_RequiresAuth(t *testing.T) {
-	client := testutil.NewClient(testClient.BaseURL)
+	client := newTestClient(t)
 
 	resp, err := client.GET("/api/v1/me")
 	require.NoError(t, err)
@@ -98,7 +101,7 @@ func TestAuth_Me_RequiresAuth(t *testing.T) {
 }
 
 func TestAuth_Me_ReturnsCurrentUser(t *testing.T) {
-	client := testutil.NewClient(testClient.BaseURL)
+	client := newTestClient(t)
 	client.LoginAsAdmin(t)
 
 	resp, err := client.GET("/api/v1/me")
