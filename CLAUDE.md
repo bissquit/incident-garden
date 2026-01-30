@@ -33,6 +33,25 @@ maintenance: scheduled → in_progress → completed
 
 **Template macros:** `{{.ServiceName}}`, `{{.ServiceGroupName}}`, `{{.StartedAt}}`, `{{.ResolvedAt}}`, `{{.ScheduledStart}}`, `{{.ScheduledEnd}}`
 
+### Key Architectural Decisions
+
+**M:N Services ↔ Groups:**
+- Service can belong to multiple groups simultaneously
+- Junction table: `service_group_members(service_id, group_id)`
+- API uses `group_ids: []string` instead of `group_id: *string`
+
+**Events with Groups:**
+- Events can be created by selecting groups (auto-expands to services)
+- `event_groups` stores which groups were selected
+- `event_services` stores flattened list of affected services
+- `event_service_changes` tracks all composition changes (audit trail)
+
+**Soft Delete:**
+- Services and groups use `archived_at` instead of hard delete
+- Archived items hidden from lists by default (`include_archived=true` to show)
+- Cannot archive service/group with active (non-resolved) events
+- Archived items remain visible in historical events
+
 ---
 
 ## 2. CODEMAP
@@ -51,6 +70,42 @@ maintenance: scheduled → in_progress → completed
 | Change app wiring/DI         | `internal/app/app.go`                      |
 | Modify configuration         | `internal/config/config.go`                |
 | Update API contract          | `api/openapi/openapi.yaml`                 |
+
+### Database Schema (Key Tables)
+
+```
+services
+├── id, name, slug, description, status, order
+├── created_at, updated_at, archived_at (soft delete)
+└── NO group_id column (M:N via junction)
+
+service_groups
+├── id, name, slug, description, order
+├── created_at, updated_at, archived_at (soft delete)
+
+service_group_members (M:N junction)
+├── service_id FK → services
+└── group_id FK → service_groups
+
+events
+├── id, title, type, status, severity, description
+├── started_at, resolved_at, scheduled_start_at, scheduled_end_at
+├── notify_subscribers, template_id, created_by
+└── created_at, updated_at
+
+event_services (M:N junction — flattened services)
+├── event_id FK → events
+└── service_id FK → services
+
+event_groups (M:N junction — selected groups)
+├── event_id FK → events
+└── group_id FK → service_groups
+
+event_service_changes (audit trail)
+├── id, event_id, action ('added'|'removed')
+├── service_id (nullable), group_id (nullable)
+├── reason, created_by, created_at
+```
 
 ### Module: identity
 
@@ -71,28 +126,43 @@ Dependencies: domain.User, pkg/postgres, pkg/httputil
 
 ```
 internal/catalog/
-├── handler.go             → CRUD /services, /groups (public GET, admin POST/PATCH/DELETE)
-├── service.go             → CreateService, UpdateService, ListServices, CreateGroup...
+├── handler.go             → CRUD /services, /groups + /restore endpoints
+├── service.go             → CreateService, UpdateService, DeleteService (soft), RestoreService
 ├── service_test.go        → Unit tests
-├── repository.go          → Interface: ServiceRepository, GroupRepository
-└── postgres/repository.go
+├── repository.go          → Interface with M:N methods + soft delete
+└── postgres/repository.go → SQL with archived_at filtering
 
-Dependencies: domain.Service, domain.Group, pkg/postgres
+Key interfaces:
+- SetServiceGroups(ctx, serviceID, groupIDs []string)
+- GetServiceGroups(ctx, serviceID) → []string
+- GetGroupServices(ctx, groupID) → []string  // Used by events module
+- ArchiveService/RestoreService
+- GetActiveEventCountForService(ctx, serviceID) → int
+
+Dependencies: domain.Service, domain.ServiceGroup, pkg/postgres
 ```
 
 ### Module: events
 
 ```
 internal/events/
-├── handler.go             → CRUD /events, /updates, /templates; GET /status
-├── service.go             → CreateEvent, AddUpdate, GetPublicStatus, RenderTemplate
+├── handler.go             → CRUD /events + /services, /changes endpoints
+├── service.go             → CreateEvent (with group expansion), AddServicesToEvent, RemoveServicesFromEvent
 ├── service_test.go        → Unit tests
-├── repository.go          → Interface: EventRepository, TemplateRepository
+├── repository.go          → Interface with groups + audit methods
+├── resolver.go            → Interface: GroupServiceResolver (implemented by catalog.Service)
 ├── template_renderer.go   → Go template execution
 ├── errors.go              → ErrEventNotFound, ErrInvalidTransition...
-└── postgres/repository.go
+└── postgres/repository.go → SQL for events, groups, changes
 
-Dependencies: domain.Event, domain.Template, catalog.Service (read-only), pkg/postgres
+Key interfaces:
+- AssociateGroups(ctx, eventID, groupIDs)
+- AddGroups(ctx, eventID, groupIDs)
+- GetEventGroups(ctx, eventID) → []string
+- CreateServiceChange(ctx, change)
+- ListServiceChanges(ctx, eventID) → []EventServiceChange
+
+Dependencies: domain.Event, catalog.Service (as GroupServiceResolver), pkg/postgres
 ```
 
 ### Module: notifications
@@ -114,7 +184,7 @@ internal/notifications/
 ### Shared
 
 ```
-internal/domain/           → User, Service, Group, Event, Template, Channel, Subscription (pure, no deps)
+internal/domain/           → User, Service, ServiceGroup, Event, EventServiceChange, Template, Channel, Subscription
 internal/pkg/httputil/     → response.go (Success/Error), middleware.go
 internal/pkg/postgres/     → Connect(cfg) → *pgxpool.Pool
 ```
@@ -126,7 +196,8 @@ main.go → app.NewApp(cfg)
             ├── postgres.Connect()
             ├── identity:     Repository → Service → Handler + Middleware
             ├── catalog:      Repository → Service → Handler
-            ├── events:       Repository → Service (+ TemplateRenderer) → Handler
+            │                              ↓
+            ├── events:       Repository → Service (resolver=catalogService) → Handler
             └── notifications: Repository → Service → Dispatcher → Handler
                                                         ├── email.Sender
                                                         └── telegram.Sender
@@ -160,33 +231,9 @@ main.go → app.NewApp(cfg)
 ### Claude Interaction Modes
 
 **`[DESIGN]`** — Before coding, discuss architecture
-```
-[DESIGN] Feature X in module Y.
-- Requirement: ...
-- Affected endpoints: ...
-- Constraints: ...
-```
-
 **`[REFACTOR]`** — Restructure existing code
-```
-[REFACTOR] Target: reduce coupling in X.
-- Current problem: ...
-- Target state: ...
-```
-
 **`[DEBUG]`** — Investigate issues
-```
-[DEBUG] Error X when doing Y.
-- Steps: ...
-- Expected/Actual: ...
-- Logs: ...
-```
-
 **`[REVIEW]`** — Code review
-```
-[REVIEW] Check for: boundaries, errors, tests, OpenAPI, lints.
-- Diff/Link: ...
-```
 
 ---
 
@@ -210,13 +257,11 @@ main.go → app.NewApp(cfg)
 3. **API-first** — contract before implementation
 4. **No circular deps** between modules
 
-### Patterns (DO)
+### Cross-Module Dependencies (Allowed)
 
-- Thin handlers (HTTP only)
-- Use-case services (all logic in service.go)
-- Repository interfaces in module, impl in `postgres/`
-- Domain errors in `errors.go` + `errors.Is/As` mapping
-- Response helpers from `pkg/httputil/response.go`
+```
+events.Service depends on catalog.Service (via GroupServiceResolver interface)
+```
 
 ### Anti-patterns (DON'T)
 
@@ -235,39 +280,11 @@ main.go → app.NewApp(cfg)
 
 ### Must Have
 
-**Package comments:**
-```go
-// Package catalog provides service and group management.
-package catalog
-```
-
-**Exported symbol comments:**
-```go
-// Service implements catalog use-cases.
-type Service struct { ... }
-
-// NewService creates a new catalog service instance.
-func NewService(repo Repository) *Service { ... }
-```
-
 **Error handling:**
 ```go
-// Always wrap with context
 if err := db.Ping(ctx); err != nil {
-    return fmt.Errorf("ping database: %w", err)
+return fmt.Errorf("ping database: %w", err)
 }
-
-// Deferred close with error check
-defer func() {
-    if err := rows.Close(); err != nil {
-        log.Error("close rows", "error", err)
-    }
-}()
-```
-
-**Context first:**
-```go
-func (s *Service) GetUser(ctx context.Context, id int64) (*User, error)
 ```
 
 **Empty slices for JSON:**
@@ -275,11 +292,23 @@ func (s *Service) GetUser(ctx context.Context, id int64) (*User, error)
 items := make([]Item, 0)  // → [] not null
 ```
 
-### Naming
+**Soft delete pattern:**
+```go
+// Repository
+func (r *Repository) ArchiveService(ctx context.Context, id string) error {
+query := `UPDATE services SET archived_at = NOW() WHERE id = $1 AND archived_at IS NULL`
+// ...
+}
 
-- Exported: `PascalCase`, unexported: `camelCase`
-- No stuttering: `user.Service` not `user.UserService`
-- Standard: `ctx`, `err`, `i` (loop index only)
+// Service layer — check business rules before archive
+func (s *Service) DeleteService(ctx context.Context, id string) error {
+activeCount, _ := s.repo.GetActiveEventCountForService(ctx, id)
+if activeCount > 0 {
+return ErrServiceHasActiveEvents
+}
+return s.repo.ArchiveService(ctx, id)
+}
+```
 
 ### Linters
 
@@ -309,9 +338,8 @@ E2E (5%)          — full API scenarios
 | Repository SQL           | —          | ✅ Required     |
 | Service business rules   | ✅ Required | If DB involved |
 | Handler/validation/roles | —          | ✅ Required     |
-| OpenAPI changes          | —          | ✅ At least 1   |
-| Migrations               | —          | ✅ Required     |
-| Domain pure functions    | ✅ Required | —              |
+| Soft delete logic        | —          | ✅ Required     |
+| M:N relationships        | —          | ✅ Required     |
 
 ### Commands
 
@@ -321,22 +349,12 @@ make test-unit          # Unit only
 make test-integration   # Integration (testcontainers)
 ```
 
-### Test Files
-
-- Unit: `internal/<module>/service_test.go`
-- Integration: `tests/integration/<module>_test.go`
-- Utilities: `internal/testutil/` (client.go, container.go, fixtures.go)
-
 ### Test environment
 
-Prepare test environment for each task. Start database instance:
 ```shell
 docker compose -f deployments/docker/docker-compose-postgres.yml up -d
-```
-
-Don't forget to clean environment after task is done:
-```shell
-docker compose -f deployments/docker/docker-compose-postgres.yml down ;\
+# ... work ...
+docker compose -f deployments/docker/docker-compose-postgres.yml down
 docker volume rm docker_postgres_data
 ```
 
@@ -349,8 +367,8 @@ docker volume rm docker_postgres_data
 **Public:**
 - `GET /healthz`, `/readyz` — health checks
 - `GET /api/v1/status`, `/status/history` — public status
-- `GET /api/v1/services`, `/services/{slug}` — services
-- `GET /api/v1/groups`, `/groups/{slug}` — groups
+- `GET /api/v1/services?include_archived=bool`, `/services/{slug}` — services
+- `GET /api/v1/groups?include_archived=bool`, `/groups/{slug}` — groups
 
 **Auth (any authenticated):**
 - `POST /api/v1/auth/register`, `/login`, `/refresh`, `/logout`
@@ -359,15 +377,19 @@ docker volume rm docker_postgres_data
 - `GET|POST|DELETE /api/v1/me/subscriptions`
 
 **Operator+:**
-- `POST /api/v1/events` — create
+- `POST /api/v1/events` — create (accepts `service_ids` + `group_ids`)
 - `GET /api/v1/events`, `/events/{id}` — list/get
-- `POST|GET /api/v1/events/{id}/updates` — updates
+- `POST|GET /api/v1/events/{id}/updates` — status updates
+- `POST /api/v1/events/{id}/services` — add services/groups to event
+- `DELETE /api/v1/events/{id}/services` — remove services from event
+- `GET /api/v1/events/{id}/changes` — composition change history
 
 **Admin:**
 - `DELETE /api/v1/events/{id}`
 - `POST|GET|DELETE /api/v1/templates`
 - `POST /api/v1/templates/{slug}/preview`
-- `POST|PATCH|DELETE /api/v1/services`, `/groups`
+- `POST|PATCH|DELETE /api/v1/services`, `/groups` — soft delete on DELETE
+- `POST /api/v1/services/{slug}/restore`, `/groups/{slug}/restore`
 
 ### API Response Contract
 
@@ -376,6 +398,23 @@ docker volume rm docker_postgres_data
 { "error": { "message": "..." } }                      // Error
 { "error": { "message": "...", "details": "..." } }    // Validation
 ```
+
+### Key Business Rules
+
+**Soft Delete:**
+- DELETE returns 409 if service/group has active events (status not resolved/completed)
+- Archived items excluded from listings unless `include_archived=true`
+- Archived items remain in historical event data
+
+**Event Creation with Groups:**
+- `group_ids` in request → system resolves to `service_ids` at creation time
+- Both `group_ids` and expanded `service_ids` stored
+- Duplicate services (in multiple groups or explicit) deduplicated
+
+**Event Composition Changes:**
+- Adding services/groups records to `event_service_changes`
+- Removing services records to `event_service_changes`
+- Full audit trail with `reason`, `created_by`, `created_at`
 
 ### Enums
 
@@ -387,6 +426,7 @@ event_type:      incident, maintenance
 event_status:    investigating, identified, monitoring, resolved (incident)
                  scheduled, in_progress, completed (maintenance)
 severity:        minor, major, critical
+change_action:   added, removed
 ```
 
 ### Test Users (from migrations)
@@ -425,7 +465,14 @@ make docker-build
 
 ### Current State
 
-✅ **Done:** Infrastructure, Database, Identity, Catalog, Events, CI/CD, Integration tests (20)
+✅ **Done:**
+- Infrastructure, Database, Identity, Catalog, Events, CI/CD
+- M:N Services ↔ Groups relationship
+- Events with group selection (auto-expand to services)
+- Event composition editing with audit trail
+- Soft delete for services and groups
+- Integration tests (20+)
+
 ⚠️ **Partial:** Notifications (structure ready, senders are stubs)
 
 ### Known Limitations
@@ -439,11 +486,11 @@ make docker-build
 - Helm chart
 - Prometheus metrics
 - Pagination
+- Bulk operations
 
 **Tech Debt:**
 - No graceful degradation for senders
 - No rate limiting
-- No audit log
 
 ### Next Up
 
@@ -451,3 +498,4 @@ make docker-build
 - [ ] Real Telegram sender
 - [ ] Dispatcher ↔ Events integration
 - [ ] Channel verification flow
+- [ ] Notifications on event composition changes
