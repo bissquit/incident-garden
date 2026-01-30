@@ -12,12 +12,15 @@ import (
 
 // Client is an HTTP client for testing API endpoints.
 type Client struct {
-	BaseURL    string
-	Token      string
-	HTTPClient *http.Client
+	BaseURL     string
+	Token       string
+	HTTPClient  *http.Client
+	Validator   *OpenAPIValidator
+	ValidateAPI bool
+	t           *testing.T
 }
 
-// NewClient creates a new test client.
+// NewClient creates a new test client without validation.
 func NewClient(baseURL string) *Client {
 	return &Client{
 		BaseURL:    baseURL,
@@ -25,9 +28,48 @@ func NewClient(baseURL string) *Client {
 	}
 }
 
+// NewClientWithValidation creates a new test client with OpenAPI validation enabled.
+// The specPath should be the path to the OpenAPI specification file.
+func NewClientWithValidation(t *testing.T, baseURL, specPath string) *Client {
+	t.Helper()
+	return &Client{
+		BaseURL:     baseURL,
+		HTTPClient:  &http.Client{},
+		Validator:   NewOpenAPIValidator(t, specPath),
+		ValidateAPI: true,
+		t:           t,
+	}
+}
+
+// NewClientWithValidator creates a new test client with a pre-loaded OpenAPI validator.
+// Use this in TestMain where *testing.T is not available during initialization.
+func NewClientWithValidator(baseURL string, validator *OpenAPIValidator) *Client {
+	return &Client{
+		BaseURL:     baseURL,
+		HTTPClient:  &http.Client{},
+		Validator:   validator,
+		ValidateAPI: true,
+	}
+}
+
+// SetT sets the testing.T for validation error reporting.
+// This should be called at the beginning of each test when using a shared client.
+func (c *Client) SetT(t *testing.T) {
+	c.t = t
+}
+
+// WithoutValidation returns a copy of the client with validation disabled.
+// Use this for negative tests where you expect invalid responses.
+func (c *Client) WithoutValidation() *Client {
+	clone := *c
+	clone.ValidateAPI = false
+	return &clone
+}
+
 // LoginAs authenticates and stores the token.
 func (c *Client) LoginAs(t *testing.T, email, password string) {
 	t.Helper()
+	c.t = t
 
 	resp, err := c.POST("/api/v1/auth/login", map[string]string{
 		"email":    email,
@@ -90,6 +132,11 @@ func (c *Client) POST(path string, body interface{}) (*http.Response, error) {
 	return c.do("POST", path, body)
 }
 
+// PUT performs a PUT request with JSON body.
+func (c *Client) PUT(path string, body interface{}) (*http.Response, error) {
+	return c.do("PUT", path, body)
+}
+
 // PATCH performs a PATCH request with JSON body.
 func (c *Client) PATCH(path string, body interface{}) (*http.Response, error) {
 	return c.do("PATCH", path, body)
@@ -100,14 +147,22 @@ func (c *Client) DELETE(path string) (*http.Response, error) {
 	return c.do("DELETE", path, nil)
 }
 
+// DELETEWithBody performs a DELETE request with JSON body.
+func (c *Client) DELETEWithBody(path string, body interface{}) (*http.Response, error) {
+	return c.do("DELETE", path, body)
+}
+
 func (c *Client) do(method, path string, body interface{}) (*http.Response, error) {
 	var bodyReader io.Reader
+	var bodyBytes []byte
+
 	if body != nil {
-		jsonBody, err := json.Marshal(body)
+		var err error
+		bodyBytes, err = json.Marshal(body)
 		if err != nil {
 			return nil, fmt.Errorf("marshal body: %w", err)
 		}
-		bodyReader = bytes.NewReader(jsonBody)
+		bodyReader = bytes.NewReader(bodyBytes)
 	}
 
 	req, err := http.NewRequest(method, c.BaseURL+path, bodyReader)
@@ -120,7 +175,25 @@ func (c *Client) do(method, path string, body interface{}) (*http.Response, erro
 		req.Header.Set("Authorization", "Bearer "+c.Token)
 	}
 
-	return c.HTTPClient.Do(req)
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+
+	// Validate response against OpenAPI spec if enabled
+	if c.ValidateAPI && c.Validator != nil && c.t != nil {
+		// Create a new request for validation (original body was consumed)
+		if bodyBytes != nil {
+			bodyReader = bytes.NewReader(bodyBytes)
+		}
+		validationReq, _ := http.NewRequest(method, c.BaseURL+path, bodyReader)
+		validationReq.Header = req.Header
+		validationReq.URL = req.URL
+
+		c.Validator.ValidateResponse(c.t, validationReq, resp)
+	}
+
+	return resp, nil
 }
 
 // DecodeJSON decodes response body into v.

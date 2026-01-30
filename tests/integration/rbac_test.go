@@ -12,7 +12,7 @@ import (
 )
 
 func TestRBAC_UserCannotCreateService(t *testing.T) {
-	client := testutil.NewClient(testClient.BaseURL)
+	client := newTestClient(t)
 	client.LoginAsUser(t)
 
 	resp, err := client.POST("/api/v1/services", map[string]string{
@@ -25,7 +25,7 @@ func TestRBAC_UserCannotCreateService(t *testing.T) {
 }
 
 func TestRBAC_UserCannotCreateEvent(t *testing.T) {
-	client := testutil.NewClient(testClient.BaseURL)
+	client := newTestClient(t)
 	client.LoginAsUser(t)
 
 	resp, err := client.POST("/api/v1/events", map[string]interface{}{
@@ -40,7 +40,7 @@ func TestRBAC_UserCannotCreateEvent(t *testing.T) {
 }
 
 func TestRBAC_UserCanAccessOwnChannels(t *testing.T) {
-	client := testutil.NewClient(testClient.BaseURL)
+	client := newTestClient(t)
 	client.LoginAsUser(t)
 
 	resp, err := client.POST("/api/v1/me/channels", map[string]string{
@@ -64,7 +64,7 @@ func TestRBAC_UserCanAccessOwnChannels(t *testing.T) {
 }
 
 func TestRBAC_AdminCanCreateService(t *testing.T) {
-	client := testutil.NewClient(testClient.BaseURL)
+	client := newTestClient(t)
 	client.LoginAsAdmin(t)
 
 	slug := testutil.RandomSlug("admin-service")
@@ -80,7 +80,7 @@ func TestRBAC_AdminCanCreateService(t *testing.T) {
 }
 
 func TestRBAC_OperatorCanCreateEvent(t *testing.T) {
-	client := testutil.NewClient(testClient.BaseURL)
+	client := newTestClient(t)
 	client.LoginAsOperator(t)
 
 	resp, err := client.POST("/api/v1/events", map[string]interface{}{
@@ -96,7 +96,7 @@ func TestRBAC_OperatorCanCreateEvent(t *testing.T) {
 }
 
 func TestRBAC_UnauthenticatedCanReadPublicEndpoints(t *testing.T) {
-	client := testutil.NewClient(testClient.BaseURL)
+	client := newTestClient(t)
 
 	tests := []struct {
 		name string
@@ -118,7 +118,7 @@ func TestRBAC_UnauthenticatedCanReadPublicEndpoints(t *testing.T) {
 }
 
 func TestRBAC_UnauthenticatedCannotAccessProtectedEndpoints(t *testing.T) {
-	client := testutil.NewClient(testClient.BaseURL)
+	client := newTestClient(t)
 
 	tests := []struct {
 		name string

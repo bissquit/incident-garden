@@ -2,10 +2,12 @@ openapi: 3.0.3
 info:
   title: StatusPage API
   description: API for managing service statuses and incidents
-  version: 1.1.0
+  version: 1.2.0
   contact:
     name: API Support
 servers:
+  - url: /
+    description: Relative paths (for testing)
   - url: http://localhost:8080
     description: Local development
 tags:
@@ -1047,7 +1049,18 @@ components:
                   message:
                     type: string
                   details:
-                    type: string
+                    oneOf:
+                      - type: array
+                        items:
+                          type: object
+                          properties:
+                            field:
+                              type: string
+                            message:
+                              type: string
+                          required: [field, message]
+                      - type: string
+                    description: Validation error details. Array of field errors or error string.
     UnauthorizedError:
       description: Authentication required
       content:
@@ -1210,7 +1223,8 @@ components:
         status:
           $ref: '#/components/schemas/EventStatus'
         severity:
-          $ref: '#/components/schemas/Severity'
+          allOf:
+            - $ref: '#/components/schemas/Severity'
           nullable: true
         description:
           type: string
@@ -1244,6 +1258,7 @@ components:
           items:
             type: string
             format: uuid
+          nullable: true
         group_ids:
           type: array
           items:

@@ -12,7 +12,7 @@ import (
 )
 
 func TestEvents_Incident_Lifecycle(t *testing.T) {
-	client := testutil.NewClient(testClient.BaseURL)
+	client := newTestClient(t)
 	client.LoginAsOperator(t)
 
 	resp, err := client.POST("/api/v1/events", map[string]interface{}{
@@ -80,7 +80,7 @@ func TestEvents_Incident_Lifecycle(t *testing.T) {
 }
 
 func TestEvents_Maintenance_Lifecycle(t *testing.T) {
-	client := testutil.NewClient(testClient.BaseURL)
+	client := newTestClient(t)
 	client.LoginAsOperator(t)
 
 	resp, err := client.POST("/api/v1/events", map[string]interface{}{
@@ -124,7 +124,7 @@ func TestEvents_Maintenance_Lifecycle(t *testing.T) {
 }
 
 func TestEvents_InvalidStatusForType(t *testing.T) {
-	client := testutil.NewClient(testClient.BaseURL)
+	client := newTestClient(t)
 	client.LoginAsOperator(t)
 
 	resp, err := client.POST("/api/v1/events", map[string]interface{}{
@@ -150,7 +150,7 @@ func TestEvents_InvalidStatusForType(t *testing.T) {
 }
 
 func TestEvents_PublicStatus(t *testing.T) {
-	client := testutil.NewClient(testClient.BaseURL)
+	client := newTestClient(t)
 
 	resp, err := client.GET("/api/v1/status")
 	require.NoError(t, err)
