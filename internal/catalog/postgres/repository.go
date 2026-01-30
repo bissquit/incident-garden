@@ -46,7 +46,7 @@ func (r *Repository) CreateGroup(ctx context.Context, group *domain.ServiceGroup
 // GetGroupBySlug retrieves a service group by its slug.
 func (r *Repository) GetGroupBySlug(ctx context.Context, slug string) (*domain.ServiceGroup, error) {
 	query := `
-		SELECT id, name, slug, description, "order", created_at, updated_at
+		SELECT id, name, slug, description, "order", created_at, updated_at, archived_at
 		FROM service_groups
 		WHERE slug = $1
 	`
@@ -59,6 +59,7 @@ func (r *Repository) GetGroupBySlug(ctx context.Context, slug string) (*domain.S
 		&group.Order,
 		&group.CreatedAt,
 		&group.UpdatedAt,
+		&group.ArchivedAt,
 	)
 
 	if err != nil {
@@ -73,7 +74,7 @@ func (r *Repository) GetGroupBySlug(ctx context.Context, slug string) (*domain.S
 // GetGroupByID retrieves a service group by its ID.
 func (r *Repository) GetGroupByID(ctx context.Context, id string) (*domain.ServiceGroup, error) {
 	query := `
-		SELECT id, name, slug, description, "order", created_at, updated_at
+		SELECT id, name, slug, description, "order", created_at, updated_at, archived_at
 		FROM service_groups
 		WHERE id = $1
 	`
@@ -86,6 +87,7 @@ func (r *Repository) GetGroupByID(ctx context.Context, id string) (*domain.Servi
 		&group.Order,
 		&group.CreatedAt,
 		&group.UpdatedAt,
+		&group.ArchivedAt,
 	)
 
 	if err != nil {
@@ -98,12 +100,18 @@ func (r *Repository) GetGroupByID(ctx context.Context, id string) (*domain.Servi
 }
 
 // ListGroups retrieves all service groups ordered by order and name.
-func (r *Repository) ListGroups(ctx context.Context) ([]domain.ServiceGroup, error) {
+func (r *Repository) ListGroups(ctx context.Context, filter catalog.GroupFilter) ([]domain.ServiceGroup, error) {
 	query := `
-		SELECT id, name, slug, description, "order", created_at, updated_at
+		SELECT id, name, slug, description, "order", created_at, updated_at, archived_at
 		FROM service_groups
-		ORDER BY "order", name
 	`
+
+	if !filter.IncludeArchived {
+		query += " WHERE archived_at IS NULL"
+	}
+
+	query += ` ORDER BY "order", name`
+
 	rows, err := r.db.Query(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("list service groups: %w", err)
@@ -121,6 +129,7 @@ func (r *Repository) ListGroups(ctx context.Context) ([]domain.ServiceGroup, err
 			&group.Order,
 			&group.CreatedAt,
 			&group.UpdatedAt,
+			&group.ArchivedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scan service group: %w", err)
@@ -198,7 +207,7 @@ func (r *Repository) CreateService(ctx context.Context, service *domain.Service)
 // GetServiceBySlug retrieves a service by its slug.
 func (r *Repository) GetServiceBySlug(ctx context.Context, slug string) (*domain.Service, error) {
 	query := `
-		SELECT id, name, slug, description, status, "order", created_at, updated_at
+		SELECT id, name, slug, description, status, "order", created_at, updated_at, archived_at
 		FROM services
 		WHERE slug = $1
 	`
@@ -212,6 +221,7 @@ func (r *Repository) GetServiceBySlug(ctx context.Context, slug string) (*domain
 		&service.Order,
 		&service.CreatedAt,
 		&service.UpdatedAt,
+		&service.ArchivedAt,
 	)
 
 	if err != nil {
@@ -234,7 +244,7 @@ func (r *Repository) GetServiceBySlug(ctx context.Context, slug string) (*domain
 // GetServiceByID retrieves a service by its ID.
 func (r *Repository) GetServiceByID(ctx context.Context, id string) (*domain.Service, error) {
 	query := `
-		SELECT id, name, slug, description, status, "order", created_at, updated_at
+		SELECT id, name, slug, description, status, "order", created_at, updated_at, archived_at
 		FROM services
 		WHERE id = $1
 	`
@@ -248,6 +258,7 @@ func (r *Repository) GetServiceByID(ctx context.Context, id string) (*domain.Ser
 		&service.Order,
 		&service.CreatedAt,
 		&service.UpdatedAt,
+		&service.ArchivedAt,
 	)
 
 	if err != nil {
@@ -271,29 +282,43 @@ func (r *Repository) GetServiceByID(ctx context.Context, id string) (*domain.Ser
 func (r *Repository) ListServices(ctx context.Context, filter catalog.ServiceFilter) ([]domain.Service, error) {
 	var query string
 	var args []interface{}
+	argNum := 1
 
 	if filter.GroupID != nil {
 		// Filter by group using JOIN on service_group_members
 		query = `
-			SELECT DISTINCT s.id, s.name, s.slug, s.description, s.status, s."order", s.created_at, s.updated_at
+			SELECT DISTINCT s.id, s.name, s.slug, s.description, s.status, s."order", s.created_at, s.updated_at, s.archived_at
 			FROM services s
 			JOIN service_group_members sgm ON s.id = sgm.service_id
 			WHERE sgm.group_id = $1
 		`
 		args = append(args, *filter.GroupID)
+		argNum++
+
+		if !filter.IncludeArchived {
+			query += " AND s.archived_at IS NULL"
+		}
 
 		if filter.Status != nil {
-			query += " AND s.status = $2"
+			query += fmt.Sprintf(" AND s.status = $%d", argNum)
 			args = append(args, *filter.Status)
 		}
 	} else {
 		// No group filter
 		query = `
-			SELECT id, name, slug, description, status, "order", created_at, updated_at
+			SELECT id, name, slug, description, status, "order", created_at, updated_at, archived_at
 			FROM services
-			WHERE ($1::text IS NULL OR status = $1)
+			WHERE 1=1
 		`
-		args = append(args, filter.Status)
+
+		if !filter.IncludeArchived {
+			query += " AND archived_at IS NULL"
+		}
+
+		if filter.Status != nil {
+			query += fmt.Sprintf(" AND status = $%d", argNum)
+			args = append(args, *filter.Status)
+		}
 	}
 
 	query += ` ORDER BY "order", name`
@@ -316,6 +341,7 @@ func (r *Repository) ListServices(ctx context.Context, filter catalog.ServiceFil
 			&service.Order,
 			&service.CreatedAt,
 			&service.UpdatedAt,
+			&service.ArchivedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("scan service: %w", err)
@@ -533,4 +559,139 @@ func (r *Repository) GetGroupServices(ctx context.Context, groupID string) ([]st
 	}
 
 	return serviceIDs, nil
+}
+
+// ArchiveService soft-deletes a service by setting archived_at.
+func (r *Repository) ArchiveService(ctx context.Context, id string) error {
+	query := `UPDATE services SET archived_at = NOW(), updated_at = NOW() WHERE id = $1 AND archived_at IS NULL`
+	result, err := r.db.Exec(ctx, query, id)
+	if err != nil {
+		return fmt.Errorf("archive service: %w", err)
+	}
+	if result.RowsAffected() == 0 {
+		// Check if not found or already archived
+		var archivedAt *string
+		err := r.db.QueryRow(ctx, `SELECT archived_at::text FROM services WHERE id = $1`, id).Scan(&archivedAt)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return catalog.ErrServiceNotFound
+			}
+			return fmt.Errorf("check service exists: %w", err)
+		}
+		if archivedAt != nil {
+			return catalog.ErrAlreadyArchived
+		}
+		return catalog.ErrServiceNotFound
+	}
+	return nil
+}
+
+// RestoreService restores an archived service by clearing archived_at.
+func (r *Repository) RestoreService(ctx context.Context, id string) error {
+	query := `UPDATE services SET archived_at = NULL, updated_at = NOW() WHERE id = $1 AND archived_at IS NOT NULL`
+	result, err := r.db.Exec(ctx, query, id)
+	if err != nil {
+		return fmt.Errorf("restore service: %w", err)
+	}
+	if result.RowsAffected() == 0 {
+		// Check if not found or not archived
+		var archivedAt *string
+		err := r.db.QueryRow(ctx, `SELECT archived_at::text FROM services WHERE id = $1`, id).Scan(&archivedAt)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return catalog.ErrServiceNotFound
+			}
+			return fmt.Errorf("check service exists: %w", err)
+		}
+		if archivedAt == nil {
+			return catalog.ErrNotArchived
+		}
+		return catalog.ErrServiceNotFound
+	}
+	return nil
+}
+
+// ArchiveGroup soft-deletes a group by setting archived_at.
+func (r *Repository) ArchiveGroup(ctx context.Context, id string) error {
+	query := `UPDATE service_groups SET archived_at = NOW(), updated_at = NOW() WHERE id = $1 AND archived_at IS NULL`
+	result, err := r.db.Exec(ctx, query, id)
+	if err != nil {
+		return fmt.Errorf("archive group: %w", err)
+	}
+	if result.RowsAffected() == 0 {
+		// Check if not found or already archived
+		var archivedAt *string
+		err := r.db.QueryRow(ctx, `SELECT archived_at::text FROM service_groups WHERE id = $1`, id).Scan(&archivedAt)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return catalog.ErrGroupNotFound
+			}
+			return fmt.Errorf("check group exists: %w", err)
+		}
+		if archivedAt != nil {
+			return catalog.ErrAlreadyArchived
+		}
+		return catalog.ErrGroupNotFound
+	}
+	return nil
+}
+
+// RestoreGroup restores an archived group by clearing archived_at.
+func (r *Repository) RestoreGroup(ctx context.Context, id string) error {
+	query := `UPDATE service_groups SET archived_at = NULL, updated_at = NOW() WHERE id = $1 AND archived_at IS NOT NULL`
+	result, err := r.db.Exec(ctx, query, id)
+	if err != nil {
+		return fmt.Errorf("restore group: %w", err)
+	}
+	if result.RowsAffected() == 0 {
+		// Check if not found or not archived
+		var archivedAt *string
+		err := r.db.QueryRow(ctx, `SELECT archived_at::text FROM service_groups WHERE id = $1`, id).Scan(&archivedAt)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return catalog.ErrGroupNotFound
+			}
+			return fmt.Errorf("check group exists: %w", err)
+		}
+		if archivedAt == nil {
+			return catalog.ErrNotArchived
+		}
+		return catalog.ErrGroupNotFound
+	}
+	return nil
+}
+
+// GetActiveEventCountForService returns count of active (non-resolved/completed) events for a service.
+func (r *Repository) GetActiveEventCountForService(ctx context.Context, serviceID string) (int, error) {
+	query := `
+		SELECT COUNT(DISTINCT e.id)
+		FROM events e
+		JOIN event_services es ON e.id = es.event_id
+		WHERE es.service_id = $1
+		  AND e.status NOT IN ('resolved', 'completed')
+	`
+	var count int
+	err := r.db.QueryRow(ctx, query, serviceID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("get active event count for service: %w", err)
+	}
+	return count, nil
+}
+
+// GetActiveEventCountForGroup returns count of active events for any service in the group.
+func (r *Repository) GetActiveEventCountForGroup(ctx context.Context, groupID string) (int, error) {
+	query := `
+		SELECT COUNT(DISTINCT e.id)
+		FROM events e
+		JOIN event_services es ON e.id = es.event_id
+		JOIN service_group_members sgm ON es.service_id = sgm.service_id
+		WHERE sgm.group_id = $1
+		  AND e.status NOT IN ('resolved', 'completed')
+	`
+	var count int
+	err := r.db.QueryRow(ctx, query, groupID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("get active event count for group: %w", err)
+	}
+	return count, nil
 }

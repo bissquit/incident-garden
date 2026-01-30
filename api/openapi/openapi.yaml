@@ -170,6 +170,12 @@ paths:
           in: query
           schema:
             $ref: '#/components/schemas/ServiceStatus'
+        - name: include_archived
+          in: query
+          schema:
+            type: boolean
+            default: false
+          description: Include archived services in the response
       responses:
         '200':
           description: List of services
@@ -256,6 +262,7 @@ paths:
     delete:
       tags: [services]
       summary: Delete a service
+      description: Archives the service (soft delete). Returns 409 if service has active events.
       operationId: deleteService
       security:
         - BearerAuth: []
@@ -270,6 +277,33 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '409':
+          $ref: '#/components/responses/ConflictError'
+
+  /api/v1/services/{slug}/restore:
+    post:
+      tags: [services]
+      summary: Restore an archived service
+      operationId: restoreService
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ServiceSlug'
+      responses:
+        '200':
+          description: Service restored
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '409':
+          $ref: '#/components/responses/ConflictError'
 
   /api/v1/services/{slug}/tags:
     get:
@@ -321,6 +355,13 @@ paths:
       tags: [groups]
       summary: List groups
       operationId: listGroups
+      parameters:
+        - name: include_archived
+          in: query
+          schema:
+            type: boolean
+            default: false
+          description: Include archived groups in the response
       responses:
         '200':
           description: List of groups
@@ -407,6 +448,7 @@ paths:
     delete:
       tags: [groups]
       summary: Delete a group
+      description: Archives the group (soft delete). Returns 409 if group has services with active events.
       operationId: deleteGroup
       security:
         - BearerAuth: []
@@ -421,6 +463,33 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '409':
+          $ref: '#/components/responses/ConflictError'
+
+  /api/v1/groups/{slug}/restore:
+    post:
+      tags: [groups]
+      summary: Restore an archived group
+      operationId: restoreGroup
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/GroupSlug'
+      responses:
+        '200':
+          description: Group restored
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GroupResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '409':
+          $ref: '#/components/responses/ConflictError'
 
   /api/v1/events:
     get:
@@ -1119,6 +1188,10 @@ components:
         updated_at:
           type: string
           format: date-time
+        archived_at:
+          type: string
+          format: date-time
+          nullable: true
       required:
         - id
         - name
@@ -1149,6 +1222,10 @@ components:
         updated_at:
           type: string
           format: date-time
+        archived_at:
+          type: string
+          format: date-time
+          nullable: true
       required:
         - id
         - name

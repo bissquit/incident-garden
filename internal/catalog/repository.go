@@ -11,7 +11,7 @@ type Repository interface {
 	CreateGroup(ctx context.Context, group *domain.ServiceGroup) error
 	GetGroupBySlug(ctx context.Context, slug string) (*domain.ServiceGroup, error)
 	GetGroupByID(ctx context.Context, id string) (*domain.ServiceGroup, error)
-	ListGroups(ctx context.Context) ([]domain.ServiceGroup, error)
+	ListGroups(ctx context.Context, filter GroupFilter) ([]domain.ServiceGroup, error)
 	UpdateGroup(ctx context.Context, group *domain.ServiceGroup) error
 	DeleteGroup(ctx context.Context, id string) error
 
@@ -28,10 +28,26 @@ type Repository interface {
 	SetServiceGroups(ctx context.Context, serviceID string, groupIDs []string) error
 	GetServiceGroups(ctx context.Context, serviceID string) ([]string, error)
 	GetGroupServices(ctx context.Context, groupID string) ([]string, error)
+
+	// Soft delete operations
+	ArchiveService(ctx context.Context, id string) error
+	RestoreService(ctx context.Context, id string) error
+	ArchiveGroup(ctx context.Context, id string) error
+	RestoreGroup(ctx context.Context, id string) error
+
+	// Active events check
+	GetActiveEventCountForService(ctx context.Context, serviceID string) (int, error)
+	GetActiveEventCountForGroup(ctx context.Context, groupID string) (int, error)
 }
 
 // ServiceFilter represents filter criteria for listing services.
 type ServiceFilter struct {
-	GroupID *string
-	Status  *domain.ServiceStatus
+	GroupID         *string
+	Status          *domain.ServiceStatus
+	IncludeArchived bool
+}
+
+// GroupFilter represents filter criteria for listing groups.
+type GroupFilter struct {
+	IncludeArchived bool
 }
