@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0](https://github.com/bissquit/incident-garden/compare/v1.2.2...v1.3.0) (2026-01-30)
+
+
+### Features
+
+* add events with groups and history of changes ([d9bfa20](https://github.com/bissquit/incident-garden/commit/d9bfa205682e8193fea0b8ac1695e35720d4772e))
+* add one service to many groups relation ([c6ac95a](https://github.com/bissquit/incident-garden/commit/c6ac95ac18baeb3b6aa811f2bb4bec03ae8ebe83))
+* implement kin-openapi validation ([c0b1277](https://github.com/bissquit/incident-garden/commit/c0b127797e87c1ada8759501210936083587fe49))
+* soft delete and archived_at field ([9b5b5c6](https://github.com/bissquit/incident-garden/commit/9b5b5c6355a0b100db10c492c9b7675aec462e25))
+
+
+### Bug Fixes
+
+* update openapi ([5119c5c](https://github.com/bissquit/incident-garden/commit/5119c5ccb913b4d1ab3b86b2fce8de09236236c8))
+
 ## [1.2.2](https://github.com/bissquit/incident-garden/compare/v1.2.1...v1.2.2) (2026-01-29)
 
 
