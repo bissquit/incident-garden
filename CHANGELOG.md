@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.1](https://github.com/bissquit/incident-garden/compare/v1.4.0...v1.4.1) (2026-02-01)
+
+
+### Bug Fixes
+
+* include X-CSRF-Token into Access-Control-Allow-Headers ([#24](https://github.com/bissquit/incident-garden/issues/24)) ([2951b86](https://github.com/bissquit/incident-garden/commit/2951b868ed6af4115a0c704779829c0d6bdddd01))
+
 ## [1.4.0](https://github.com/bissquit/incident-garden/compare/v1.3.0...v1.4.0) (2026-02-01)
 
 
