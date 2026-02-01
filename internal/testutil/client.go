@@ -7,13 +7,17 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/cookiejar"
 	"testing"
+
+	"github.com/bissquit/incident-garden/internal/pkg/httputil"
 )
 
 // Client is an HTTP client for testing API endpoints.
 type Client struct {
 	BaseURL     string
-	Token       string
+	Token       string // For backward compatibility with Authorization header
+	CSRFToken   string // CSRF token for cookie-based auth
 	HTTPClient  *http.Client
 	Validator   *OpenAPIValidator
 	ValidateAPI bool
@@ -22,9 +26,10 @@ type Client struct {
 
 // NewClient creates a new test client without validation.
 func NewClient(baseURL string) *Client {
+	jar, _ := cookiejar.New(nil)
 	return &Client{
 		BaseURL:    baseURL,
-		HTTPClient: &http.Client{},
+		HTTPClient: &http.Client{Jar: jar},
 	}
 }
 
@@ -32,9 +37,10 @@ func NewClient(baseURL string) *Client {
 // The specPath should be the path to the OpenAPI specification file.
 func NewClientWithValidation(t *testing.T, baseURL, specPath string) *Client {
 	t.Helper()
+	jar, _ := cookiejar.New(nil)
 	return &Client{
 		BaseURL:     baseURL,
-		HTTPClient:  &http.Client{},
+		HTTPClient:  &http.Client{Jar: jar},
 		Validator:   NewOpenAPIValidator(t, specPath),
 		ValidateAPI: true,
 		t:           t,
@@ -44,9 +50,10 @@ func NewClientWithValidation(t *testing.T, baseURL, specPath string) *Client {
 // NewClientWithValidator creates a new test client with a pre-loaded OpenAPI validator.
 // Use this in TestMain where *testing.T is not available during initialization.
 func NewClientWithValidator(baseURL string, validator *OpenAPIValidator) *Client {
+	jar, _ := cookiejar.New(nil)
 	return &Client{
 		BaseURL:     baseURL,
-		HTTPClient:  &http.Client{},
+		HTTPClient:  &http.Client{Jar: jar},
 		Validator:   validator,
 		ValidateAPI: true,
 	}
@@ -66,7 +73,8 @@ func (c *Client) WithoutValidation() *Client {
 	return &clone
 }
 
-// LoginAs authenticates and stores the token.
+// LoginAs authenticates using email/password.
+// Cookies (access_token, refresh_token, csrf_token) are automatically stored in the cookie jar.
 func (c *Client) LoginAs(t *testing.T, email, password string) {
 	t.Helper()
 	c.t = t
@@ -85,18 +93,13 @@ func (c *Client) LoginAs(t *testing.T, email, password string) {
 		t.Fatalf("login failed: status=%d body=%s", resp.StatusCode, body)
 	}
 
-	var result struct {
-		Data struct {
-			Tokens struct {
-				AccessToken string `json:"access_token"`
-			} `json:"tokens"`
-		} `json:"data"`
+	// Extract CSRF token from cookies for subsequent requests
+	for _, cookie := range resp.Cookies() {
+		if cookie.Name == httputil.CSRFTokenCookie {
+			c.CSRFToken = cookie.Value
+			break
+		}
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		t.Fatalf("decode login response: %v", err)
-	}
-
-	c.Token = result.Data.Tokens.AccessToken
 }
 
 // LoginAsAdmin logs in as admin@example.com.
@@ -117,9 +120,12 @@ func (c *Client) LoginAsUser(t *testing.T) {
 	c.LoginAs(t, "user@example.com", "user123")
 }
 
-// ClearToken removes the stored token.
+// ClearToken removes the stored token and resets the cookie jar.
 func (c *Client) ClearToken() {
 	c.Token = ""
+	c.CSRFToken = ""
+	jar, _ := cookiejar.New(nil)
+	c.HTTPClient.Jar = jar
 }
 
 // GET performs a GET request.
@@ -171,8 +177,15 @@ func (c *Client) do(method, path string, body interface{}) (*http.Response, erro
 	}
 
 	req.Header.Set("Content-Type", "application/json")
+
+	// Use Authorization header if Token is set (backward compatibility for API clients)
 	if c.Token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.Token)
+	}
+
+	// Add CSRF header for state-changing methods when using cookie-based auth
+	if c.CSRFToken != "" && isStateChanging(method) {
+		req.Header.Set(httputil.CSRFTokenHeader, c.CSRFToken)
 	}
 
 	resp, err := c.HTTPClient.Do(req)
@@ -194,6 +207,15 @@ func (c *Client) do(method, path string, body interface{}) (*http.Response, erro
 	}
 
 	return resp, nil
+}
+
+// isStateChanging returns true for HTTP methods that modify state.
+func isStateChanging(method string) bool {
+	switch method {
+	case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
+		return true
+	}
+	return false
 }
 
 // DecodeJSON decodes response body into v.

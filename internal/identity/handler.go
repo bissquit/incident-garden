@@ -1,10 +1,13 @@
 package identity
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/bissquit/incident-garden/internal/domain"
 	"github.com/bissquit/incident-garden/internal/pkg/httputil"
@@ -12,17 +15,27 @@ import (
 	"github.com/go-playground/validator/v10"
 )
 
+// CookieSettings contains settings for authentication cookies.
+type CookieSettings struct {
+	Secure               bool
+	Domain               string
+	AccessTokenDuration  time.Duration
+	RefreshTokenDuration time.Duration
+}
+
 // Handler handles HTTP requests for the identity module.
 type Handler struct {
-	service   *Service
-	validator *validator.Validate
+	service        *Service
+	validator      *validator.Validate
+	cookieSettings CookieSettings
 }
 
 // NewHandler creates a new identity handler.
-func NewHandler(service *Service) *Handler {
+func NewHandler(service *Service, cookieSettings CookieSettings) *Handler {
 	return &Handler{
-		service:   service,
-		validator: validator.New(),
+		service:        service,
+		validator:      validator.New(),
+		cookieSettings: cookieSettings,
 	}
 }
 
@@ -79,8 +92,7 @@ type LoginRequest struct {
 
 // LoginResponse represents login response.
 type LoginResponse struct {
-	User   *domain.User `json:"user"`
-	Tokens *TokenPair   `json:"tokens"`
+	User *domain.User `json:"user"`
 }
 
 // Login handles POST /auth/login.
@@ -102,50 +114,44 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.setAuthCookies(w, tokens)
+
 	h.respondJSON(w, http.StatusOK, LoginResponse{
-		User:   user,
-		Tokens: tokens,
+		User: user,
 	})
 }
 
-// RefreshRequest represents refresh token request.
-type RefreshRequest struct {
-	RefreshToken string `json:"refresh_token" validate:"required"`
-}
-
 // Refresh handles POST /auth/refresh.
+// Reads refresh_token from cookie, issues new tokens.
 func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
-	var req RefreshRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.respondError(w, http.StatusBadRequest, "invalid json")
+	refreshToken := h.getRefreshTokenFromRequest(r)
+	if refreshToken == "" {
+		h.respondError(w, http.StatusBadRequest, "missing refresh token")
 		return
 	}
 
-	if err := h.validator.Struct(req); err != nil {
-		h.respondValidationError(w, err)
-		return
-	}
-
-	tokens, err := h.service.RefreshTokens(r.Context(), req.RefreshToken)
+	tokens, err := h.service.RefreshTokens(r.Context(), refreshToken)
 	if err != nil {
 		h.handleServiceError(w, err)
 		return
 	}
 
-	h.respondJSON(w, http.StatusOK, tokens)
+	h.setAuthCookies(w, tokens)
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // Logout handles POST /auth/logout.
+// Reads refresh_token from cookie, invalidates it, clears all auth cookies.
 func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
-	var req RefreshRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.respondError(w, http.StatusBadRequest, "invalid json")
-		return
+	refreshToken := h.getRefreshTokenFromRequest(r)
+	if refreshToken != "" {
+		if err := h.service.Logout(r.Context(), refreshToken); err != nil {
+			slog.Warn("logout error", "error", err)
+		}
 	}
 
-	if err := h.service.Logout(r.Context(), req.RefreshToken); err != nil {
-		slog.Warn("logout error", "error", err)
-	}
+	h.clearAuthCookies(w)
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -206,6 +212,110 @@ func (h *Handler) respondValidationError(w http.ResponseWriter, err error) {
 	}); err != nil {
 		slog.Error("failed to encode validation error response", "error", err)
 	}
+}
+
+// setAuthCookies sets access_token, refresh_token, and csrf_token cookies.
+func (h *Handler) setAuthCookies(w http.ResponseWriter, tokens *TokenPair) {
+	// Access token cookie - available to all paths
+	http.SetCookie(w, &http.Cookie{
+		Name:     httputil.AccessTokenCookie,
+		Value:    tokens.AccessToken,
+		Path:     "/",
+		Domain:   h.cookieSettings.Domain,
+		MaxAge:   int(h.cookieSettings.AccessTokenDuration.Seconds()),
+		HttpOnly: true,
+		Secure:   h.cookieSettings.Secure,
+		SameSite: http.SameSiteLaxMode,
+	})
+
+	// Refresh token cookie - only for /api/v1/auth paths
+	http.SetCookie(w, &http.Cookie{
+		Name:     httputil.RefreshTokenCookie,
+		Value:    tokens.RefreshToken,
+		Path:     "/api/v1/auth",
+		Domain:   h.cookieSettings.Domain,
+		MaxAge:   int(h.cookieSettings.RefreshTokenDuration.Seconds()),
+		HttpOnly: true,
+		Secure:   h.cookieSettings.Secure,
+		SameSite: http.SameSiteStrictMode,
+	})
+
+	// CSRF token cookie - readable by JavaScript
+	csrfToken := generateCSRFToken()
+	http.SetCookie(w, &http.Cookie{
+		Name:     httputil.CSRFTokenCookie,
+		Value:    csrfToken,
+		Path:     "/",
+		Domain:   h.cookieSettings.Domain,
+		MaxAge:   int(h.cookieSettings.AccessTokenDuration.Seconds()),
+		HttpOnly: false, // Must be readable by JavaScript
+		Secure:   h.cookieSettings.Secure,
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+// clearAuthCookies removes all auth cookies by setting Max-Age=0.
+func (h *Handler) clearAuthCookies(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     httputil.AccessTokenCookie,
+		Value:    "",
+		Path:     "/",
+		Domain:   h.cookieSettings.Domain,
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   h.cookieSettings.Secure,
+		SameSite: http.SameSiteLaxMode,
+	})
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     httputil.RefreshTokenCookie,
+		Value:    "",
+		Path:     "/api/v1/auth",
+		Domain:   h.cookieSettings.Domain,
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   h.cookieSettings.Secure,
+		SameSite: http.SameSiteStrictMode,
+	})
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     httputil.CSRFTokenCookie,
+		Value:    "",
+		Path:     "/",
+		Domain:   h.cookieSettings.Domain,
+		MaxAge:   -1,
+		HttpOnly: false,
+		Secure:   h.cookieSettings.Secure,
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+// getRefreshTokenFromRequest extracts refresh token from cookie or request body (for backward compatibility).
+func (h *Handler) getRefreshTokenFromRequest(r *http.Request) string {
+	// Try cookie first
+	if cookie, err := r.Cookie(httputil.RefreshTokenCookie); err == nil && cookie.Value != "" {
+		return cookie.Value
+	}
+
+	// Fallback to request body for API clients
+	var body struct {
+		RefreshToken string `json:"refresh_token"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err == nil && body.RefreshToken != "" {
+		return body.RefreshToken
+	}
+
+	return ""
+}
+
+// generateCSRFToken generates a random CSRF token.
+func generateCSRFToken() string {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		// Fallback to less secure but functional token
+		return hex.EncodeToString([]byte(time.Now().String()))
+	}
+	return hex.EncodeToString(b)
 }
 
 func (h *Handler) handleServiceError(w http.ResponseWriter, err error) {

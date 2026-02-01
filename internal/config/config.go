@@ -20,11 +20,18 @@ type Config struct {
 	Log      LogConfig
 	JWT      JWTConfig
 	CORS     CORSConfig
+	Cookie   CookieConfig
 }
 
 // CORSConfig contains CORS settings.
 type CORSConfig struct {
 	AllowedOrigins []string
+}
+
+// CookieConfig contains cookie settings for authentication.
+type CookieConfig struct {
+	Secure bool   // Set Secure flag on cookies (true in production)
+	Domain string // Cookie domain (empty = current domain)
 }
 
 // ServerConfig contains HTTP server settings.
@@ -94,6 +101,10 @@ func Load() (*Config, error) {
 		},
 		CORS: CORSConfig{
 			AllowedOrigins: parseOrigins(k.String("CORS_ALLOWED_ORIGINS")),
+		},
+		Cookie: CookieConfig{
+			Secure: k.Bool("COOKIE_SECURE"),
+			Domain: k.String("COOKIE_DOMAIN"),
 		},
 	}
 
