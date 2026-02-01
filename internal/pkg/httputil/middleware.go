@@ -10,6 +10,14 @@ import (
 	"github.com/bissquit/incident-garden/internal/domain"
 )
 
+// Cookie and header names for authentication.
+const (
+	AccessTokenCookie  = "access_token"
+	RefreshTokenCookie = "refresh_token"
+	CSRFTokenCookie    = "csrf_token"
+	CSRFTokenHeader    = "X-CSRF-Token"
+)
+
 // CORSMiddleware creates CORS middleware that handles preflight requests
 // and adds appropriate CORS headers to responses.
 func CORSMiddleware(allowedOrigins []string) func(http.Handler) http.Handler {
@@ -56,22 +64,43 @@ type TokenValidator interface {
 }
 
 // AuthMiddleware creates authentication middleware.
+// It supports both cookie-based and header-based authentication.
+// Priority: 1) Cookie (with CSRF check) 2) Authorization header (no CSRF).
 func AuthMiddleware(validator TokenValidator) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			authHeader := r.Header.Get("Authorization")
-			if authHeader == "" {
-				respondError(w, http.StatusUnauthorized, "missing authorization header")
+			var token string
+			var fromCookie bool
+
+			// Try cookie first
+			if cookie, err := r.Cookie(AccessTokenCookie); err == nil && cookie.Value != "" {
+				token = cookie.Value
+				fromCookie = true
+			}
+
+			// Fallback to Authorization header
+			if token == "" {
+				authHeader := r.Header.Get("Authorization")
+				if authHeader != "" {
+					parts := strings.SplitN(authHeader, " ", 2)
+					if len(parts) == 2 && strings.ToLower(parts[0]) == "bearer" {
+						token = parts[1]
+					}
+				}
+			}
+
+			if token == "" {
+				respondError(w, http.StatusUnauthorized, "missing authentication")
 				return
 			}
 
-			parts := strings.SplitN(authHeader, " ", 2)
-			if len(parts) != 2 || strings.ToLower(parts[0]) != "bearer" {
-				respondError(w, http.StatusUnauthorized, "invalid authorization header format")
-				return
+			// CSRF check for cookie-based auth on state-changing methods
+			if fromCookie && isStateChangingMethod(r.Method) {
+				if !validateCSRF(r) {
+					respondError(w, http.StatusForbidden, "invalid csrf token")
+					return
+				}
 			}
-
-			token := parts[1]
 
 			userID, role, err := validator.ValidateToken(r.Context(), token)
 			if err != nil {
@@ -85,6 +114,30 @@ func AuthMiddleware(validator TokenValidator) func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+}
+
+// isStateChangingMethod returns true for methods that modify state.
+func isStateChangingMethod(method string) bool {
+	switch method {
+	case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
+		return true
+	}
+	return false
+}
+
+// validateCSRF checks that X-CSRF-Token header matches csrf_token cookie.
+func validateCSRF(r *http.Request) bool {
+	cookie, err := r.Cookie(CSRFTokenCookie)
+	if err != nil || cookie.Value == "" {
+		return false
+	}
+
+	headerToken := r.Header.Get(CSRFTokenHeader)
+	if headerToken == "" {
+		return false
+	}
+
+	return cookie.Value == headerToken
 }
 
 // RequireRole creates RBAC middleware.

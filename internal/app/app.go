@@ -152,7 +152,12 @@ func (a *App) setupRouter() *chi.Mux {
 		RefreshTokenDuration: a.config.JWT.RefreshTokenDuration,
 	}, identityRepo)
 	identityService := identity.NewService(identityRepo, jwtAuth)
-	identityHandler := identity.NewHandler(identityService)
+	identityHandler := identity.NewHandler(identityService, identity.CookieSettings{
+		Secure:               a.config.Cookie.Secure,
+		Domain:               a.config.Cookie.Domain,
+		AccessTokenDuration:  a.config.JWT.AccessTokenDuration,
+		RefreshTokenDuration: a.config.JWT.RefreshTokenDuration,
+	})
 
 	catalogRepo := catalogpostgres.NewRepository(a.db)
 	catalogService := catalog.NewService(catalogRepo)

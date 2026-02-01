@@ -88,6 +88,10 @@ func TestMain(m *testing.M) {
 			AccessTokenDuration:  15 * time.Minute,
 			RefreshTokenDuration: 24 * time.Hour,
 		},
+		Cookie: config.CookieConfig{
+			Secure: false, // Not using HTTPS in tests
+			Domain: "",
+		},
 	}
 
 	application, err := app.New(cfg)
