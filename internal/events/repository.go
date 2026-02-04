@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/bissquit/incident-garden/internal/domain"
+	"github.com/jackc/pgx/v5"
 )
 
 // Repository defines the interface for event storage.
@@ -33,6 +34,14 @@ type Repository interface {
 
 	CreateServiceChange(ctx context.Context, change *domain.EventServiceChange) error
 	ListServiceChanges(ctx context.Context, eventID string) ([]*domain.EventServiceChange, error)
+
+	// Transaction support
+	BeginTx(ctx context.Context) (pgx.Tx, error)
+	CreateEventTx(ctx context.Context, tx pgx.Tx, event *domain.Event) error
+	AssociateServicesTx(ctx context.Context, tx pgx.Tx, eventID string, serviceIDs []string) error
+	AssociateGroupsTx(ctx context.Context, tx pgx.Tx, eventID string, groupIDs []string) error
+	AddGroupsTx(ctx context.Context, tx pgx.Tx, eventID string, groupIDs []string) error
+	CreateServiceChangeTx(ctx context.Context, tx pgx.Tx, change *domain.EventServiceChange) error
 }
 
 // EventFilters holds filter options for listing events.

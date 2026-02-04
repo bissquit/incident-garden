@@ -1344,6 +1344,11 @@ components:
         event_id:
           type: string
           format: uuid
+        batch_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Groups changes made in a single operation. Null for legacy records.
         action:
           $ref: '#/components/schemas/ChangeAction'
         service_id:
