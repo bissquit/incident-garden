@@ -102,7 +102,8 @@ event_groups (M:N junction — selected groups)
 └── group_id FK → service_groups
 
 event_service_changes (audit trail)
-├── id, event_id, action ('added'|'removed')
+├── id, event_id, batch_id (nullable, groups operations)
+├── action ('added'|'removed')
 ├── service_id (nullable), group_id (nullable)
 ├── reason, created_by, created_at
 ```
@@ -218,11 +219,34 @@ main.go → app.NewApp(cfg)
 6. **Tests:** unit for logic, integration for DB paths
 7. **Validate:** `make lint && make test && make build`
 
+### OpenAPI Versioning
+
+OpenAPI version (`info.version` in `api/openapi/openapi.yaml`) is **independent** from application version. Update it only when API contract changes.
+
+**When to bump:**
+
+| Change Type       | Example                                             | Version Bump              |
+|-------------------|-----------------------------------------------------|---------------------------|
+| Breaking change   | Remove endpoint, remove field, change response code | **MAJOR** (1.x.0 → 2.0.0) |
+| New feature       | Add endpoint, add optional field, add enum value    | **MINOR** (1.3.0 → 1.4.0) |
+| Fix/clarification | Fix description, fix example, no behavior change    | **PATCH** (1.3.0 → 1.3.1) |
+
+**When NOT to bump:**
+- Infrastructure changes (CORS, rate limiting, internal refactoring)
+- Changes that don't affect request/response schemas
+- Bug fixes in implementation (not contract)
+
+**Checklist for API changes:**
+1. Update schema in `api/openapi/openapi.yaml`
+2. Bump `info.version` according to rules above
+3. Mention in PR description: "OpenAPI: 1.3.0 → 1.4.0"
+
 ### Definition of Done (PR Checklist)
 
 - [ ] Layer boundaries: handler has no business logic; service has no SQL
 - [ ] Errors: no ignored errors; all wrapped with context
 - [ ] Contract: OpenAPI updated if API changed; migrations if schema changed
+- [ ] **OpenAPI version bumped** if contract changed (see OpenAPI Versioning)
 - [ ] Tests: according to Test Matrix
 - [ ] `make lint` passes
 - [ ] `make test` / `make test-integration` passes
