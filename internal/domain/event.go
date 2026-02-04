@@ -111,6 +111,7 @@ const (
 type EventServiceChange struct {
 	ID        string       `json:"id"`
 	EventID   string       `json:"event_id"`
+	BatchID   *string      `json:"batch_id,omitempty"`
 	Action    ChangeAction `json:"action"`
 	ServiceID *string      `json:"service_id,omitempty"`
 	GroupID   *string      `json:"group_id,omitempty"`

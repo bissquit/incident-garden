@@ -9,8 +9,15 @@ import (
 	"github.com/bissquit/incident-garden/internal/domain"
 	"github.com/bissquit/incident-garden/internal/events"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// querier is an interface for database operations that both *pgxpool.Pool and pgx.Tx implement.
+type querier interface {
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
 
 // Repository implements events.Repository using PostgreSQL.
 type Repository struct {
@@ -539,13 +546,19 @@ func (r *Repository) GetEventGroups(ctx context.Context, eventID string) ([]stri
 
 // CreateServiceChange records a change to event services.
 func (r *Repository) CreateServiceChange(ctx context.Context, change *domain.EventServiceChange) error {
+	return r.createServiceChange(ctx, r.db, change)
+}
+
+// createServiceChange is a helper that works with both pool and transaction.
+func (r *Repository) createServiceChange(ctx context.Context, q querier, change *domain.EventServiceChange) error {
 	query := `
-		INSERT INTO event_service_changes (event_id, action, service_id, group_id, reason, created_by)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO event_service_changes (event_id, batch_id, action, service_id, group_id, reason, created_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING id, created_at
 	`
-	err := r.db.QueryRow(ctx, query,
+	err := q.QueryRow(ctx, query,
 		change.EventID,
+		change.BatchID,
 		change.Action,
 		change.ServiceID,
 		change.GroupID,
@@ -562,7 +575,7 @@ func (r *Repository) CreateServiceChange(ctx context.Context, change *domain.Eve
 // ListServiceChanges retrieves all service changes for an event.
 func (r *Repository) ListServiceChanges(ctx context.Context, eventID string) ([]*domain.EventServiceChange, error) {
 	query := `
-		SELECT id, event_id, action, service_id, group_id, reason, created_by, created_at
+		SELECT id, event_id, batch_id, action, service_id, group_id, reason, created_by, created_at
 		FROM event_service_changes
 		WHERE event_id = $1
 		ORDER BY created_at ASC
@@ -579,6 +592,7 @@ func (r *Repository) ListServiceChanges(ctx context.Context, eventID string) ([]
 		err := rows.Scan(
 			&change.ID,
 			&change.EventID,
+			&change.BatchID,
 			&change.Action,
 			&change.ServiceID,
 			&change.GroupID,
@@ -593,4 +607,103 @@ func (r *Repository) ListServiceChanges(ctx context.Context, eventID string) ([]
 	}
 
 	return changes, nil
+}
+
+// BeginTx starts a new database transaction.
+func (r *Repository) BeginTx(ctx context.Context) (pgx.Tx, error) {
+	return r.db.Begin(ctx)
+}
+
+// AssociateServicesTx associates services with an event within a transaction.
+func (r *Repository) AssociateServicesTx(ctx context.Context, tx pgx.Tx, eventID string, serviceIDs []string) error {
+	deleteQuery := `DELETE FROM event_services WHERE event_id = $1`
+	_, err := tx.Exec(ctx, deleteQuery, eventID)
+	if err != nil {
+		return fmt.Errorf("delete existing event services: %w", err)
+	}
+
+	if len(serviceIDs) == 0 {
+		return nil
+	}
+
+	insertQuery := `INSERT INTO event_services (event_id, service_id) VALUES ($1, $2)`
+	for _, serviceID := range serviceIDs {
+		_, err := tx.Exec(ctx, insertQuery, eventID, serviceID)
+		if err != nil {
+			return fmt.Errorf("associate service %s: %w", serviceID, err)
+		}
+	}
+
+	return nil
+}
+
+// AddGroupsTx adds groups to an event within a transaction.
+func (r *Repository) AddGroupsTx(ctx context.Context, tx pgx.Tx, eventID string, groupIDs []string) error {
+	insertQuery := `INSERT INTO event_groups (event_id, group_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`
+	for _, groupID := range groupIDs {
+		_, err := tx.Exec(ctx, insertQuery, eventID, groupID)
+		if err != nil {
+			return fmt.Errorf("add group %s: %w", groupID, err)
+		}
+	}
+	return nil
+}
+
+// CreateServiceChangeTx records a change to event services within a transaction.
+func (r *Repository) CreateServiceChangeTx(ctx context.Context, tx pgx.Tx, change *domain.EventServiceChange) error {
+	return r.createServiceChange(ctx, tx, change)
+}
+
+// CreateEventTx creates a new event within a transaction.
+func (r *Repository) CreateEventTx(ctx context.Context, tx pgx.Tx, event *domain.Event) error {
+	query := `
+		INSERT INTO events (
+			title, type, status, severity, description,
+			started_at, resolved_at, scheduled_start_at, scheduled_end_at,
+			notify_subscribers, template_id, created_by
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		RETURNING id, created_at, updated_at
+	`
+	err := tx.QueryRow(ctx, query,
+		event.Title,
+		event.Type,
+		event.Status,
+		event.Severity,
+		event.Description,
+		event.StartedAt,
+		event.ResolvedAt,
+		event.ScheduledStartAt,
+		event.ScheduledEndAt,
+		event.NotifySubscribers,
+		event.TemplateID,
+		event.CreatedBy,
+	).Scan(&event.ID, &event.CreatedAt, &event.UpdatedAt)
+
+	if err != nil {
+		return fmt.Errorf("create event: %w", err)
+	}
+	return nil
+}
+
+// AssociateGroupsTx replaces all group associations for an event within a transaction.
+func (r *Repository) AssociateGroupsTx(ctx context.Context, tx pgx.Tx, eventID string, groupIDs []string) error {
+	deleteQuery := `DELETE FROM event_groups WHERE event_id = $1`
+	_, err := tx.Exec(ctx, deleteQuery, eventID)
+	if err != nil {
+		return fmt.Errorf("delete existing event groups: %w", err)
+	}
+
+	if len(groupIDs) == 0 {
+		return nil
+	}
+
+	insertQuery := `INSERT INTO event_groups (event_id, group_id) VALUES ($1, $2)`
+	for _, groupID := range groupIDs {
+		_, err := tx.Exec(ctx, insertQuery, eventID, groupID)
+		if err != nil {
+			return fmt.Errorf("associate group %s: %w", groupID, err)
+		}
+	}
+
+	return nil
 }

@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/bissquit/incident-garden/internal/domain"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 )
 
 // Service implements event business logic.
@@ -113,13 +115,20 @@ func (s *Service) CreateEvent(ctx context.Context, input CreateEventInput, creat
 		GroupIDs:          input.GroupIDs,
 	}
 
-	if err := s.repo.CreateEvent(ctx, event); err != nil {
+	// Начинаем транзакцию для атомарности всех операций
+	tx, err := s.repo.BeginTx(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if err := s.repo.CreateEventTx(ctx, tx, event); err != nil {
 		return nil, fmt.Errorf("create event: %w", err)
 	}
 
 	// Сохранить связи с сервисами
 	if len(uniqueServiceIDs) > 0 {
-		if err := s.repo.AssociateServices(ctx, event.ID, uniqueServiceIDs); err != nil {
+		if err := s.repo.AssociateServicesTx(ctx, tx, event.ID, uniqueServiceIDs); err != nil {
 			return nil, fmt.Errorf("associate services: %w", err)
 		}
 		event.ServiceIDs = uniqueServiceIDs
@@ -127,14 +136,18 @@ func (s *Service) CreateEvent(ctx context.Context, input CreateEventInput, creat
 
 	// Сохранить связи с группами
 	if len(input.GroupIDs) > 0 {
-		if err := s.repo.AssociateGroups(ctx, event.ID, input.GroupIDs); err != nil {
+		if err := s.repo.AssociateGroupsTx(ctx, tx, event.ID, input.GroupIDs); err != nil {
 			return nil, fmt.Errorf("associate groups: %w", err)
 		}
 	}
 
 	// Записать начальное состояние в историю изменений
-	if err := s.recordInitialServices(ctx, event.ID, input.ServiceIDs, input.GroupIDs, createdBy); err != nil {
+	if err := s.recordInitialServicesTx(ctx, tx, event.ID, input.ServiceIDs, input.GroupIDs, createdBy); err != nil {
 		return nil, fmt.Errorf("record initial services: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit transaction: %w", err)
 	}
 
 	return event, nil
@@ -264,33 +277,43 @@ func (s *Service) DeleteTemplate(ctx context.Context, id string) error {
 	return s.repo.DeleteTemplate(ctx, id)
 }
 
-// recordInitialServices записывает начальный состав события в историю.
-func (s *Service) recordInitialServices(ctx context.Context, eventID string, serviceIDs, groupIDs []string, createdBy string) error {
+// recordInitialServicesTx записывает начальный состав события в историю в рамках транзакции.
+func (s *Service) recordInitialServicesTx(ctx context.Context, tx pgx.Tx, eventID string, serviceIDs, groupIDs []string, createdBy string) error {
+	if len(serviceIDs) == 0 && len(groupIDs) == 0 {
+		return nil
+	}
+
+	batchID := uuid.New().String()
+
 	// Записываем добавление отдельных сервисов
-	for _, sid := range serviceIDs {
+	for i := range serviceIDs {
+		sid := serviceIDs[i]
 		change := &domain.EventServiceChange{
 			EventID:   eventID,
+			BatchID:   &batchID,
 			Action:    domain.ChangeActionAdded,
 			ServiceID: &sid,
 			Reason:    "Initial event creation",
 			CreatedBy: createdBy,
 		}
-		if err := s.repo.CreateServiceChange(ctx, change); err != nil {
-			return err
+		if err := s.repo.CreateServiceChangeTx(ctx, tx, change); err != nil {
+			return fmt.Errorf("record service change: %w", err)
 		}
 	}
 
 	// Записываем добавление групп
-	for _, gid := range groupIDs {
+	for i := range groupIDs {
+		gid := groupIDs[i]
 		change := &domain.EventServiceChange{
 			EventID:   eventID,
+			BatchID:   &batchID,
 			Action:    domain.ChangeActionAdded,
 			GroupID:   &gid,
 			Reason:    "Initial event creation",
 			CreatedBy: createdBy,
 		}
-		if err := s.repo.CreateServiceChange(ctx, change); err != nil {
-			return err
+		if err := s.repo.CreateServiceChangeTx(ctx, tx, change); err != nil {
+			return fmt.Errorf("record group change: %w", err)
 		}
 	}
 
@@ -344,52 +367,65 @@ func (s *Service) AddServicesToEvent(ctx context.Context, eventID string, input 
 		return nil // Ничего не изменилось
 	}
 
+	// Генерируем batch_id для группировки изменений
+	batchID := uuid.New().String()
+
+	// Начинаем транзакцию
+	tx, err := s.repo.BeginTx(ctx)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
 	// Обновить связи с сервисами
 	allServiceIDs := make([]string, 0, len(currentServices))
 	for sid := range currentServices {
 		allServiceIDs = append(allServiceIDs, sid)
 	}
-	if err := s.repo.AssociateServices(ctx, eventID, allServiceIDs); err != nil {
+	if err := s.repo.AssociateServicesTx(ctx, tx, eventID, allServiceIDs); err != nil {
 		return fmt.Errorf("update services: %w", err)
 	}
 
 	// Добавить группы к событию
 	if len(input.GroupIDs) > 0 {
-		if err := s.repo.AddGroups(ctx, eventID, input.GroupIDs); err != nil {
+		if err := s.repo.AddGroupsTx(ctx, tx, eventID, input.GroupIDs); err != nil {
 			return fmt.Errorf("add groups: %w", err)
 		}
 	}
 
 	// Записать изменения в историю
-	reason := input.Reason
-	if reason == "" {
-		reason = "Services added"
-	}
-
-	for _, sid := range input.ServiceIDs {
+	for i := range input.ServiceIDs {
+		sid := input.ServiceIDs[i]
 		change := &domain.EventServiceChange{
 			EventID:   eventID,
+			BatchID:   &batchID,
 			Action:    domain.ChangeActionAdded,
 			ServiceID: &sid,
-			Reason:    reason,
+			Reason:    input.Reason,
 			CreatedBy: userID,
 		}
-		if err := s.repo.CreateServiceChange(ctx, change); err != nil {
-			return fmt.Errorf("record change: %w", err)
+		if err := s.repo.CreateServiceChangeTx(ctx, tx, change); err != nil {
+			return fmt.Errorf("record service change: %w", err)
 		}
 	}
 
-	for _, gid := range input.GroupIDs {
+	for i := range input.GroupIDs {
+		gid := input.GroupIDs[i]
 		change := &domain.EventServiceChange{
 			EventID:   eventID,
+			BatchID:   &batchID,
 			Action:    domain.ChangeActionAdded,
 			GroupID:   &gid,
-			Reason:    reason,
+			Reason:    input.Reason,
 			CreatedBy: userID,
 		}
-		if err := s.repo.CreateServiceChange(ctx, change); err != nil {
-			return fmt.Errorf("record change: %w", err)
+		if err := s.repo.CreateServiceChangeTx(ctx, tx, change); err != nil {
+			return fmt.Errorf("record group change: %w", err)
 		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit transaction: %w", err)
 	}
 
 	return nil
@@ -414,44 +450,55 @@ func (s *Service) RemoveServicesFromEvent(ctx context.Context, eventID string, i
 		currentServices[sid] = true
 	}
 
-	removedCount := 0
+	removedServices := make([]string, 0)
 	for _, sid := range input.ServiceIDs {
 		if currentServices[sid] {
 			delete(currentServices, sid)
-			removedCount++
+			removedServices = append(removedServices, sid)
 		}
 	}
 
-	if removedCount == 0 {
+	if len(removedServices) == 0 {
 		return nil // Ничего не изменилось
 	}
+
+	// Генерируем batch_id для группировки изменений
+	batchID := uuid.New().String()
+
+	// Начинаем транзакцию
+	tx, err := s.repo.BeginTx(ctx)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	// Обновить связи
 	remainingServiceIDs := make([]string, 0, len(currentServices))
 	for sid := range currentServices {
 		remainingServiceIDs = append(remainingServiceIDs, sid)
 	}
-	if err := s.repo.AssociateServices(ctx, eventID, remainingServiceIDs); err != nil {
+	if err := s.repo.AssociateServicesTx(ctx, tx, eventID, remainingServiceIDs); err != nil {
 		return fmt.Errorf("update services: %w", err)
 	}
 
 	// Записать изменения в историю
-	reason := input.Reason
-	if reason == "" {
-		reason = "Services removed"
-	}
-
-	for _, sid := range input.ServiceIDs {
+	for i := range removedServices {
+		sid := removedServices[i]
 		change := &domain.EventServiceChange{
 			EventID:   eventID,
+			BatchID:   &batchID,
 			Action:    domain.ChangeActionRemoved,
 			ServiceID: &sid,
-			Reason:    reason,
+			Reason:    input.Reason,
 			CreatedBy: userID,
 		}
-		if err := s.repo.CreateServiceChange(ctx, change); err != nil {
-			return fmt.Errorf("record change: %w", err)
+		if err := s.repo.CreateServiceChangeTx(ctx, tx, change); err != nil {
+			return fmt.Errorf("record service change: %w", err)
 		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit transaction: %w", err)
 	}
 
 	return nil
