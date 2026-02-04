@@ -394,11 +394,6 @@ func (s *Service) AddServicesToEvent(ctx context.Context, eventID string, input 
 	}
 
 	// Записать изменения в историю
-	reason := input.Reason
-	if reason == "" {
-		reason = "Services added"
-	}
-
 	for i := range input.ServiceIDs {
 		sid := input.ServiceIDs[i]
 		change := &domain.EventServiceChange{
@@ -406,7 +401,7 @@ func (s *Service) AddServicesToEvent(ctx context.Context, eventID string, input 
 			BatchID:   &batchID,
 			Action:    domain.ChangeActionAdded,
 			ServiceID: &sid,
-			Reason:    reason,
+			Reason:    input.Reason,
 			CreatedBy: userID,
 		}
 		if err := s.repo.CreateServiceChangeTx(ctx, tx, change); err != nil {
@@ -421,7 +416,7 @@ func (s *Service) AddServicesToEvent(ctx context.Context, eventID string, input 
 			BatchID:   &batchID,
 			Action:    domain.ChangeActionAdded,
 			GroupID:   &gid,
-			Reason:    reason,
+			Reason:    input.Reason,
 			CreatedBy: userID,
 		}
 		if err := s.repo.CreateServiceChangeTx(ctx, tx, change); err != nil {
@@ -487,11 +482,6 @@ func (s *Service) RemoveServicesFromEvent(ctx context.Context, eventID string, i
 	}
 
 	// Записать изменения в историю
-	reason := input.Reason
-	if reason == "" {
-		reason = "Services removed"
-	}
-
 	for i := range removedServices {
 		sid := removedServices[i]
 		change := &domain.EventServiceChange{
@@ -499,7 +489,7 @@ func (s *Service) RemoveServicesFromEvent(ctx context.Context, eventID string, i
 			BatchID:   &batchID,
 			Action:    domain.ChangeActionRemoved,
 			ServiceID: &sid,
-			Reason:    reason,
+			Reason:    input.Reason,
 			CreatedBy: userID,
 		}
 		if err := s.repo.CreateServiceChangeTx(ctx, tx, change); err != nil {
