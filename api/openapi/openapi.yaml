@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: StatusPage API
   description: API for managing service statuses and incidents
-  version: 1.4.0
+  version: 1.5.0
   contact:
     name: API Support
 servers:
@@ -503,9 +503,8 @@ paths:
     get:
       tags: [events]
       summary: List events
+      description: Public endpoint, no authentication required
       operationId: listEvents
-      security:
-        - BearerAuth: []
       parameters:
         - name: type
           in: query
@@ -522,10 +521,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/EventsResponse'
-        '401':
-          $ref: '#/components/responses/UnauthorizedError'
-        '403':
-          $ref: '#/components/responses/ForbiddenError'
     post:
       tags: [events]
       summary: Create an event
@@ -556,9 +551,8 @@ paths:
     get:
       tags: [events]
       summary: Get an event
+      description: Public endpoint, no authentication required
       operationId: getEvent
-      security:
-        - BearerAuth: []
       parameters:
         - $ref: '#/components/parameters/EventId'
       responses:
@@ -568,10 +562,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/EventResponse'
-        '401':
-          $ref: '#/components/responses/UnauthorizedError'
-        '403':
-          $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
     delete:
@@ -596,9 +586,8 @@ paths:
     get:
       tags: [events]
       summary: List event updates
+      description: Public endpoint, no authentication required
       operationId: listEventUpdates
-      security:
-        - BearerAuth: []
       parameters:
         - $ref: '#/components/parameters/EventId'
       responses:
@@ -608,10 +597,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/EventUpdatesResponse'
-        '401':
-          $ref: '#/components/responses/UnauthorizedError'
-        '403':
-          $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
     post:
@@ -709,10 +694,8 @@ paths:
     get:
       tags: [events]
       summary: Get event service change history
-      description: Returns chronological list of all service/group additions and removals.
+      description: Public endpoint, no authentication required. Returns chronological list of all service/group additions and removals.
       operationId: getEventServiceChanges
-      security:
-        - BearerAuth: []
       parameters:
         - $ref: '#/components/parameters/EventId'
       responses:
@@ -722,10 +705,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/EventServiceChangesResponse'
-        '401':
-          $ref: '#/components/responses/UnauthorizedError'
-        '403':
-          $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
   /api/v1/templates:

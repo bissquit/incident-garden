@@ -393,6 +393,9 @@ docker volume rm docker_postgres_data
 - `GET /api/v1/status`, `/status/history` — public status
 - `GET /api/v1/services?include_archived=bool`, `/services/{slug}` — services
 - `GET /api/v1/groups?include_archived=bool`, `/groups/{slug}` — groups
+- `GET /api/v1/events`, `/events/{id}` — events (read-only)
+- `GET /api/v1/events/{id}/updates` — event updates (read-only)
+- `GET /api/v1/events/{id}/changes` — event service changes (read-only)
 
 **Auth (any authenticated):**
 - `POST /api/v1/auth/register`, `/login`, `/refresh`, `/logout`
@@ -402,11 +405,9 @@ docker volume rm docker_postgres_data
 
 **Operator+:**
 - `POST /api/v1/events` — create (accepts `service_ids` + `group_ids`)
-- `GET /api/v1/events`, `/events/{id}` — list/get
-- `POST|GET /api/v1/events/{id}/updates` — status updates
+- `POST /api/v1/events/{id}/updates` — add status updates
 - `POST /api/v1/events/{id}/services` — add services/groups to event
 - `DELETE /api/v1/events/{id}/services` — remove services from event
-- `GET /api/v1/events/{id}/changes` — composition change history
 
 **Admin:**
 - `DELETE /api/v1/events/{id}`

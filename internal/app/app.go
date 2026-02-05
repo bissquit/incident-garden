@@ -178,6 +178,7 @@ func (a *App) setupRouter() *chi.Mux {
 		identityHandler.RegisterRoutes(r)
 
 		eventsHandler.RegisterPublicRoutes(r)
+		eventsHandler.RegisterPublicEventRoutes(r)
 
 		r.Group(func(r chi.Router) {
 			r.Use(httputil.AuthMiddleware(identityService))
