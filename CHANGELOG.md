@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0](https://github.com/bissquit/incident-garden/compare/v1.5.0...v1.6.0) (2026-02-05)
+
+
+### Features
+
+* allow read operation for services, groups, events (history, updates, changes) ([28488b9](https://github.com/bissquit/incident-garden/commit/28488b9e71ca06347da8074aca6088616c4045c7))
+
+
+### Bug Fixes
+
+* add Cache-Control headers ([149aef1](https://github.com/bissquit/incident-garden/commit/149aef1986e9295ae58f2e9a2aaf2cc4f934dab3))
+
 ## [1.5.0](https://github.com/bissquit/incident-garden/compare/v1.4.1...v1.5.0) (2026-02-04)
 
 
