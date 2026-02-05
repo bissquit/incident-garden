@@ -138,3 +138,40 @@ func TestRBAC_UnauthenticatedCannotAccessProtectedEndpoints(t *testing.T) {
 		})
 	}
 }
+
+func TestCacheControl_PublicEndpointsHaveCacheHeader(t *testing.T) {
+	client := newTestClient(t)
+
+	tests := []struct {
+		name string
+		path string
+	}{
+		{"status", "/api/v1/status"},
+		{"services", "/api/v1/services"},
+		{"groups", "/api/v1/groups"},
+		{"events", "/api/v1/events"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp, err := client.GET(tt.path)
+			require.NoError(t, err)
+			assert.Equal(t, http.StatusOK, resp.StatusCode)
+			assert.Equal(t, "public, max-age=30", resp.Header.Get("Cache-Control"),
+				"public endpoint should have Cache-Control header")
+			resp.Body.Close()
+		})
+	}
+}
+
+func TestCacheControl_ProtectedEndpointsNoCacheHeader(t *testing.T) {
+	client := newTestClient(t)
+	client.LoginAsUser(t)
+
+	resp, err := client.GET("/api/v1/me")
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Empty(t, resp.Header.Get("Cache-Control"),
+		"protected endpoint should not have Cache-Control header")
+	resp.Body.Close()
+}
