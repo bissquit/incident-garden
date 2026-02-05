@@ -33,18 +33,20 @@ func (h *Handler) RegisterPublicRoutes(r chi.Router) {
 	r.Get("/status/history", h.GetStatusHistory)
 }
 
-// RegisterOperatorRoutes registers operator-level routes.
+// RegisterPublicEventRoutes registers public read-only event routes (no auth required).
+func (h *Handler) RegisterPublicEventRoutes(r chi.Router) {
+	r.Get("/events", h.ListEvents)
+	r.Get("/events/{id}", h.GetEvent)
+	r.Get("/events/{id}/updates", h.GetEventUpdates)
+	r.Get("/events/{id}/changes", h.GetServiceChanges)
+}
+
+// RegisterOperatorRoutes registers operator-level routes (write operations only).
 func (h *Handler) RegisterOperatorRoutes(r chi.Router) {
-	r.Route("/events", func(r chi.Router) {
-		r.Post("/", h.CreateEvent)
-		r.Get("/", h.ListEvents)
-		r.Get("/{id}", h.GetEvent)
-		r.Post("/{id}/updates", h.AddUpdate)
-		r.Get("/{id}/updates", h.GetEventUpdates)
-		r.Post("/{id}/services", h.AddServices)
-		r.Delete("/{id}/services", h.RemoveServices)
-		r.Get("/{id}/changes", h.GetServiceChanges)
-	})
+	r.Post("/events", h.CreateEvent)
+	r.Post("/events/{id}/updates", h.AddUpdate)
+	r.Post("/events/{id}/services", h.AddServices)
+	r.Delete("/events/{id}/services", h.RemoveServices)
 }
 
 // RegisterAdminRoutes registers admin-level routes.
