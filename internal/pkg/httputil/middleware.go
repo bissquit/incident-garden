@@ -3,7 +3,6 @@ package httputil
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -46,19 +45,6 @@ func CORSMiddleware(allowedOrigins []string) func(http.Handler) http.Handler {
 				return
 			}
 
-			next.ServeHTTP(w, r)
-		})
-	}
-}
-
-// PublicCache sets Cache-Control header for public GET requests.
-func PublicCache(maxAge int) func(http.Handler) http.Handler {
-	value := fmt.Sprintf("public, max-age=%d", maxAge)
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.Method == http.MethodGet {
-				w.Header().Set("Cache-Control", value)
-			}
 			next.ServeHTTP(w, r)
 		})
 	}

@@ -177,16 +177,9 @@ func (a *App) setupRouter() *chi.Mux {
 	r.Route("/api/v1", func(r chi.Router) {
 		identityHandler.RegisterRoutes(r)
 
-		// Public endpoints with caching
-		r.Group(func(r chi.Router) {
-			r.Use(httputil.PublicCache(30))
+		eventsHandler.RegisterPublicRoutes(r)
+		eventsHandler.RegisterPublicEventRoutes(r)
 
-			eventsHandler.RegisterPublicRoutes(r)
-			eventsHandler.RegisterPublicEventRoutes(r)
-			catalogHandler.RegisterPublicRoutes(r)
-		})
-
-		// Protected endpoints
 		r.Group(func(r chi.Router) {
 			r.Use(httputil.AuthMiddleware(identityService))
 
@@ -204,6 +197,11 @@ func (a *App) setupRouter() *chi.Mux {
 				eventsHandler.RegisterAdminRoutes(r)
 			})
 		})
+
+		r.Get("/services", catalogHandler.ListServices)
+		r.Get("/services/{slug}", catalogHandler.GetService)
+		r.Get("/groups", catalogHandler.ListGroups)
+		r.Get("/groups/{slug}", catalogHandler.GetGroup)
 	})
 
 	return r
