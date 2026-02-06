@@ -26,29 +26,27 @@ func NewHandler(service *Service) *Handler {
 	}
 }
 
-// RegisterRoutes registers admin write routes for the catalog module.
+// RegisterRoutes registers all HTTP routes for the catalog module.
 func (h *Handler) RegisterRoutes(r chi.Router) {
-	// Groups - write operations
-	r.Post("/groups", h.CreateGroup)
-	r.Patch("/groups/{slug}", h.UpdateGroup)
-	r.Delete("/groups/{slug}", h.DeleteGroup)
-	r.Post("/groups/{slug}/restore", h.RestoreGroup)
+	r.Route("/groups", func(r chi.Router) {
+		r.Get("/", h.ListGroups)
+		r.Post("/", h.CreateGroup)
+		r.Get("/{slug}", h.GetGroup)
+		r.Patch("/{slug}", h.UpdateGroup)
+		r.Delete("/{slug}", h.DeleteGroup)
+		r.Post("/{slug}/restore", h.RestoreGroup)
+	})
 
-	// Services - write operations
-	r.Post("/services", h.CreateService)
-	r.Patch("/services/{slug}", h.UpdateService)
-	r.Delete("/services/{slug}", h.DeleteService)
-	r.Post("/services/{slug}/restore", h.RestoreService)
-	r.Put("/services/{slug}/tags", h.UpdateServiceTags)
-}
-
-// RegisterPublicRoutes registers public read-only routes for the catalog module.
-func (h *Handler) RegisterPublicRoutes(r chi.Router) {
-	r.Get("/services", h.ListServices)
-	r.Get("/services/{slug}", h.GetService)
-	r.Get("/services/{slug}/tags", h.GetServiceTags)
-	r.Get("/groups", h.ListGroups)
-	r.Get("/groups/{slug}", h.GetGroup)
+	r.Route("/services", func(r chi.Router) {
+		r.Get("/", h.ListServices)
+		r.Post("/", h.CreateService)
+		r.Get("/{slug}", h.GetService)
+		r.Patch("/{slug}", h.UpdateService)
+		r.Delete("/{slug}", h.DeleteService)
+		r.Post("/{slug}/restore", h.RestoreService)
+		r.Get("/{slug}/tags", h.GetServiceTags)
+		r.Put("/{slug}/tags", h.UpdateServiceTags)
+	})
 }
 
 // CreateGroupRequest represents the request body for creating a service group.
