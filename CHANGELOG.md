@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.2](https://github.com/bissquit/incident-garden/compare/v1.6.1...v1.6.2) (2026-02-06)
+
+
+### Bug Fixes
+
+* dont permit to archive group with services ([#38](https://github.com/bissquit/incident-garden/issues/38)) ([f924cf2](https://github.com/bissquit/incident-garden/commit/f924cf29041245ff011b0613fc4a561964eb2fb2))
+
 ## [1.6.1](https://github.com/bissquit/incident-garden/compare/v1.6.0...v1.6.1) (2026-02-06)
 
 
