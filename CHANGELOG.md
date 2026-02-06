@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.1](https://github.com/bissquit/incident-garden/compare/v1.6.0...v1.6.1) (2026-02-06)
+
+
+### Bug Fixes
+
+* revert Cache-Control headers ([b80664b](https://github.com/bissquit/incident-garden/commit/b80664bcbe760a1f3f94122aab36d6430bfd1428))
+
 ## [1.6.0](https://github.com/bissquit/incident-garden/compare/v1.5.0...v1.6.0) (2026-02-05)
 
 
