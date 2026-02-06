@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: StatusPage API
   description: API for managing service statuses and incidents
-  version: 1.5.0
+  version: 1.5.1
   contact:
     name: API Support
 servers:
@@ -458,7 +458,7 @@ paths:
     delete:
       tags: [groups]
       summary: Archive a group (soft delete)
-      description: Archives the group. Returns 409 if group has services with active events.
+      description: Archives the group. Returns 409 if group has active events or has non-archived services assigned.
       operationId: deleteGroup
       security:
         - BearerAuth: []

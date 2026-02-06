@@ -508,6 +508,8 @@ func (h *Handler) handleServiceError(w http.ResponseWriter, err error) {
 		h.respondError(w, http.StatusConflict, err.Error())
 	case errors.Is(err, ErrGroupHasActiveEvents):
 		h.respondError(w, http.StatusConflict, err.Error())
+	case errors.Is(err, ErrGroupHasServices):
+		h.respondError(w, http.StatusConflict, err.Error())
 	case errors.Is(err, ErrAlreadyArchived):
 		h.respondError(w, http.StatusConflict, err.Error())
 	case errors.Is(err, ErrNotArchived):

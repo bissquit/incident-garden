@@ -38,6 +38,9 @@ type Repository interface {
 	// Active events check
 	GetActiveEventCountForService(ctx context.Context, serviceID string) (int, error)
 	GetActiveEventCountForGroup(ctx context.Context, groupID string) (int, error)
+
+	// Group membership check
+	GetNonArchivedServiceCountForGroup(ctx context.Context, groupID string) (int, error)
 }
 
 // ServiceFilter represents filter criteria for listing services.
