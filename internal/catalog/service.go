@@ -18,6 +18,7 @@ var (
 	ErrInvalidSlug            = errors.New("invalid slug: must contain only lowercase letters, numbers, and hyphens")
 	ErrServiceHasActiveEvents = errors.New("cannot archive service: has active events")
 	ErrGroupHasActiveEvents   = errors.New("cannot archive group: has active events")
+	ErrGroupHasServices       = errors.New("cannot archive group: has services")
 	ErrAlreadyArchived        = errors.New("already archived")
 	ErrNotArchived            = errors.New("not archived")
 )
@@ -99,6 +100,15 @@ func (s *Service) DeleteGroup(ctx context.Context, id string) error {
 	}
 	if activeCount > 0 {
 		return ErrGroupHasActiveEvents
+	}
+
+	// Check for non-archived services in this group
+	serviceCount, err := s.repo.GetNonArchivedServiceCountForGroup(ctx, id)
+	if err != nil {
+		return fmt.Errorf("check group services: %w", err)
+	}
+	if serviceCount > 0 {
+		return ErrGroupHasServices
 	}
 
 	return s.repo.ArchiveGroup(ctx, id)

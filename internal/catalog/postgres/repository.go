@@ -695,3 +695,20 @@ func (r *Repository) GetActiveEventCountForGroup(ctx context.Context, groupID st
 	}
 	return count, nil
 }
+
+// GetNonArchivedServiceCountForGroup returns count of non-archived services in the group.
+func (r *Repository) GetNonArchivedServiceCountForGroup(ctx context.Context, groupID string) (int, error) {
+	query := `
+		SELECT COUNT(*)
+		FROM service_group_members sgm
+		JOIN services s ON sgm.service_id = s.id
+		WHERE sgm.group_id = $1
+		  AND s.archived_at IS NULL
+	`
+	var count int
+	err := r.db.QueryRow(ctx, query, groupID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("get non-archived service count for group: %w", err)
+	}
+	return count, nil
+}

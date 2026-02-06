@@ -225,6 +225,117 @@ func TestCatalog_Service_WithGroup(t *testing.T) {
 	client.DELETE("/api/v1/groups/" + groupSlug)
 }
 
+func TestCatalog_Group_ArchiveWithServices_Blocked(t *testing.T) {
+	client := newTestClient(t)
+	client.LoginAsAdmin(t)
+
+	// Create a group
+	groupSlug := testutil.RandomSlug("group-with-svc")
+	resp, err := client.POST("/api/v1/groups", map[string]string{
+		"name": "Group With Service",
+		"slug": groupSlug,
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var groupResult struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &groupResult)
+	groupID := groupResult.Data.ID
+
+	// Create a service in the group
+	serviceSlug := testutil.RandomSlug("service-in-group")
+	resp, err = client.POST("/api/v1/services", map[string]interface{}{
+		"name":      "Service in Group",
+		"slug":      serviceSlug,
+		"group_ids": []string{groupID},
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	resp.Body.Close()
+
+	// Try to archive the group - should fail with 409
+	resp, err = client.DELETE("/api/v1/groups/" + groupSlug)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusConflict, resp.StatusCode)
+
+	var errorResult struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	testutil.DecodeJSON(t, resp, &errorResult)
+	assert.Equal(t, "cannot archive group: has services", errorResult.Error.Message)
+
+	// Cleanup: remove service from group, then archive both
+	resp, err = client.PATCH("/api/v1/services/"+serviceSlug, map[string]interface{}{
+		"name":      "Service in Group",
+		"slug":      serviceSlug,
+		"status":    "operational",
+		"group_ids": []string{},
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	resp.Body.Close()
+
+	// Now archiving group should succeed
+	resp, err = client.DELETE("/api/v1/groups/" + groupSlug)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusNoContent, resp.StatusCode)
+	resp.Body.Close()
+
+	// Cleanup service
+	client.DELETE("/api/v1/services/" + serviceSlug)
+}
+
+func TestCatalog_Group_ArchiveWithArchivedServices_Allowed(t *testing.T) {
+	client := newTestClient(t)
+	client.LoginAsAdmin(t)
+
+	// Create a group
+	groupSlug := testutil.RandomSlug("group-archived-svc")
+	resp, err := client.POST("/api/v1/groups", map[string]string{
+		"name": "Group With Archived Service",
+		"slug": groupSlug,
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var groupResult struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &groupResult)
+	groupID := groupResult.Data.ID
+
+	// Create a service in the group
+	serviceSlug := testutil.RandomSlug("archived-svc")
+	resp, err = client.POST("/api/v1/services", map[string]interface{}{
+		"name":      "Soon Archived Service",
+		"slug":      serviceSlug,
+		"group_ids": []string{groupID},
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	resp.Body.Close()
+
+	// Archive the service first
+	resp, err = client.DELETE("/api/v1/services/" + serviceSlug)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusNoContent, resp.StatusCode)
+	resp.Body.Close()
+
+	// Now archiving the group should succeed (only archived service in it)
+	resp, err = client.DELETE("/api/v1/groups/" + groupSlug)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusNoContent, resp.StatusCode)
+	resp.Body.Close()
+}
+
 func TestCatalog_DuplicateSlug(t *testing.T) {
 	client := newTestClient(t)
 	client.LoginAsAdmin(t)
