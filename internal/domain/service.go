@@ -14,6 +14,17 @@ const (
 	ServiceStatusMaintenance   ServiceStatus = "maintenance"
 )
 
+// IsValid checks if the service status is valid.
+func (s ServiceStatus) IsValid() bool {
+	switch s {
+	case ServiceStatusOperational, ServiceStatusDegraded,
+		ServiceStatusPartialOutage, ServiceStatusMajorOutage,
+		ServiceStatusMaintenance:
+		return true
+	}
+	return false
+}
+
 // Service represents a monitored service.
 type Service struct {
 	ID          string        `json:"id"`

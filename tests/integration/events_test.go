@@ -642,6 +642,58 @@ func TestEvents_AddServices_Transaction_Rollback(t *testing.T) {
 	client.DELETE("/api/v1/services/" + validSlug)
 }
 
+func TestEvents_ServiceStatus_DefaultValue(t *testing.T) {
+	client := newTestClient(t)
+	client.LoginAsAdmin(t)
+
+	// Create a service
+	serviceSlug := testutil.RandomSlug("status-svc")
+	resp, err := client.POST("/api/v1/services", map[string]string{
+		"name": "Status Test Service",
+		"slug": serviceSlug,
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var svcResult struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &svcResult)
+	serviceID := svcResult.Data.ID
+
+	// Create an event with this service
+	resp, err = client.POST("/api/v1/events", map[string]interface{}{
+		"title":       "Status Test Incident",
+		"type":        "incident",
+		"status":      "investigating",
+		"severity":    "minor",
+		"description": "Testing service status in event",
+		"service_ids": []string{serviceID},
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var eventResult struct {
+		Data struct {
+			ID         string   `json:"id"`
+			ServiceIDs []string `json:"service_ids"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &eventResult)
+	eventID := eventResult.Data.ID
+
+	// Verify service is associated with the event
+	require.Len(t, eventResult.Data.ServiceIDs, 1)
+	assert.Equal(t, serviceID, eventResult.Data.ServiceIDs[0])
+
+	// Cleanup
+	resp, _ = client.DELETE("/api/v1/events/" + eventID)
+	resp.Body.Close()
+	client.DELETE("/api/v1/services/" + serviceSlug)
+}
+
 func TestEvents_CreateWithGroup_BatchID(t *testing.T) {
 	client := newTestClient(t)
 	client.LoginAsAdmin(t)
