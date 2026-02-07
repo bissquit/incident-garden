@@ -98,6 +98,29 @@ func (s EventStatus) IsResolved() bool {
 	return s == EventStatusResolved || s == EventStatusCompleted
 }
 
+// SeverityToServiceStatus converts severity to service status for incidents.
+// For maintenance events, returns ServiceStatusMaintenance.
+func SeverityToServiceStatus(eventType EventType, severity *Severity) ServiceStatus {
+	if eventType == EventTypeMaintenance {
+		return ServiceStatusMaintenance
+	}
+
+	if severity == nil {
+		return ServiceStatusDegraded
+	}
+
+	switch *severity {
+	case SeverityCritical:
+		return ServiceStatusMajorOutage
+	case SeverityMajor:
+		return ServiceStatusPartialOutage
+	case SeverityMinor:
+		return ServiceStatusDegraded
+	default:
+		return ServiceStatusDegraded
+	}
+}
+
 // ChangeAction represents the type of change to event services.
 type ChangeAction string
 

@@ -569,6 +569,604 @@ func TestCatalog_Group_UpdateWithoutServiceIDs_NoChange(t *testing.T) {
 	client.DELETE("/api/v1/groups/" + groupSlug)
 }
 
+func TestEffectiveStatus_NoActiveEvents(t *testing.T) {
+	client := newTestClient(t)
+	client.LoginAsAdmin(t)
+
+	// Create a service without any events
+	slug := testutil.RandomSlug("eff-status-no-events")
+	resp, err := client.POST("/api/v1/services", map[string]interface{}{
+		"name":   "No Events Service",
+		"slug":   slug,
+		"status": "operational",
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	resp.Body.Close()
+
+	// Get service and verify effective_status equals stored status
+	resp, err = client.GET("/api/v1/services/" + slug)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var result struct {
+		Data struct {
+			Status          string `json:"status"`
+			EffectiveStatus string `json:"effective_status"`
+			HasActiveEvents bool   `json:"has_active_events"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &result)
+
+	assert.Equal(t, "operational", result.Data.Status)
+	assert.Equal(t, "operational", result.Data.EffectiveStatus)
+	assert.False(t, result.Data.HasActiveEvents)
+
+	// Cleanup
+	client.DELETE("/api/v1/services/" + slug)
+}
+
+func TestEffectiveStatus_SingleActiveEvent(t *testing.T) {
+	client := newTestClient(t)
+	client.LoginAsAdmin(t)
+
+	// Create a service
+	slug := testutil.RandomSlug("eff-status-single")
+	resp, err := client.POST("/api/v1/services", map[string]interface{}{
+		"name":   "Single Event Service",
+		"slug":   slug,
+		"status": "operational",
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var svcResult struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &svcResult)
+	serviceID := svcResult.Data.ID
+
+	// Create an incident with this service (minor severity = degraded status)
+	resp, err = client.POST("/api/v1/events", map[string]interface{}{
+		"title":       "Minor Incident",
+		"type":        "incident",
+		"status":      "investigating",
+		"severity":    "minor",
+		"description": "Testing effective status",
+		"service_ids": []string{serviceID},
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var eventResult struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &eventResult)
+	eventID := eventResult.Data.ID
+
+	// Get service and verify effective_status is degraded
+	resp, err = client.GET("/api/v1/services/" + slug)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var result struct {
+		Data struct {
+			Status          string `json:"status"`
+			EffectiveStatus string `json:"effective_status"`
+			HasActiveEvents bool   `json:"has_active_events"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &result)
+
+	assert.Equal(t, "operational", result.Data.Status, "stored status unchanged")
+	assert.Equal(t, "degraded", result.Data.EffectiveStatus, "effective status from event")
+	assert.True(t, result.Data.HasActiveEvents)
+
+	// Cleanup
+	client.DELETE("/api/v1/events/" + eventID)
+	client.DELETE("/api/v1/services/" + slug)
+}
+
+func TestEffectiveStatus_MultipleActiveEvents_WorstCase(t *testing.T) {
+	client := newTestClient(t)
+	client.LoginAsAdmin(t)
+
+	// Create a service
+	slug := testutil.RandomSlug("eff-status-multi")
+	resp, err := client.POST("/api/v1/services", map[string]interface{}{
+		"name":   "Multi Event Service",
+		"slug":   slug,
+		"status": "operational",
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var svcResult struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &svcResult)
+	serviceID := svcResult.Data.ID
+
+	// Create first incident (minor = degraded)
+	resp, err = client.POST("/api/v1/events", map[string]interface{}{
+		"title":       "Minor Incident",
+		"type":        "incident",
+		"status":      "investigating",
+		"severity":    "minor",
+		"description": "Minor issue",
+		"service_ids": []string{serviceID},
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var event1Result struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &event1Result)
+	event1ID := event1Result.Data.ID
+
+	// Create second incident (critical = major_outage)
+	resp, err = client.POST("/api/v1/events", map[string]interface{}{
+		"title":       "Critical Incident",
+		"type":        "incident",
+		"status":      "investigating",
+		"severity":    "critical",
+		"description": "Critical issue",
+		"service_ids": []string{serviceID},
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var event2Result struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &event2Result)
+	event2ID := event2Result.Data.ID
+
+	// Get service and verify effective_status is major_outage (worst case)
+	resp, err = client.GET("/api/v1/services/" + slug)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var result struct {
+		Data struct {
+			Status          string `json:"status"`
+			EffectiveStatus string `json:"effective_status"`
+			HasActiveEvents bool   `json:"has_active_events"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &result)
+
+	assert.Equal(t, "operational", result.Data.Status)
+	assert.Equal(t, "major_outage", result.Data.EffectiveStatus, "should be worst-case status")
+	assert.True(t, result.Data.HasActiveEvents)
+
+	// Cleanup
+	client.DELETE("/api/v1/events/" + event1ID)
+	client.DELETE("/api/v1/events/" + event2ID)
+	client.DELETE("/api/v1/services/" + slug)
+}
+
+func TestEffectiveStatus_ResolvedEventIgnored(t *testing.T) {
+	client := newTestClient(t)
+	client.LoginAsAdmin(t)
+
+	// Create a service
+	slug := testutil.RandomSlug("eff-status-resolved")
+	resp, err := client.POST("/api/v1/services", map[string]interface{}{
+		"name":   "Resolved Event Service",
+		"slug":   slug,
+		"status": "operational",
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var svcResult struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &svcResult)
+	serviceID := svcResult.Data.ID
+
+	// Create an incident
+	resp, err = client.POST("/api/v1/events", map[string]interface{}{
+		"title":       "Soon Resolved Incident",
+		"type":        "incident",
+		"status":      "investigating",
+		"severity":    "critical",
+		"description": "Will be resolved",
+		"service_ids": []string{serviceID},
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var eventResult struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &eventResult)
+	eventID := eventResult.Data.ID
+
+	// Verify effective_status is major_outage while active
+	resp, err = client.GET("/api/v1/services/" + slug)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var activeResult struct {
+		Data struct {
+			EffectiveStatus string `json:"effective_status"`
+			HasActiveEvents bool   `json:"has_active_events"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &activeResult)
+	assert.Equal(t, "major_outage", activeResult.Data.EffectiveStatus)
+	assert.True(t, activeResult.Data.HasActiveEvents)
+
+	// Resolve the incident
+	resp, err = client.POST("/api/v1/events/"+eventID+"/updates", map[string]interface{}{
+		"status":  "resolved",
+		"message": "Issue resolved",
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	resp.Body.Close()
+
+	// Verify effective_status is back to operational
+	resp, err = client.GET("/api/v1/services/" + slug)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var resolvedResult struct {
+		Data struct {
+			Status          string `json:"status"`
+			EffectiveStatus string `json:"effective_status"`
+			HasActiveEvents bool   `json:"has_active_events"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &resolvedResult)
+
+	assert.Equal(t, "operational", resolvedResult.Data.Status)
+	assert.Equal(t, "operational", resolvedResult.Data.EffectiveStatus, "resolved event should not affect status")
+	assert.False(t, resolvedResult.Data.HasActiveEvents)
+
+	// Cleanup
+	client.DELETE("/api/v1/events/" + eventID)
+	client.DELETE("/api/v1/services/" + slug)
+}
+
+func TestEffectiveStatus_CompletedMaintenanceIgnored(t *testing.T) {
+	client := newTestClient(t)
+	client.LoginAsAdmin(t)
+
+	// Create a service
+	slug := testutil.RandomSlug("eff-status-maint-done")
+	resp, err := client.POST("/api/v1/services", map[string]interface{}{
+		"name":   "Completed Maintenance Service",
+		"slug":   slug,
+		"status": "operational",
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var svcResult struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &svcResult)
+	serviceID := svcResult.Data.ID
+
+	// Create a maintenance
+	resp, err = client.POST("/api/v1/events", map[string]interface{}{
+		"title":       "Scheduled Maintenance",
+		"type":        "maintenance",
+		"status":      "in_progress",
+		"description": "Will be completed",
+		"service_ids": []string{serviceID},
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var eventResult struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &eventResult)
+	eventID := eventResult.Data.ID
+
+	// Verify effective_status is maintenance while active
+	resp, err = client.GET("/api/v1/services/" + slug)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var activeResult struct {
+		Data struct {
+			EffectiveStatus string `json:"effective_status"`
+			HasActiveEvents bool   `json:"has_active_events"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &activeResult)
+	assert.Equal(t, "maintenance", activeResult.Data.EffectiveStatus)
+	assert.True(t, activeResult.Data.HasActiveEvents)
+
+	// Complete the maintenance
+	resp, err = client.POST("/api/v1/events/"+eventID+"/updates", map[string]interface{}{
+		"status":  "completed",
+		"message": "Maintenance completed",
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	resp.Body.Close()
+
+	// Verify effective_status is back to operational
+	resp, err = client.GET("/api/v1/services/" + slug)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var completedResult struct {
+		Data struct {
+			Status          string `json:"status"`
+			EffectiveStatus string `json:"effective_status"`
+			HasActiveEvents bool   `json:"has_active_events"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &completedResult)
+
+	assert.Equal(t, "operational", completedResult.Data.Status)
+	assert.Equal(t, "operational", completedResult.Data.EffectiveStatus, "completed maintenance should not affect status")
+	assert.False(t, completedResult.Data.HasActiveEvents)
+
+	// Cleanup
+	client.DELETE("/api/v1/events/" + eventID)
+	client.DELETE("/api/v1/services/" + slug)
+}
+
+func TestEffectiveStatus_MaintenanceVsIncident(t *testing.T) {
+	client := newTestClient(t)
+	client.LoginAsAdmin(t)
+
+	// Create a service
+	slug := testutil.RandomSlug("eff-status-maint")
+	resp, err := client.POST("/api/v1/services", map[string]interface{}{
+		"name":   "Maintenance vs Incident Service",
+		"slug":   slug,
+		"status": "operational",
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var svcResult struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &svcResult)
+	serviceID := svcResult.Data.ID
+
+	// Create maintenance (priority 1)
+	resp, err = client.POST("/api/v1/events", map[string]interface{}{
+		"title":       "Scheduled Maintenance",
+		"type":        "maintenance",
+		"status":      "in_progress",
+		"description": "Planned maintenance",
+		"service_ids": []string{serviceID},
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var maint struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &maint)
+	maintID := maint.Data.ID
+
+	// Create incident (minor = degraded, priority 2)
+	resp, err = client.POST("/api/v1/events", map[string]interface{}{
+		"title":       "Minor Incident",
+		"type":        "incident",
+		"status":      "investigating",
+		"severity":    "minor",
+		"description": "Minor issue",
+		"service_ids": []string{serviceID},
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var incident struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &incident)
+	incidentID := incident.Data.ID
+
+	// Get service and verify effective_status is degraded (priority 2 > maintenance priority 1)
+	resp, err = client.GET("/api/v1/services/" + slug)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var result struct {
+		Data struct {
+			EffectiveStatus string `json:"effective_status"`
+			HasActiveEvents bool   `json:"has_active_events"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &result)
+
+	assert.Equal(t, "degraded", result.Data.EffectiveStatus, "incident status should override maintenance")
+	assert.True(t, result.Data.HasActiveEvents)
+
+	// Cleanup
+	client.DELETE("/api/v1/events/" + maintID)
+	client.DELETE("/api/v1/events/" + incidentID)
+	client.DELETE("/api/v1/services/" + slug)
+}
+
+func TestListServices_FilterByEffectiveStatus(t *testing.T) {
+	client := newTestClient(t)
+	client.LoginAsAdmin(t)
+
+	// Create two services
+	slug1 := testutil.RandomSlug("filter-eff1")
+	slug2 := testutil.RandomSlug("filter-eff2")
+
+	resp, err := client.POST("/api/v1/services", map[string]interface{}{
+		"name":   "Filter Service 1",
+		"slug":   slug1,
+		"status": "operational",
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var svc1Result struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &svc1Result)
+	service1ID := svc1Result.Data.ID
+
+	resp, err = client.POST("/api/v1/services", map[string]interface{}{
+		"name":   "Filter Service 2",
+		"slug":   slug2,
+		"status": "operational",
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	resp.Body.Close()
+
+	// Create an incident for service 1
+	resp, err = client.POST("/api/v1/events", map[string]interface{}{
+		"title":       "Filter Test Incident",
+		"type":        "incident",
+		"status":      "investigating",
+		"severity":    "minor",
+		"description": "Testing filter",
+		"service_ids": []string{service1ID},
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var eventResult struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &eventResult)
+	eventID := eventResult.Data.ID
+
+	// Filter by status=degraded should find service1
+	resp, err = client.GET("/api/v1/services?status=degraded")
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var degradedList struct {
+		Data []struct {
+			Slug            string `json:"slug"`
+			EffectiveStatus string `json:"effective_status"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &degradedList)
+
+	foundService1 := false
+	for _, svc := range degradedList.Data {
+		assert.Equal(t, "degraded", svc.EffectiveStatus, "all services should have degraded effective status")
+		if svc.Slug == slug1 {
+			foundService1 = true
+		}
+		assert.NotEqual(t, slug2, svc.Slug, "service2 should not be in degraded list")
+	}
+	assert.True(t, foundService1, "service1 should be in degraded list")
+
+	// Filter by status=operational should find service2 but not service1
+	resp, err = client.GET("/api/v1/services?status=operational")
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var operationalList struct {
+		Data []struct {
+			Slug            string `json:"slug"`
+			EffectiveStatus string `json:"effective_status"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &operationalList)
+
+	foundService2 := false
+	for _, svc := range operationalList.Data {
+		assert.Equal(t, "operational", svc.EffectiveStatus, "all services should have operational effective status")
+		if svc.Slug == slug2 {
+			foundService2 = true
+		}
+		assert.NotEqual(t, slug1, svc.Slug, "service1 should not be in operational list")
+	}
+	assert.True(t, foundService2, "service2 should be in operational list")
+
+	// Cleanup
+	client.DELETE("/api/v1/events/" + eventID)
+	client.DELETE("/api/v1/services/" + slug1)
+	client.DELETE("/api/v1/services/" + slug2)
+}
+
+func TestListServices_EffectiveStatusInResponse(t *testing.T) {
+	client := newTestClient(t)
+	client.LoginAsAdmin(t)
+
+	// Create a service
+	slug := testutil.RandomSlug("list-eff")
+	resp, err := client.POST("/api/v1/services", map[string]interface{}{
+		"name":   "List Effective Service",
+		"slug":   slug,
+		"status": "operational",
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	resp.Body.Close()
+
+	// List services and verify effective_status and has_active_events are present
+	resp, err = client.GET("/api/v1/services")
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var listResult struct {
+		Data []struct {
+			Slug            string `json:"slug"`
+			Status          string `json:"status"`
+			EffectiveStatus string `json:"effective_status"`
+			HasActiveEvents bool   `json:"has_active_events"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &listResult)
+
+	found := false
+	for _, svc := range listResult.Data {
+		if svc.Slug == slug {
+			found = true
+			assert.Equal(t, "operational", svc.Status)
+			assert.Equal(t, "operational", svc.EffectiveStatus)
+			assert.False(t, svc.HasActiveEvents)
+		}
+	}
+	assert.True(t, found, "service should be in list")
+
+	// Cleanup
+	client.DELETE("/api/v1/services/" + slug)
+}
+
 func TestCatalog_EmptyList_ReturnsEmptyArray(t *testing.T) {
 	// This test verifies that list endpoints return arrays [] instead of null.
 	// With soft delete, we can't guarantee an empty list since demo data may have

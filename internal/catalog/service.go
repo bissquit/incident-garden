@@ -252,6 +252,21 @@ func (s *Service) UpdateGroupServices(ctx context.Context, groupID string, servi
 	return s.repo.SetGroupServices(ctx, groupID, serviceIDs)
 }
 
+// GetServiceBySlugWithEffectiveStatus returns a service with its effective status.
+func (s *Service) GetServiceBySlugWithEffectiveStatus(ctx context.Context, slug string) (*domain.ServiceWithEffectiveStatus, error) {
+	return s.repo.GetServiceBySlugWithEffectiveStatus(ctx, slug)
+}
+
+// GetServiceByIDWithEffectiveStatus returns a service with its effective status.
+func (s *Service) GetServiceByIDWithEffectiveStatus(ctx context.Context, id string) (*domain.ServiceWithEffectiveStatus, error) {
+	return s.repo.GetServiceByIDWithEffectiveStatus(ctx, id)
+}
+
+// ListServicesWithEffectiveStatus returns services with their effective statuses.
+func (s *Service) ListServicesWithEffectiveStatus(ctx context.Context, filter ServiceFilter) ([]domain.ServiceWithEffectiveStatus, error) {
+	return s.repo.ListServicesWithEffectiveStatus(ctx, filter)
+}
+
 func validateSlug(slug string) error {
 	slug = strings.TrimSpace(slug)
 	if slug == "" {

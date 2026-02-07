@@ -42,6 +42,12 @@ type Repository interface {
 
 	// Group membership check
 	GetNonArchivedServiceCountForGroup(ctx context.Context, groupID string) (int, error)
+
+	// Effective status methods
+	GetEffectiveStatus(ctx context.Context, serviceID string) (domain.ServiceStatus, bool, error)
+	GetServiceBySlugWithEffectiveStatus(ctx context.Context, slug string) (*domain.ServiceWithEffectiveStatus, error)
+	GetServiceByIDWithEffectiveStatus(ctx context.Context, id string) (*domain.ServiceWithEffectiveStatus, error)
+	ListServicesWithEffectiveStatus(ctx context.Context, filter ServiceFilter) ([]domain.ServiceWithEffectiveStatus, error)
 }
 
 // ServiceFilter represents filter criteria for listing services.

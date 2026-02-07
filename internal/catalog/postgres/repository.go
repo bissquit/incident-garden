@@ -771,3 +771,128 @@ func (r *Repository) GetNonArchivedServiceCountForGroup(ctx context.Context, gro
 	}
 	return count, nil
 }
+
+// GetEffectiveStatus returns the effective status for a service (worst-case from active events or stored status).
+func (r *Repository) GetEffectiveStatus(ctx context.Context, serviceID string) (domain.ServiceStatus, bool, error) {
+	query := `
+		SELECT effective_status, has_active_events
+		FROM v_service_effective_status
+		WHERE id = $1
+	`
+	var effectiveStatus domain.ServiceStatus
+	var hasActiveEvents bool
+	err := r.db.QueryRow(ctx, query, serviceID).Scan(&effectiveStatus, &hasActiveEvents)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", false, catalog.ErrServiceNotFound
+		}
+		return "", false, fmt.Errorf("get effective status: %w", err)
+	}
+	return effectiveStatus, hasActiveEvents, nil
+}
+
+// GetServiceBySlugWithEffectiveStatus returns a service with its effective status.
+func (r *Repository) GetServiceBySlugWithEffectiveStatus(ctx context.Context, slug string) (*domain.ServiceWithEffectiveStatus, error) {
+	service, err := r.GetServiceBySlug(ctx, slug)
+	if err != nil {
+		return nil, err
+	}
+
+	effectiveStatus, hasActiveEvents, err := r.GetEffectiveStatus(ctx, service.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &domain.ServiceWithEffectiveStatus{
+		Service:         *service,
+		EffectiveStatus: effectiveStatus,
+		HasActiveEvents: hasActiveEvents,
+	}, nil
+}
+
+// GetServiceByIDWithEffectiveStatus returns a service with its effective status.
+func (r *Repository) GetServiceByIDWithEffectiveStatus(ctx context.Context, id string) (*domain.ServiceWithEffectiveStatus, error) {
+	service, err := r.GetServiceByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	effectiveStatus, hasActiveEvents, err := r.GetEffectiveStatus(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	return &domain.ServiceWithEffectiveStatus{
+		Service:         *service,
+		EffectiveStatus: effectiveStatus,
+		HasActiveEvents: hasActiveEvents,
+	}, nil
+}
+
+// ListServicesWithEffectiveStatus returns services with their effective statuses.
+func (r *Repository) ListServicesWithEffectiveStatus(ctx context.Context, filter catalog.ServiceFilter) ([]domain.ServiceWithEffectiveStatus, error) {
+	query := `
+		SELECT
+			s.id, s.name, s.slug, s.description, s.status, s."order",
+			s.created_at, s.updated_at, s.archived_at,
+			v.effective_status, v.has_active_events
+		FROM services s
+		JOIN v_service_effective_status v ON s.id = v.id
+		WHERE 1=1
+	`
+	args := []interface{}{}
+	argNum := 1
+
+	if filter.GroupID != nil {
+		query += fmt.Sprintf(" AND EXISTS (SELECT 1 FROM service_group_members sgm WHERE sgm.service_id = s.id AND sgm.group_id = $%d)", argNum)
+		args = append(args, *filter.GroupID)
+		argNum++
+	}
+
+	if filter.Status != nil {
+		// Filter by effective_status, not stored status
+		query += fmt.Sprintf(" AND v.effective_status = $%d", argNum)
+		args = append(args, *filter.Status)
+	}
+
+	if !filter.IncludeArchived {
+		query += " AND s.archived_at IS NULL"
+	}
+
+	query += ` ORDER BY s."order", s.name`
+
+	rows, err := r.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list services with effective status: %w", err)
+	}
+	defer rows.Close()
+
+	result := make([]domain.ServiceWithEffectiveStatus, 0)
+	for rows.Next() {
+		var svc domain.ServiceWithEffectiveStatus
+		err := rows.Scan(
+			&svc.ID, &svc.Name, &svc.Slug, &svc.Description, &svc.Status, &svc.Order,
+			&svc.CreatedAt, &svc.UpdatedAt, &svc.ArchivedAt,
+			&svc.EffectiveStatus, &svc.HasActiveEvents,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("scan service: %w", err)
+		}
+		result = append(result, svc)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate services: %w", err)
+	}
+
+	// Load group_ids for each service
+	for i := range result {
+		groupIDs, err := r.GetServiceGroups(ctx, result[i].ID)
+		if err != nil {
+			return nil, fmt.Errorf("get service groups: %w", err)
+		}
+		result[i].GroupIDs = groupIDs
+	}
+
+	return result, nil
+}
