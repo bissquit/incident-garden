@@ -62,6 +62,13 @@ func (g *ServiceGroup) IsArchived() bool {
 	return g.ArchivedAt != nil
 }
 
+// ServiceWithEffectiveStatus extends Service with computed effective status.
+type ServiceWithEffectiveStatus struct {
+	Service
+	EffectiveStatus ServiceStatus `json:"effective_status"`
+	HasActiveEvents bool          `json:"has_active_events"`
+}
+
 // ServiceTag represents a key-value tag attached to a service.
 type ServiceTag struct {
 	ID        string `json:"id"`

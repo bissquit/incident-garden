@@ -126,10 +126,13 @@ func (s *Service) CreateEvent(ctx context.Context, input CreateEventInput, creat
 		return nil, fmt.Errorf("create event: %w", err)
 	}
 
-	// Сохранить связи с сервисами
+	// Сохранить связи с сервисами с правильным статусом на основе severity
 	if len(uniqueServiceIDs) > 0 {
-		if err := s.repo.AssociateServicesTx(ctx, tx, event.ID, uniqueServiceIDs); err != nil {
-			return nil, fmt.Errorf("associate services: %w", err)
+		serviceStatus := domain.SeverityToServiceStatus(input.Type, input.Severity)
+		for _, serviceID := range uniqueServiceIDs {
+			if err := s.repo.AssociateServiceWithStatusTx(ctx, tx, event.ID, serviceID, serviceStatus); err != nil {
+				return nil, fmt.Errorf("associate services: %w", err)
+			}
 		}
 		event.ServiceIDs = uniqueServiceIDs
 	}
@@ -377,13 +380,12 @@ func (s *Service) AddServicesToEvent(ctx context.Context, eventID string, input 
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	// Обновить связи с сервисами
-	allServiceIDs := make([]string, 0, len(currentServices))
-	for sid := range currentServices {
-		allServiceIDs = append(allServiceIDs, sid)
-	}
-	if err := s.repo.AssociateServicesTx(ctx, tx, eventID, allServiceIDs); err != nil {
-		return fmt.Errorf("update services: %w", err)
+	// Обновить связи с сервисами с правильным статусом на основе severity события
+	serviceStatus := domain.SeverityToServiceStatus(event.Type, event.Severity)
+	for _, sid := range newServiceIDs {
+		if err := s.repo.AssociateServiceWithStatusTx(ctx, tx, eventID, sid, serviceStatus); err != nil {
+			return fmt.Errorf("update services: %w", err)
+		}
 	}
 
 	// Добавить группы к событию

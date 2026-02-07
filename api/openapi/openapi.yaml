@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: StatusPage API
   description: API for managing service statuses and incidents
-  version: 1.6.0
+  version: 1.7.0
   contact:
     name: API Support
 servers:
@@ -1187,6 +1187,13 @@ components:
           type: string
         status:
           $ref: '#/components/schemas/ServiceStatus'
+          description: Stored status (set manually or by closed events)
+        effective_status:
+          $ref: '#/components/schemas/ServiceStatus'
+          description: Effective status (worst-case from active events, or stored if no active events)
+        has_active_events:
+          type: boolean
+          description: Whether the service has any active (non-resolved) events
         group_ids:
           type: array
           items:
@@ -1204,7 +1211,7 @@ components:
           type: string
           format: date-time
           nullable: true
-      required: [id, name, slug, status, group_ids, order, created_at, updated_at]
+      required: [id, name, slug, status, effective_status, has_active_events, group_ids, order, created_at, updated_at]
     ServiceGroup:
       type: object
       properties:

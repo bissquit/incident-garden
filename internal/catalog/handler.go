@@ -289,14 +289,21 @@ func (h *Handler) CreateService(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	h.respondJSON(w, http.StatusCreated, service)
+	// Return with effective status
+	result, err := h.service.GetServiceByIDWithEffectiveStatus(r.Context(), service.ID)
+	if err != nil {
+		h.handleServiceError(w, err)
+		return
+	}
+
+	h.respondJSON(w, http.StatusCreated, result)
 }
 
 // GetService handles GET /services/{slug} request.
 func (h *Handler) GetService(w http.ResponseWriter, r *http.Request) {
 	slug := chi.URLParam(r, "slug")
 
-	service, err := h.service.GetServiceBySlug(r.Context(), slug)
+	service, err := h.service.GetServiceBySlugWithEffectiveStatus(r.Context(), slug)
 	if err != nil {
 		h.handleServiceError(w, err)
 		return
@@ -322,7 +329,7 @@ func (h *Handler) ListServices(w http.ResponseWriter, r *http.Request) {
 		filter.IncludeArchived = true
 	}
 
-	services, err := h.service.ListServices(r.Context(), filter)
+	services, err := h.service.ListServicesWithEffectiveStatus(r.Context(), filter)
 	if err != nil {
 		h.handleServiceError(w, err)
 		return
@@ -367,7 +374,14 @@ func (h *Handler) UpdateService(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.respondJSON(w, http.StatusOK, existing)
+	// Return with effective status
+	result, err := h.service.GetServiceBySlugWithEffectiveStatus(r.Context(), existing.Slug)
+	if err != nil {
+		h.handleServiceError(w, err)
+		return
+	}
+
+	h.respondJSON(w, http.StatusOK, result)
 }
 
 // DeleteService handles DELETE /services/{slug} request.
@@ -403,14 +417,14 @@ func (h *Handler) RestoreService(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Return the restored service
-	service, err = h.service.GetServiceBySlug(r.Context(), slug)
+	// Return the restored service with effective status
+	result, err := h.service.GetServiceBySlugWithEffectiveStatus(r.Context(), slug)
 	if err != nil {
 		h.handleServiceError(w, err)
 		return
 	}
 
-	h.respondJSON(w, http.StatusOK, service)
+	h.respondJSON(w, http.StatusOK, result)
 }
 
 // GetServiceTags handles GET /services/{slug}/tags request.
