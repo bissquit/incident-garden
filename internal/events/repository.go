@@ -26,7 +26,8 @@ type Repository interface {
 	DeleteTemplate(ctx context.Context, id string) error
 
 	AssociateServices(ctx context.Context, eventID string, serviceIDs []string) error
-	GetEventServices(ctx context.Context, eventID string) ([]string, error)
+	GetEventServiceIDs(ctx context.Context, eventID string) ([]string, error)
+	GetEventServices(ctx context.Context, eventID string) ([]domain.EventService, error)
 
 	AssociateGroups(ctx context.Context, eventID string, groupIDs []string) error
 	AddGroups(ctx context.Context, eventID string, groupIDs []string) error
@@ -39,6 +40,8 @@ type Repository interface {
 	BeginTx(ctx context.Context) (pgx.Tx, error)
 	CreateEventTx(ctx context.Context, tx pgx.Tx, event *domain.Event) error
 	AssociateServicesTx(ctx context.Context, tx pgx.Tx, eventID string, serviceIDs []string) error
+	AssociateServiceWithStatusTx(ctx context.Context, tx pgx.Tx, eventID, serviceID string, status domain.ServiceStatus) error
+	UpdateEventServiceStatusTx(ctx context.Context, tx pgx.Tx, eventID, serviceID string, status domain.ServiceStatus) error
 	AssociateGroupsTx(ctx context.Context, tx pgx.Tx, eventID string, groupIDs []string) error
 	AddGroupsTx(ctx context.Context, tx pgx.Tx, eventID string, groupIDs []string) error
 	CreateServiceChangeTx(ctx context.Context, tx pgx.Tx, change *domain.EventServiceChange) error

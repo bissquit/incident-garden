@@ -63,7 +63,7 @@ func (r *Repository) CreateEvent(ctx context.Context, event *domain.Event) error
 // GetEvent retrieves an event by ID.
 func (r *Repository) GetEvent(ctx context.Context, id string) (*domain.Event, error) {
 	query := `
-		SELECT 
+		SELECT
 			id, title, type, status, severity, description,
 			started_at, resolved_at, scheduled_start_at, scheduled_end_at,
 			notify_subscribers, template_id, created_by, created_at, updated_at
@@ -96,7 +96,7 @@ func (r *Repository) GetEvent(ctx context.Context, id string) (*domain.Event, er
 		return nil, fmt.Errorf("get event: %w", err)
 	}
 
-	serviceIDs, err := r.GetEventServices(ctx, id)
+	serviceIDs, err := r.GetEventServiceIDs(ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("get event services: %w", err)
 	}
@@ -179,7 +179,7 @@ func (r *Repository) ListEvents(ctx context.Context, filters events.EventFilters
 			return nil, fmt.Errorf("scan event: %w", err)
 		}
 
-		serviceIDs, err := r.GetEventServices(ctx, event.ID)
+		serviceIDs, err := r.GetEventServiceIDs(ctx, event.ID)
 		if err != nil {
 			return nil, fmt.Errorf("get event services: %w", err)
 		}
@@ -456,23 +456,21 @@ func (r *Repository) AssociateServices(ctx context.Context, eventID string, serv
 		return nil
 	}
 
-	insertQuery := `INSERT INTO event_services (event_id, service_id) VALUES ($1, $2)`
 	for _, serviceID := range serviceIDs {
-		_, err := r.db.Exec(ctx, insertQuery, eventID, serviceID)
-		if err != nil {
-			return fmt.Errorf("associate service %s: %w", serviceID, err)
+		if err := r.associateServiceWithStatus(ctx, r.db, eventID, serviceID, domain.ServiceStatusDegraded); err != nil {
+			return err
 		}
 	}
 
 	return nil
 }
 
-// GetEventServices retrieves service IDs for an event.
-func (r *Repository) GetEventServices(ctx context.Context, eventID string) ([]string, error) {
+// GetEventServiceIDs retrieves service IDs for an event.
+func (r *Repository) GetEventServiceIDs(ctx context.Context, eventID string) ([]string, error) {
 	query := `SELECT service_id FROM event_services WHERE event_id = $1`
 	rows, err := r.db.Query(ctx, query, eventID)
 	if err != nil {
-		return nil, fmt.Errorf("get event services: %w", err)
+		return nil, fmt.Errorf("get event service ids: %w", err)
 	}
 	defer rows.Close()
 
@@ -486,6 +484,32 @@ func (r *Repository) GetEventServices(ctx context.Context, eventID string) ([]st
 	}
 
 	return serviceIDs, nil
+}
+
+// GetEventServices retrieves services with their statuses for an event.
+func (r *Repository) GetEventServices(ctx context.Context, eventID string) ([]domain.EventService, error) {
+	query := `
+		SELECT event_id, service_id, status, updated_at
+		FROM event_services
+		WHERE event_id = $1
+		ORDER BY service_id
+	`
+	rows, err := r.db.Query(ctx, query, eventID)
+	if err != nil {
+		return nil, fmt.Errorf("get event services: %w", err)
+	}
+	defer rows.Close()
+
+	result := make([]domain.EventService, 0)
+	for rows.Next() {
+		var es domain.EventService
+		if err := rows.Scan(&es.EventID, &es.ServiceID, &es.Status, &es.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan event service: %w", err)
+		}
+		result = append(result, es)
+	}
+
+	return result, rows.Err()
 }
 
 // AssociateGroups replaces all group associations for an event.
@@ -626,14 +650,49 @@ func (r *Repository) AssociateServicesTx(ctx context.Context, tx pgx.Tx, eventID
 		return nil
 	}
 
-	insertQuery := `INSERT INTO event_services (event_id, service_id) VALUES ($1, $2)`
 	for _, serviceID := range serviceIDs {
-		_, err := tx.Exec(ctx, insertQuery, eventID, serviceID)
-		if err != nil {
-			return fmt.Errorf("associate service %s: %w", serviceID, err)
+		if err := r.AssociateServiceWithStatusTx(ctx, tx, eventID, serviceID, domain.ServiceStatusDegraded); err != nil {
+			return err
 		}
 	}
 
+	return nil
+}
+
+// associateServiceWithStatus is a helper that works with both pool and transaction.
+func (r *Repository) associateServiceWithStatus(ctx context.Context, q querier, eventID, serviceID string, status domain.ServiceStatus) error {
+	query := `
+		INSERT INTO event_services (event_id, service_id, status, updated_at)
+		VALUES ($1, $2, $3, NOW())
+		ON CONFLICT (event_id, service_id)
+		DO UPDATE SET status = EXCLUDED.status, updated_at = NOW()
+	`
+	_, err := q.Exec(ctx, query, eventID, serviceID, status)
+	if err != nil {
+		return fmt.Errorf("associate service with status: %w", err)
+	}
+	return nil
+}
+
+// AssociateServiceWithStatusTx associates a service with an event and sets its status.
+func (r *Repository) AssociateServiceWithStatusTx(ctx context.Context, tx pgx.Tx, eventID, serviceID string, status domain.ServiceStatus) error {
+	return r.associateServiceWithStatus(ctx, tx, eventID, serviceID, status)
+}
+
+// UpdateEventServiceStatusTx updates the status of a service within an event.
+func (r *Repository) UpdateEventServiceStatusTx(ctx context.Context, tx pgx.Tx, eventID, serviceID string, status domain.ServiceStatus) error {
+	query := `
+		UPDATE event_services
+		SET status = $3, updated_at = NOW()
+		WHERE event_id = $1 AND service_id = $2
+	`
+	result, err := tx.Exec(ctx, query, eventID, serviceID, status)
+	if err != nil {
+		return fmt.Errorf("update event service status: %w", err)
+	}
+	if result.RowsAffected() == 0 {
+		return events.ErrServiceNotInEvent
+	}
 	return nil
 }
 

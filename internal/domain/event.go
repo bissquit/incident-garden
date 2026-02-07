@@ -119,3 +119,11 @@ type EventServiceChange struct {
 	CreatedBy string       `json:"created_by"`
 	CreatedAt time.Time    `json:"created_at"`
 }
+
+// EventService represents a service associated with an event and its status in that context.
+type EventService struct {
+	EventID   string        `json:"event_id"`
+	ServiceID string        `json:"service_id"`
+	Status    ServiceStatus `json:"status"`
+	UpdatedAt time.Time     `json:"updated_at"`
+}
