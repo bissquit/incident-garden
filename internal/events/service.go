@@ -34,12 +34,13 @@ type CreateEventInput struct {
 	Severity          *domain.Severity
 	Description       string
 	StartedAt         *time.Time
+	ResolvedAt        *time.Time // For creating past events
 	ScheduledStartAt  *time.Time
 	ScheduledEndAt    *time.Time
 	NotifySubscribers bool
 	TemplateID        *string
-	ServiceIDs        []string
-	GroupIDs          []string
+	AffectedServices  []domain.AffectedService
+	AffectedGroups    []domain.AffectedGroup
 }
 
 // CreateEventUpdateInput holds data for creating an event update.
@@ -78,26 +79,29 @@ func (s *Service) CreateEvent(ctx context.Context, input CreateEventInput, creat
 		}
 	}
 
-	// Развернуть группы в сервисы
-	allServiceIDs := make(map[string]bool)
-	for _, sid := range input.ServiceIDs {
-		allServiceIDs[sid] = true
-	}
+	// Collect all services with their statuses.
+	// Explicit services override group-derived statuses.
+	serviceStatuses := make(map[string]domain.ServiceStatus)
 
-	for _, groupID := range input.GroupIDs {
-		serviceIDs, err := s.resolver.GetGroupServices(ctx, groupID)
+	// First, add services from groups
+	groupIDs := make([]string, 0, len(input.AffectedGroups))
+	for _, ag := range input.AffectedGroups {
+		groupIDs = append(groupIDs, ag.GroupID)
+		serviceIDs, err := s.resolver.GetGroupServices(ctx, ag.GroupID)
 		if err != nil {
-			return nil, fmt.Errorf("resolve group %s: %w", groupID, err)
+			return nil, fmt.Errorf("resolve group %s: %w", ag.GroupID, err)
 		}
 		for _, sid := range serviceIDs {
-			allServiceIDs[sid] = true
+			// Don't overwrite if already set (explicit service takes priority)
+			if _, exists := serviceStatuses[sid]; !exists {
+				serviceStatuses[sid] = ag.Status
+			}
 		}
 	}
 
-	// Преобразовать map в slice
-	uniqueServiceIDs := make([]string, 0, len(allServiceIDs))
-	for sid := range allServiceIDs {
-		uniqueServiceIDs = append(uniqueServiceIDs, sid)
+	// Then add explicitly specified services (they override group statuses)
+	for _, as := range input.AffectedServices {
+		serviceStatuses[as.ServiceID] = as.Status
 	}
 
 	event := &domain.Event{
@@ -107,15 +111,16 @@ func (s *Service) CreateEvent(ctx context.Context, input CreateEventInput, creat
 		Severity:          input.Severity,
 		Description:       input.Description,
 		StartedAt:         input.StartedAt,
+		ResolvedAt:        input.ResolvedAt,
 		ScheduledStartAt:  input.ScheduledStartAt,
 		ScheduledEndAt:    input.ScheduledEndAt,
 		NotifySubscribers: input.NotifySubscribers,
 		TemplateID:        input.TemplateID,
 		CreatedBy:         createdBy,
-		GroupIDs:          input.GroupIDs,
+		GroupIDs:          groupIDs,
 	}
 
-	// Начинаем транзакцию для атомарности всех операций
+	// Begin transaction for atomicity
 	tx, err := s.repo.BeginTx(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("begin transaction: %w", err)
@@ -126,27 +131,26 @@ func (s *Service) CreateEvent(ctx context.Context, input CreateEventInput, creat
 		return nil, fmt.Errorf("create event: %w", err)
 	}
 
-	// Сохранить связи с сервисами с правильным статусом на основе severity
-	if len(uniqueServiceIDs) > 0 {
-		serviceStatus := domain.SeverityToServiceStatus(input.Type, input.Severity)
-		for _, serviceID := range uniqueServiceIDs {
-			if err := s.repo.AssociateServiceWithStatusTx(ctx, tx, event.ID, serviceID, serviceStatus); err != nil {
-				return nil, fmt.Errorf("associate services: %w", err)
-			}
+	// Associate services with their statuses
+	serviceIDs := make([]string, 0, len(serviceStatuses))
+	for serviceID, status := range serviceStatuses {
+		if err := s.repo.AssociateServiceWithStatusTx(ctx, tx, event.ID, serviceID, status); err != nil {
+			return nil, fmt.Errorf("associate service %s: %w", serviceID, err)
 		}
-		event.ServiceIDs = uniqueServiceIDs
+		serviceIDs = append(serviceIDs, serviceID)
 	}
+	event.ServiceIDs = serviceIDs
 
-	// Сохранить связи с группами
-	if len(input.GroupIDs) > 0 {
-		if err := s.repo.AssociateGroupsTx(ctx, tx, event.ID, input.GroupIDs); err != nil {
+	// Save group associations
+	if len(groupIDs) > 0 {
+		if err := s.repo.AssociateGroupsTx(ctx, tx, event.ID, groupIDs); err != nil {
 			return nil, fmt.Errorf("associate groups: %w", err)
 		}
 	}
 
-	// Записать начальное состояние в историю изменений
-	if err := s.recordInitialServicesTx(ctx, tx, event.ID, input.ServiceIDs, input.GroupIDs, createdBy); err != nil {
-		return nil, fmt.Errorf("record initial services: %w", err)
+	// Record initial state in change history
+	if err := s.recordInitialChangesTx(ctx, tx, event.ID, input.AffectedServices, input.AffectedGroups, createdBy); err != nil {
+		return nil, fmt.Errorf("record initial changes: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -280,17 +284,17 @@ func (s *Service) DeleteTemplate(ctx context.Context, id string) error {
 	return s.repo.DeleteTemplate(ctx, id)
 }
 
-// recordInitialServicesTx записывает начальный состав события в историю в рамках транзакции.
-func (s *Service) recordInitialServicesTx(ctx context.Context, tx pgx.Tx, eventID string, serviceIDs, groupIDs []string, createdBy string) error {
-	if len(serviceIDs) == 0 && len(groupIDs) == 0 {
+// recordInitialChangesTx records initial event composition in change history.
+func (s *Service) recordInitialChangesTx(ctx context.Context, tx pgx.Tx, eventID string, services []domain.AffectedService, groups []domain.AffectedGroup, createdBy string) error {
+	if len(services) == 0 && len(groups) == 0 {
 		return nil
 	}
 
 	batchID := uuid.New().String()
 
-	// Записываем добавление отдельных сервисов
-	for i := range serviceIDs {
-		sid := serviceIDs[i]
+	// Record individual service additions
+	for _, as := range services {
+		sid := as.ServiceID
 		change := &domain.EventServiceChange{
 			EventID:   eventID,
 			BatchID:   &batchID,
@@ -304,9 +308,9 @@ func (s *Service) recordInitialServicesTx(ctx context.Context, tx pgx.Tx, eventI
 		}
 	}
 
-	// Записываем добавление групп
-	for i := range groupIDs {
-		gid := groupIDs[i]
+	// Record group additions
+	for _, ag := range groups {
+		gid := ag.GroupID
 		change := &domain.EventServiceChange{
 			EventID:   eventID,
 			BatchID:   &batchID,

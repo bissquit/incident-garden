@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: StatusPage API
   description: API for managing service statuses and incidents
-  version: 1.7.0
+  version: 2.0.0
   contact:
     name: API Support
 servers:
@@ -524,7 +524,17 @@ paths:
     post:
       tags: [events]
       summary: Create an event
-      description: Creates an incident or maintenance. Groups in group_ids are expanded to services.
+      description: |
+        Creates an incident or maintenance event.
+
+        **Service status assignment:**
+        - Use `affected_services` to specify individual services with their statuses
+        - Use `affected_groups` to assign the same status to all services in a group
+        - If a service appears in both a group and `affected_services`, the explicit status takes precedence
+
+        **Creating past events:**
+        - Set `started_at` and `resolved_at` to dates in the past
+        - Event will be created as already resolved
       operationId: createEvent
       security:
         - BearerAuth: []
@@ -1563,22 +1573,49 @@ components:
             format: uuid
           description: List of service IDs to assign to this group. If provided, replaces all existing service memberships.
       required: [name, slug]
+    AffectedService:
+      type: object
+      description: Service to associate with an event and its status
+      properties:
+        service_id:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/ServiceStatus'
+      required: [service_id, status]
+    AffectedGroup:
+      type: object
+      description: Group whose services will be associated with an event
+      properties:
+        group_id:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/ServiceStatus'
+          description: Status to apply to ALL services in this group
+      required: [group_id, status]
     CreateEventRequest:
       type: object
       properties:
         title:
           type: string
+          minLength: 1
         type:
           $ref: '#/components/schemas/EventType'
         status:
           $ref: '#/components/schemas/EventStatus'
         severity:
           $ref: '#/components/schemas/Severity'
+          description: Required for incidents
         description:
           type: string
         started_at:
           type: string
           format: date-time
+        resolved_at:
+          type: string
+          format: date-time
+          description: For creating past events (already resolved)
         scheduled_start_at:
           type: string
           format: date-time
@@ -1591,16 +1628,16 @@ components:
         template_id:
           type: string
           format: uuid
-        service_ids:
+        affected_services:
           type: array
+          description: Services to associate with this event
           items:
-            type: string
-            format: uuid
-        group_ids:
+            $ref: '#/components/schemas/AffectedService'
+        affected_groups:
           type: array
+          description: Groups whose services to associate with this event
           items:
-            type: string
-            format: uuid
+            $ref: '#/components/schemas/AffectedGroup'
       required: [title, type, status, description]
     AddServicesRequest:
       type: object

@@ -4,6 +4,27 @@
 
 ---
 
+> **MANDATORY: Keep This File Updated**
+>
+> This file is the source of truth for AI assistants working on this codebase.
+> **You MUST update CLAUDE.md when your changes affect:**
+> - Database schema (new tables, columns, constraints, views)
+> - API endpoints (new routes, changed request/response formats)
+> - Domain types (new structs in `internal/domain/`)
+> - Module interfaces (new methods in `repository.go`, `service.go`)
+> - Business rules or architectural decisions
+> - Project status (completed features, new limitations)
+>
+> **Before completing any task, verify:**
+> 1. Does CODEMAP reflect current file structure and interfaces?
+> 2. Does Database Schema match actual migrations?
+> 3. Do API Endpoints match `api/openapi/openapi.yaml`?
+> 4. Does STATUS & TODO reflect what was just implemented?
+>
+> Outdated documentation causes cascading errors in future AI-assisted work.
+
+---
+
 ## 1. PROJECT CONTEXT
 
 ### What This Is
@@ -93,9 +114,11 @@ events
 ├── notify_subscribers, template_id, created_by
 └── created_at, updated_at
 
-event_services (M:N junction — flattened services)
+event_services (M:N junction — services with status)
 ├── event_id FK → events
-└── service_id FK → services
+├── service_id FK → services
+├── status VARCHAR(50) NOT NULL — service status in event context
+└── updated_at TIMESTAMP NOT NULL
 
 event_groups (M:N junction — selected groups)
 ├── event_id FK → events
@@ -106,6 +129,11 @@ event_service_changes (audit trail)
 ├── action ('added'|'removed')
 ├── service_id (nullable), group_id (nullable)
 ├── reason, created_by, created_at
+
+v_service_effective_status (VIEW — computed effective status)
+├── service_id, status (stored), effective_status (computed)
+├── has_active_events BOOLEAN
+└── Uses worst-case priority: major_outage > partial_outage > degraded > maintenance > operational
 ```
 
 ### Module: identity
@@ -137,10 +165,16 @@ Key interfaces:
 - SetServiceGroups(ctx, serviceID, groupIDs []string)
 - GetServiceGroups(ctx, serviceID) → []string
 - GetGroupServices(ctx, groupID) → []string  // Used by events module
+- SetGroupServices(ctx, groupID, serviceIDs []string)
 - ArchiveService/RestoreService
 - GetActiveEventCountForService(ctx, serviceID) → int
+- GetNonArchivedServiceCountForGroup(ctx, groupID) → int
+- GetEffectiveStatus(ctx, serviceID) → (ServiceStatus, hasActiveEvents, error)
+- GetServiceBySlugWithEffectiveStatus(ctx, slug) → *ServiceWithEffectiveStatus
+- ListServicesWithEffectiveStatus(ctx, filter) → []ServiceWithEffectiveStatus
+- SetServiceTags(ctx, serviceID, tags) / GetServiceTags(ctx, serviceID) → []ServiceTag
 
-Dependencies: domain.Service, domain.ServiceGroup, pkg/postgres
+Dependencies: domain.Service, domain.ServiceGroup, domain.ServiceWithEffectiveStatus, pkg/postgres
 ```
 
 ### Module: events
@@ -160,10 +194,13 @@ Key interfaces:
 - AssociateGroups(ctx, eventID, groupIDs)
 - AddGroups(ctx, eventID, groupIDs)
 - GetEventGroups(ctx, eventID) → []string
+- GetEventServices(ctx, eventID) → []EventService
+- AssociateServiceWithStatusTx(ctx, tx, eventID, serviceID, status)
+- UpdateEventServiceStatusTx(ctx, tx, eventID, serviceID, status)
 - CreateServiceChange(ctx, change)
 - ListServiceChanges(ctx, eventID) → []EventServiceChange
 
-Dependencies: domain.Event, catalog.Service (as GroupServiceResolver), pkg/postgres
+Dependencies: domain.Event, domain.EventService, domain.AffectedService, domain.AffectedGroup, catalog.Service (as GroupServiceResolver), pkg/postgres
 ```
 
 ### Module: notifications
@@ -185,9 +222,14 @@ internal/notifications/
 ### Shared
 
 ```
-internal/domain/           → User, Service, ServiceGroup, Event, EventServiceChange, Template, Channel, Subscription
+internal/domain/           → User, Service, ServiceGroup, Event, EventUpdate, EventServiceChange,
+                             Template, Channel, Subscription,
+                             ServiceWithEffectiveStatus, ServiceTag, EventService,
+                             AffectedService, AffectedGroup (API input types)
 internal/pkg/httputil/     → response.go (Success/Error), middleware.go
 internal/pkg/postgres/     → Connect(cfg) → *pgxpool.Pool
+internal/testutil/         → HTTP test client, testcontainers setup, fixtures, OpenAPI validator
+internal/version/          → Build version info (injected at compile time)
 ```
 
 ### Dependency Flow
@@ -218,6 +260,7 @@ main.go → app.NewApp(cfg)
 5. **Errors:** wrap with context (`fmt.Errorf("...: %w", err)`)
 6. **Tests:** unit for logic, integration for DB paths
 7. **Validate:** `make lint && make test && make build`
+8. **Update CLAUDE.md** if you changed schema, API, domain types, or interfaces
 
 ### OpenAPI Versioning
 
@@ -247,6 +290,7 @@ OpenAPI version (`info.version` in `api/openapi/openapi.yaml`) is **independent*
 - [ ] Errors: no ignored errors; all wrapped with context
 - [ ] Contract: OpenAPI updated if API changed; migrations if schema changed
 - [ ] **OpenAPI version bumped** if contract changed (see OpenAPI Versioning)
+- [ ] **CLAUDE.md updated** if changes affect: schema, API, domain types, interfaces, or business rules
 - [ ] Tests: according to Test Matrix
 - [ ] `make lint` passes
 - [ ] `make test` / `make test-integration` passes
@@ -404,7 +448,7 @@ docker volume rm docker_postgres_data
 - `GET|POST|DELETE /api/v1/me/subscriptions`
 
 **Operator+:**
-- `POST /api/v1/events` — create (accepts `service_ids` + `group_ids`)
+- `POST /api/v1/events` — create (accepts `affected_services` + `affected_groups` with explicit statuses)
 - `POST /api/v1/events/{id}/updates` — add status updates
 - `POST /api/v1/events/{id}/services` — add services/groups to event
 - `DELETE /api/v1/events/{id}/services` — remove services from event
@@ -440,6 +484,14 @@ docker volume rm docker_postgres_data
 - Adding services/groups records to `event_service_changes`
 - Removing services records to `event_service_changes`
 - Full audit trail with `reason`, `created_by`, `created_at`
+
+**Effective Status (Service Status in Events):**
+- When creating events, operator specifies status for each service/group via `affected_services` and `affected_groups`
+- Each `affected_service` contains `{service_id, status}`, each `affected_group` contains `{group_id, status}`
+- Explicit service status overrides group-derived status (priority: service > group)
+- Service's effective status = worst active event status (priority: `major_outage` > `partial_outage` > `degraded` > `maintenance` > `operational`)
+- Computed via `v_service_effective_status` view, accessible via `GetEffectiveStatus()` and `ListServicesWithEffectiveStatus()`
+- If no active events, effective status = stored service status
 
 ### Enums
 
@@ -496,7 +548,9 @@ make docker-build
 - Events with group selection (auto-expand to services)
 - Event composition editing with audit trail
 - Soft delete for services and groups
-- Integration tests (20+)
+- Service status tracking within events (affected_services/affected_groups with explicit statuses)
+- Effective status computation (v_service_effective_status view)
+- Integration tests (25+)
 
 ⚠️ **Partial:** Notifications (structure ready, senders are stubs)
 

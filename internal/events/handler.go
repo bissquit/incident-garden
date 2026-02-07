@@ -64,18 +64,19 @@ func (h *Handler) RegisterAdminRoutes(r chi.Router) {
 
 // CreateEventRequest represents the request body for creating an event.
 type CreateEventRequest struct {
-	Title             string               `json:"title" validate:"required"`
-	Type              domain.EventType     `json:"type" validate:"required"`
-	Status            domain.EventStatus   `json:"status" validate:"required"`
-	Severity          *domain.Severity     `json:"severity"`
-	Description       string               `json:"description" validate:"required"`
-	StartedAt         *time.Time           `json:"started_at"`
-	ScheduledStartAt  *time.Time           `json:"scheduled_start_at"`
-	ScheduledEndAt    *time.Time           `json:"scheduled_end_at"`
-	NotifySubscribers bool                 `json:"notify_subscribers"`
-	TemplateID        *string              `json:"template_id"`
-	ServiceIDs        []string             `json:"service_ids"`
-	GroupIDs          []string             `json:"group_ids"`
+	Title             string                   `json:"title" validate:"required"`
+	Type              domain.EventType         `json:"type" validate:"required"`
+	Status            domain.EventStatus       `json:"status" validate:"required"`
+	Severity          *domain.Severity         `json:"severity"`
+	Description       string                   `json:"description" validate:"required"`
+	StartedAt         *time.Time               `json:"started_at"`
+	ResolvedAt        *time.Time               `json:"resolved_at"`
+	ScheduledStartAt  *time.Time               `json:"scheduled_start_at"`
+	ScheduledEndAt    *time.Time               `json:"scheduled_end_at"`
+	NotifySubscribers bool                     `json:"notify_subscribers"`
+	TemplateID        *string                  `json:"template_id"`
+	AffectedServices  []domain.AffectedService `json:"affected_services" validate:"dive"`
+	AffectedGroups    []domain.AffectedGroup   `json:"affected_groups" validate:"dive"`
 }
 
 // CreateEvent handles POST /events.
