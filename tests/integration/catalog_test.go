@@ -361,6 +361,214 @@ func TestCatalog_DuplicateSlug(t *testing.T) {
 	client.DELETE("/api/v1/services/" + slug)
 }
 
+func TestCatalog_Group_UpdateWithServiceIDs(t *testing.T) {
+	client := newTestClient(t)
+	client.LoginAsAdmin(t)
+
+	// Create a group
+	groupSlug := testutil.RandomSlug("group-svc-ids")
+	resp, err := client.POST("/api/v1/groups", map[string]string{
+		"name": "Group For Service IDs",
+		"slug": groupSlug,
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var groupResult struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &groupResult)
+	groupID := groupResult.Data.ID
+
+	// Create two services
+	service1Slug := testutil.RandomSlug("svc1")
+	resp, err = client.POST("/api/v1/services", map[string]string{
+		"name": "Service 1",
+		"slug": service1Slug,
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var svc1Result struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &svc1Result)
+	service1ID := svc1Result.Data.ID
+
+	service2Slug := testutil.RandomSlug("svc2")
+	resp, err = client.POST("/api/v1/services", map[string]string{
+		"name": "Service 2",
+		"slug": service2Slug,
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var svc2Result struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &svc2Result)
+	service2ID := svc2Result.Data.ID
+
+	// Add services to group via PATCH with service_ids
+	resp, err = client.PATCH("/api/v1/groups/"+groupSlug, map[string]interface{}{
+		"name":        "Group For Service IDs",
+		"slug":        groupSlug,
+		"service_ids": []string{service1ID, service2ID},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	resp.Body.Close()
+
+	// Verify services are linked to group
+	resp, err = client.GET("/api/v1/services/" + service1Slug)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var svc1Updated struct {
+		Data struct {
+			GroupIDs []string `json:"group_ids"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &svc1Updated)
+	assert.Contains(t, svc1Updated.Data.GroupIDs, groupID)
+
+	resp, err = client.GET("/api/v1/services/" + service2Slug)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var svc2Updated struct {
+		Data struct {
+			GroupIDs []string `json:"group_ids"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &svc2Updated)
+	assert.Contains(t, svc2Updated.Data.GroupIDs, groupID)
+
+	// Change to only service1
+	resp, err = client.PATCH("/api/v1/groups/"+groupSlug, map[string]interface{}{
+		"name":        "Group For Service IDs",
+		"slug":        groupSlug,
+		"service_ids": []string{service1ID},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	resp.Body.Close()
+
+	// Verify service2 is no longer linked
+	resp, err = client.GET("/api/v1/services/" + service2Slug)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	testutil.DecodeJSON(t, resp, &svc2Updated)
+	assert.NotContains(t, svc2Updated.Data.GroupIDs, groupID)
+
+	// Verify service1 is still linked
+	resp, err = client.GET("/api/v1/services/" + service1Slug)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	testutil.DecodeJSON(t, resp, &svc1Updated)
+	assert.Contains(t, svc1Updated.Data.GroupIDs, groupID)
+
+	// Test empty array - removes all services
+	resp, err = client.PATCH("/api/v1/groups/"+groupSlug, map[string]interface{}{
+		"name":        "Group For Service IDs",
+		"slug":        groupSlug,
+		"service_ids": []string{},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	resp.Body.Close()
+
+	// Verify service1 is no longer linked
+	resp, err = client.GET("/api/v1/services/" + service1Slug)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	testutil.DecodeJSON(t, resp, &svc1Updated)
+	assert.NotContains(t, svc1Updated.Data.GroupIDs, groupID)
+
+	// Cleanup
+	client.DELETE("/api/v1/services/" + service1Slug)
+	client.DELETE("/api/v1/services/" + service2Slug)
+	client.DELETE("/api/v1/groups/" + groupSlug)
+}
+
+func TestCatalog_Group_UpdateWithoutServiceIDs_NoChange(t *testing.T) {
+	client := newTestClient(t)
+	client.LoginAsAdmin(t)
+
+	// Create a group
+	groupSlug := testutil.RandomSlug("group-no-change")
+	resp, err := client.POST("/api/v1/groups", map[string]string{
+		"name": "Group No Change",
+		"slug": groupSlug,
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var groupResult struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &groupResult)
+	groupID := groupResult.Data.ID
+
+	// Create a service and add it to the group
+	serviceSlug := testutil.RandomSlug("svc-no-change")
+	resp, err = client.POST("/api/v1/services", map[string]interface{}{
+		"name":      "Service No Change",
+		"slug":      serviceSlug,
+		"group_ids": []string{groupID},
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	resp.Body.Close()
+
+	// Update group without service_ids - memberships should remain
+	resp, err = client.PATCH("/api/v1/groups/"+groupSlug, map[string]interface{}{
+		"name":        "Group No Change Updated",
+		"slug":        groupSlug,
+		"description": "Updated description",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	resp.Body.Close()
+
+	// Verify service is still linked
+	resp, err = client.GET("/api/v1/services/" + serviceSlug)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var svcResult struct {
+		Data struct {
+			GroupIDs []string `json:"group_ids"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &svcResult)
+	assert.Contains(t, svcResult.Data.GroupIDs, groupID)
+
+	// Cleanup
+	resp, err = client.PATCH("/api/v1/services/"+serviceSlug, map[string]interface{}{
+		"name":      "Service No Change",
+		"slug":      serviceSlug,
+		"status":    "operational",
+		"group_ids": []string{},
+	})
+	require.NoError(t, err)
+	resp.Body.Close()
+
+	client.DELETE("/api/v1/services/" + serviceSlug)
+	client.DELETE("/api/v1/groups/" + groupSlug)
+}
+
 func TestCatalog_EmptyList_ReturnsEmptyArray(t *testing.T) {
 	// This test verifies that list endpoints return arrays [] instead of null.
 	// With soft delete, we can't guarantee an empty list since demo data may have

@@ -63,16 +63,18 @@ func (r *CreateGroupRequest) ToDomain() *domain.ServiceGroup {
 		Name:        r.Name,
 		Slug:        r.Slug,
 		Description: r.Description,
+		ServiceIDs:  make([]string, 0),
 		Order:       r.Order,
 	}
 }
 
 // UpdateGroupRequest represents the request body for updating a service group.
 type UpdateGroupRequest struct {
-	Name        string `json:"name" validate:"required,min=1,max=255"`
-	Slug        string `json:"slug" validate:"required,min=1,max=255"`
-	Description string `json:"description"`
-	Order       int    `json:"order"`
+	Name        string    `json:"name" validate:"required,min=1,max=255"`
+	Slug        string    `json:"slug" validate:"required,min=1,max=255"`
+	Description string    `json:"description"`
+	Order       int       `json:"order"`
+	ServiceIDs  *[]string `json:"service_ids"`
 }
 
 // CreateServiceRequest represents the request body for creating a service.
@@ -204,6 +206,15 @@ func (h *Handler) UpdateGroup(w http.ResponseWriter, r *http.Request) {
 	if err := h.service.UpdateGroup(r.Context(), existing); err != nil {
 		h.handleServiceError(w, err)
 		return
+	}
+
+	// Update service memberships if provided
+	if req.ServiceIDs != nil {
+		if err := h.service.UpdateGroupServices(r.Context(), existing.ID, *req.ServiceIDs); err != nil {
+			h.handleServiceError(w, err)
+			return
+		}
+		existing.ServiceIDs = *req.ServiceIDs
 	}
 
 	h.respondJSON(w, http.StatusOK, existing)

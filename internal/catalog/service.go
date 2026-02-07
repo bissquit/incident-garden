@@ -247,6 +247,11 @@ func (s *Service) GetGroupServices(ctx context.Context, groupID string) ([]strin
 	return s.repo.GetGroupServices(ctx, groupID)
 }
 
+// UpdateGroupServices replaces all service memberships for a group.
+func (s *Service) UpdateGroupServices(ctx context.Context, groupID string, serviceIDs []string) error {
+	return s.repo.SetGroupServices(ctx, groupID, serviceIDs)
+}
+
 func validateSlug(slug string) error {
 	slug = strings.TrimSpace(slug)
 	if slug == "" {
