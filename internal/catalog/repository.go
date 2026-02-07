@@ -28,6 +28,7 @@ type Repository interface {
 	SetServiceGroups(ctx context.Context, serviceID string, groupIDs []string) error
 	GetServiceGroups(ctx context.Context, serviceID string) ([]string, error)
 	GetGroupServices(ctx context.Context, groupID string) ([]string, error)
+	SetGroupServices(ctx context.Context, groupID string, serviceIDs []string) error
 
 	// Soft delete operations
 	ArchiveService(ctx context.Context, id string) error

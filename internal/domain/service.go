@@ -39,6 +39,7 @@ type ServiceGroup struct {
 	Name        string     `json:"name"`
 	Slug        string     `json:"slug"`
 	Description string     `json:"description"`
+	ServiceIDs  []string   `json:"service_ids"`
 	Order       int        `json:"order"`
 	CreatedAt   time.Time  `json:"created_at"`
 	UpdatedAt   time.Time  `json:"updated_at"`

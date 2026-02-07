@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: StatusPage API
   description: API for managing service statuses and incidents
-  version: 1.5.1
+  version: 1.6.0
   contact:
     name: API Support
 servers:
@@ -1217,6 +1217,11 @@ components:
           type: string
         description:
           type: string
+        service_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
         order:
           type: integer
         created_at:
@@ -1229,7 +1234,7 @@ components:
           type: string
           format: date-time
           nullable: true
-      required: [id, name, slug, order, created_at, updated_at]
+      required: [id, name, slug, service_ids, order, created_at, updated_at]
     Event:
       type: object
       properties:
@@ -1544,6 +1549,12 @@ components:
           type: string
         order:
           type: integer
+        service_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: List of service IDs to assign to this group. If provided, replaces all existing service memberships.
       required: [name, slug]
     CreateEventRequest:
       type: object

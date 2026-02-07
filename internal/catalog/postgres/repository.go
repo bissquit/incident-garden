@@ -68,6 +68,14 @@ func (r *Repository) GetGroupBySlug(ctx context.Context, slug string) (*domain.S
 		}
 		return nil, fmt.Errorf("get service group by slug: %w", err)
 	}
+
+	// Load services for the group
+	serviceIDs, err := r.GetGroupServices(ctx, group.ID)
+	if err != nil {
+		return nil, fmt.Errorf("get group services: %w", err)
+	}
+	group.ServiceIDs = serviceIDs
+
 	return &group, nil
 }
 
@@ -96,6 +104,14 @@ func (r *Repository) GetGroupByID(ctx context.Context, id string) (*domain.Servi
 		}
 		return nil, fmt.Errorf("get service group by id: %w", err)
 	}
+
+	// Load services for the group
+	serviceIDs, err := r.GetGroupServices(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("get group services: %w", err)
+	}
+	group.ServiceIDs = serviceIDs
+
 	return &group, nil
 }
 
@@ -139,6 +155,15 @@ func (r *Repository) ListGroups(ctx context.Context, filter catalog.GroupFilter)
 
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate service groups: %w", err)
+	}
+
+	// Load services for each group
+	for i := range groups {
+		serviceIDs, err := r.GetGroupServices(ctx, groups[i].ID)
+		if err != nil {
+			return nil, fmt.Errorf("get group services: %w", err)
+		}
+		groups[i].ServiceIDs = serviceIDs
 	}
 
 	return groups, nil
@@ -559,6 +584,40 @@ func (r *Repository) GetGroupServices(ctx context.Context, groupID string) ([]st
 	}
 
 	return serviceIDs, nil
+}
+
+// SetGroupServices replaces all service memberships for a group.
+func (r *Repository) SetGroupServices(ctx context.Context, groupID string, serviceIDs []string) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer func() {
+		if err := tx.Rollback(ctx); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
+			slog.Error("failed to rollback transaction", "error", err)
+		}
+	}()
+
+	// Delete old service memberships
+	_, err = tx.Exec(ctx, `DELETE FROM service_group_members WHERE group_id = $1`, groupID)
+	if err != nil {
+		return fmt.Errorf("delete old service memberships: %w", err)
+	}
+
+	// Insert new service memberships
+	for _, serviceID := range serviceIDs {
+		_, err = tx.Exec(ctx,
+			`INSERT INTO service_group_members (service_id, group_id) VALUES ($1, $2)`,
+			serviceID, groupID)
+		if err != nil {
+			return fmt.Errorf("insert service membership: %w", err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit transaction: %w", err)
+	}
+	return nil
 }
 
 // ArchiveService soft-deletes a service by setting archived_at.
