@@ -766,3 +766,124 @@ func (r *Repository) AssociateGroupsTx(ctx context.Context, tx pgx.Tx, eventID s
 
 	return nil
 }
+
+// CreateEventUpdateTx creates a new event update within a transaction.
+func (r *Repository) CreateEventUpdateTx(ctx context.Context, tx pgx.Tx, update *domain.EventUpdate) error {
+	query := `
+		INSERT INTO event_updates (event_id, status, message, notify_subscribers, created_by)
+		VALUES ($1, $2, $3, $4, $5)
+		RETURNING id, created_at
+	`
+	err := tx.QueryRow(ctx, query,
+		update.EventID,
+		update.Status,
+		update.Message,
+		update.NotifySubscribers,
+		update.CreatedBy,
+	).Scan(&update.ID, &update.CreatedAt)
+
+	if err != nil {
+		return fmt.Errorf("create event update: %w", err)
+	}
+	return nil
+}
+
+// UpdateEventTx updates an existing event within a transaction.
+func (r *Repository) UpdateEventTx(ctx context.Context, tx pgx.Tx, event *domain.Event) error {
+	query := `
+		UPDATE events
+		SET title = $2, status = $3, severity = $4, description = $5,
+		    resolved_at = $6, scheduled_start_at = $7, scheduled_end_at = $8,
+		    notify_subscribers = $9, updated_at = NOW()
+		WHERE id = $1
+		RETURNING updated_at
+	`
+	err := tx.QueryRow(ctx, query,
+		event.ID,
+		event.Title,
+		event.Status,
+		event.Severity,
+		event.Description,
+		event.ResolvedAt,
+		event.ScheduledStartAt,
+		event.ScheduledEndAt,
+		event.NotifySubscribers,
+	).Scan(&event.UpdatedAt)
+
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return events.ErrEventNotFound
+		}
+		return fmt.Errorf("update event: %w", err)
+	}
+	return nil
+}
+
+// IsServiceInEventTx checks if a service is associated with an event within a transaction.
+func (r *Repository) IsServiceInEventTx(ctx context.Context, tx pgx.Tx, eventID, serviceID string) (bool, error) {
+	query := `SELECT EXISTS(SELECT 1 FROM event_services WHERE event_id = $1 AND service_id = $2)`
+	var exists bool
+	err := tx.QueryRow(ctx, query, eventID, serviceID).Scan(&exists)
+	return exists, err
+}
+
+// RemoveServiceFromEventTx removes a service from an event within a transaction.
+func (r *Repository) RemoveServiceFromEventTx(ctx context.Context, tx pgx.Tx, eventID, serviceID string) error {
+	query := `DELETE FROM event_services WHERE event_id = $1 AND service_id = $2`
+	result, err := tx.Exec(ctx, query, eventID, serviceID)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() == 0 {
+		return events.ErrServiceNotInEvent
+	}
+	return nil
+}
+
+// AddGroupToEventTx adds a group association to an event within a transaction.
+func (r *Repository) AddGroupToEventTx(ctx context.Context, tx pgx.Tx, eventID, groupID string) error {
+	query := `
+		INSERT INTO event_groups (event_id, group_id)
+		VALUES ($1, $2)
+		ON CONFLICT (event_id, group_id) DO NOTHING
+	`
+	_, err := tx.Exec(ctx, query, eventID, groupID)
+	return err
+}
+
+// GetEventServiceIDsTx returns all service IDs associated with an event within a transaction.
+func (r *Repository) GetEventServiceIDsTx(ctx context.Context, tx pgx.Tx, eventID string) ([]string, error) {
+	query := `SELECT service_id FROM event_services WHERE event_id = $1`
+	rows, err := tx.Query(ctx, query, eventID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	ids := make([]string, 0)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+// HasOtherActiveEventsTx checks if a service has other active events (excluding the specified event).
+func (r *Repository) HasOtherActiveEventsTx(ctx context.Context, tx pgx.Tx, serviceID, excludeEventID string) (bool, error) {
+	query := `
+		SELECT EXISTS(
+			SELECT 1
+			FROM event_services es
+			JOIN events e ON es.event_id = e.id
+			WHERE es.service_id = $1
+			  AND e.id != $2
+			  AND e.status NOT IN ('resolved', 'completed')
+		)
+	`
+	var exists bool
+	err := tx.QueryRow(ctx, query, serviceID, excludeEventID).Scan(&exists)
+	return exists, err
+}

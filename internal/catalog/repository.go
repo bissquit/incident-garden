@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/bissquit/incident-garden/internal/domain"
+	"github.com/jackc/pgx/v5"
 )
 
 // Repository defines the interface for catalog data operations.
@@ -48,6 +49,9 @@ type Repository interface {
 	GetServiceBySlugWithEffectiveStatus(ctx context.Context, slug string) (*domain.ServiceWithEffectiveStatus, error)
 	GetServiceByIDWithEffectiveStatus(ctx context.Context, id string) (*domain.ServiceWithEffectiveStatus, error)
 	ListServicesWithEffectiveStatus(ctx context.Context, filter ServiceFilter) ([]domain.ServiceWithEffectiveStatus, error)
+
+	// Transaction methods
+	UpdateServiceStatusTx(ctx context.Context, tx pgx.Tx, serviceID string, status domain.ServiceStatus) error
 }
 
 // ServiceFilter represents filter criteria for listing services.

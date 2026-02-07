@@ -45,8 +45,6 @@ func (h *Handler) RegisterPublicEventRoutes(r chi.Router) {
 func (h *Handler) RegisterOperatorRoutes(r chi.Router) {
 	r.Post("/events", h.CreateEvent)
 	r.Post("/events/{id}/updates", h.AddUpdate)
-	r.Post("/events/{id}/services", h.AddServices)
-	r.Delete("/events/{id}/services", h.RemoveServices)
 }
 
 // RegisterAdminRoutes registers admin-level routes.
@@ -140,9 +138,14 @@ func (h *Handler) ListEvents(w http.ResponseWriter, r *http.Request) {
 
 // AddUpdateRequest represents the request body for adding an event update.
 type AddUpdateRequest struct {
-	Status            domain.EventStatus `json:"status" validate:"required"`
-	Message           string             `json:"message" validate:"required"`
-	NotifySubscribers bool               `json:"notify_subscribers"`
+	Status            domain.EventStatus       `json:"status" validate:"required"`
+	Message           string                   `json:"message" validate:"required"`
+	NotifySubscribers bool                     `json:"notify_subscribers"`
+	ServiceUpdates    []domain.AffectedService `json:"service_updates" validate:"dive"`
+	AddServices       []domain.AffectedService `json:"add_services" validate:"dive"`
+	AddGroups         []domain.AffectedGroup   `json:"add_groups" validate:"dive"`
+	RemoveServiceIDs  []string                 `json:"remove_service_ids" validate:"dive,uuid"`
+	Reason            string                   `json:"reason"`
 }
 
 // AddUpdate handles POST /events/{id}/updates.
@@ -166,6 +169,11 @@ func (h *Handler) AddUpdate(w http.ResponseWriter, r *http.Request) {
 		Status:            req.Status,
 		Message:           req.Message,
 		NotifySubscribers: req.NotifySubscribers,
+		ServiceUpdates:    req.ServiceUpdates,
+		AddServices:       req.AddServices,
+		AddGroups:         req.AddGroups,
+		RemoveServiceIDs:  req.RemoveServiceIDs,
+		Reason:            req.Reason,
 	}, userID)
 
 	if err != nil {
@@ -336,85 +344,6 @@ func (h *Handler) GetStatusHistory(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// AddServicesRequest represents the request body for adding services to an event.
-type AddServicesRequest struct {
-	ServiceIDs []string `json:"service_ids"`
-	GroupIDs   []string `json:"group_ids"`
-	Reason     string   `json:"reason"`
-}
-
-// AddServices handles POST /events/{id}/services.
-func (h *Handler) AddServices(w http.ResponseWriter, r *http.Request) {
-	eventID := chi.URLParam(r, "id")
-
-	var req AddServicesRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.respondError(w, http.StatusBadRequest, "invalid json")
-		return
-	}
-
-	if len(req.ServiceIDs) == 0 && len(req.GroupIDs) == 0 {
-		h.respondError(w, http.StatusBadRequest, "service_ids or group_ids required")
-		return
-	}
-
-	userID := httputil.GetUserID(r.Context())
-	err := h.service.AddServicesToEvent(r.Context(), eventID, AddServicesToEventInput(req), userID)
-
-	if err != nil {
-		h.handleServiceError(w, err)
-		return
-	}
-
-	// Возвращаем обновлённое событие
-	event, err := h.service.GetEvent(r.Context(), eventID)
-	if err != nil {
-		h.handleServiceError(w, err)
-		return
-	}
-
-	h.respondJSON(w, http.StatusOK, event)
-}
-
-// RemoveServicesRequest represents the request body for removing services from an event.
-type RemoveServicesRequest struct {
-	ServiceIDs []string `json:"service_ids" validate:"required,min=1"`
-	Reason     string   `json:"reason"`
-}
-
-// RemoveServices handles DELETE /events/{id}/services.
-func (h *Handler) RemoveServices(w http.ResponseWriter, r *http.Request) {
-	eventID := chi.URLParam(r, "id")
-
-	var req RemoveServicesRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.respondError(w, http.StatusBadRequest, "invalid json")
-		return
-	}
-
-	if err := h.validator.Struct(req); err != nil {
-		h.respondValidationError(w, err)
-		return
-	}
-
-	userID := httputil.GetUserID(r.Context())
-	err := h.service.RemoveServicesFromEvent(r.Context(), eventID, RemoveServicesFromEventInput(req), userID)
-
-	if err != nil {
-		h.handleServiceError(w, err)
-		return
-	}
-
-	// Возвращаем обновлённое событие
-	event, err := h.service.GetEvent(r.Context(), eventID)
-	if err != nil {
-		h.handleServiceError(w, err)
-		return
-	}
-
-	h.respondJSON(w, http.StatusOK, event)
-}
-
 // GetServiceChanges handles GET /events/{id}/changes.
 func (h *Handler) GetServiceChanges(w http.ResponseWriter, r *http.Request) {
 	eventID := chi.URLParam(r, "id")
@@ -469,6 +398,10 @@ func (h *Handler) handleServiceError(w http.ResponseWriter, err error) {
 		h.respondError(w, http.StatusBadRequest, "invalid status for event type")
 	case errors.Is(err, ErrInvalidSeverity):
 		h.respondError(w, http.StatusBadRequest, "severity is required for incidents")
+	case errors.Is(err, ErrEventAlreadyResolved):
+		h.respondError(w, http.StatusConflict, "cannot update resolved event")
+	case errors.Is(err, ErrServiceNotInEvent):
+		h.respondError(w, http.StatusBadRequest, "service is not in this event")
 	default:
 		slog.Error("service error", "error", err)
 		h.respondError(w, http.StatusInternalServerError, "internal server error")
