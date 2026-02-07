@@ -896,3 +896,16 @@ func (r *Repository) ListServicesWithEffectiveStatus(ctx context.Context, filter
 
 	return result, nil
 }
+
+// UpdateServiceStatusTx updates the stored status of a service within a transaction.
+func (r *Repository) UpdateServiceStatusTx(ctx context.Context, tx pgx.Tx, serviceID string, status domain.ServiceStatus) error {
+	query := `UPDATE services SET status = $2, updated_at = NOW() WHERE id = $1`
+	result, err := tx.Exec(ctx, query, serviceID, status)
+	if err != nil {
+		return fmt.Errorf("update service status: %w", err)
+	}
+	if result.RowsAffected() == 0 {
+		return catalog.ErrServiceNotFound
+	}
+	return nil
+}

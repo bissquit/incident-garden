@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: StatusPage API
   description: API for managing service statuses and incidents
-  version: 2.0.0
+  version: 2.1.0
   contact:
     name: API Support
 servers:
@@ -612,7 +612,21 @@ paths:
     post:
       tags: [events]
       summary: Add an update to an event
-      description: Also updates the event status
+      description: |
+        Adds a status update to an event and optionally modifies affected services.
+
+        **Service modifications:**
+        - `service_updates`: Change status of services already in the event
+        - `add_services`: Add new services with specified statuses
+        - `add_groups`: Add all services from groups with specified status
+        - `remove_service_ids`: Remove services from the event
+
+        **On event resolution:**
+        When status is `resolved` or `completed`, affected services' stored status
+        is recalculated. If a service has no other active events, it becomes `operational`.
+
+        **Cannot update resolved events:**
+        Returns 409 Conflict if the event is already resolved.
       operationId: addEventUpdate
       security:
         - BearerAuth: []
@@ -639,67 +653,8 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
-  /api/v1/events/{id}/services:
-    post:
-      tags: [events]
-      summary: Add services to an event
-      description: Adds services and/or groups. Groups are expanded to services.
-      operationId: addServicesToEvent
-      security:
-        - BearerAuth: []
-      parameters:
-        - $ref: '#/components/parameters/EventId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/AddServicesRequest'
-      responses:
-        '200':
-          description: Services added
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/EventResponse'
-        '400':
-          $ref: '#/components/responses/ValidationError'
-        '401':
-          $ref: '#/components/responses/UnauthorizedError'
-        '403':
-          $ref: '#/components/responses/ForbiddenError'
-        '404':
-          $ref: '#/components/responses/NotFoundError'
-    delete:
-      tags: [events]
-      summary: Remove services from an event
-      description: Removes services only, not group associations.
-      operationId: removeServicesFromEvent
-      security:
-        - BearerAuth: []
-      parameters:
-        - $ref: '#/components/parameters/EventId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/RemoveServicesRequest'
-      responses:
-        '200':
-          description: Services removed
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/EventResponse'
-        '400':
-          $ref: '#/components/responses/ValidationError'
-        '401':
-          $ref: '#/components/responses/UnauthorizedError'
-        '403':
-          $ref: '#/components/responses/ForbiddenError'
-        '404':
-          $ref: '#/components/responses/NotFoundError'
+        '409':
+          $ref: '#/components/responses/ConflictError'
   /api/v1/events/{id}/changes:
     get:
       tags: [events]
@@ -1639,32 +1594,6 @@ components:
           items:
             $ref: '#/components/schemas/AffectedGroup'
       required: [title, type, status, description]
-    AddServicesRequest:
-      type: object
-      properties:
-        service_ids:
-          type: array
-          items:
-            type: string
-            format: uuid
-        group_ids:
-          type: array
-          items:
-            type: string
-            format: uuid
-        reason:
-          type: string
-    RemoveServicesRequest:
-      type: object
-      properties:
-        service_ids:
-          type: array
-          items:
-            type: string
-            format: uuid
-        reason:
-          type: string
-      required: [service_ids]
     AddEventUpdateRequest:
       type: object
       properties:
@@ -1672,9 +1601,34 @@ components:
           $ref: '#/components/schemas/EventStatus'
         message:
           type: string
+          minLength: 1
         notify_subscribers:
           type: boolean
           default: false
+        service_updates:
+          type: array
+          description: Update statuses of services already in this event
+          items:
+            $ref: '#/components/schemas/AffectedService'
+        add_services:
+          type: array
+          description: Add new services to this event
+          items:
+            $ref: '#/components/schemas/AffectedService'
+        add_groups:
+          type: array
+          description: Add all services from these groups to this event
+          items:
+            $ref: '#/components/schemas/AffectedGroup'
+        remove_service_ids:
+          type: array
+          description: Remove services from this event
+          items:
+            type: string
+            format: uuid
+        reason:
+          type: string
+          description: Reason for service changes (for audit log)
       required: [status, message]
     CreateTemplateRequest:
       type: object

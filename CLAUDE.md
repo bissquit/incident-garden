@@ -181,13 +181,13 @@ Dependencies: domain.Service, domain.ServiceGroup, domain.ServiceWithEffectiveSt
 
 ```
 internal/events/
-├── handler.go             → CRUD /events + /services, /changes endpoints
-├── service.go             → CreateEvent (with group expansion), AddServicesToEvent, RemoveServicesFromEvent
+├── handler.go             → CRUD /events + /changes endpoints
+├── service.go             → CreateEvent (with group expansion), AddUpdate (with service management)
 ├── service_test.go        → Unit tests
-├── repository.go          → Interface with groups + audit methods
-├── resolver.go            → Interface: GroupServiceResolver (implemented by catalog.Service)
+├── repository.go          → Interface with groups + audit methods + transaction methods
+├── resolver.go            → Interface: GroupServiceResolver, CatalogServiceUpdater (implemented by catalog.Service)
 ├── template_renderer.go   → Go template execution
-├── errors.go              → ErrEventNotFound, ErrInvalidTransition...
+├── errors.go              → ErrEventNotFound, ErrInvalidTransition, ErrEventAlreadyResolved...
 └── postgres/repository.go → SQL for events, groups, changes
 
 Key interfaces:
@@ -197,10 +197,15 @@ Key interfaces:
 - GetEventServices(ctx, eventID) → []EventService
 - AssociateServiceWithStatusTx(ctx, tx, eventID, serviceID, status)
 - UpdateEventServiceStatusTx(ctx, tx, eventID, serviceID, status)
-- CreateServiceChange(ctx, change)
+- CreateServiceChangeTx(ctx, tx, change)
 - ListServiceChanges(ctx, eventID) → []EventServiceChange
+- IsServiceInEventTx(ctx, tx, eventID, serviceID) → bool
+- RemoveServiceFromEventTx(ctx, tx, eventID, serviceID)
+- AddGroupToEventTx(ctx, tx, eventID, groupID)
+- GetEventServiceIDsTx(ctx, tx, eventID) → []string
+- HasOtherActiveEventsTx(ctx, tx, serviceID, excludeEventID) → bool
 
-Dependencies: domain.Event, domain.EventService, domain.AffectedService, domain.AffectedGroup, catalog.Service (as GroupServiceResolver), pkg/postgres
+Dependencies: domain.Event, domain.EventService, domain.AffectedService, domain.AffectedGroup, catalog.Service (as GroupServiceResolver + CatalogServiceUpdater), pkg/postgres
 ```
 
 ### Module: notifications
@@ -449,9 +454,12 @@ docker volume rm docker_postgres_data
 
 **Operator+:**
 - `POST /api/v1/events` — create (accepts `affected_services` + `affected_groups` with explicit statuses)
-- `POST /api/v1/events/{id}/updates` — add status updates
-- `POST /api/v1/events/{id}/services` — add services/groups to event
-- `DELETE /api/v1/events/{id}/services` — remove services from event
+- `POST /api/v1/events/{id}/updates` — add status updates + manage services (add/update/remove)
+  - `service_updates`: update statuses of existing services in event
+  - `add_services`: add new services with specified statuses
+  - `add_groups`: add groups (expand to services) with specified status
+  - `remove_service_ids`: remove services from event
+  - On `resolved`/`completed`: recalculates stored status for affected services
 
 **Admin:**
 - `DELETE /api/v1/events/{id}`
@@ -480,10 +488,17 @@ docker volume rm docker_postgres_data
 - Both `group_ids` and expanded `service_ids` stored
 - Duplicate services (in multiple groups or explicit) deduplicated
 
-**Event Composition Changes:**
+**Event Composition Changes (via AddUpdate):**
+- All service management is done through `POST /events/{id}/updates`
 - Adding services/groups records to `event_service_changes`
 - Removing services records to `event_service_changes`
-- Full audit trail with `reason`, `created_by`, `created_at`
+- Full audit trail with `batch_id`, `reason`, `created_by`, `created_at`
+- Cannot update resolved events (returns 409 Conflict)
+
+**Stored Status Recalculation:**
+- When event is resolved/completed, affected services' stored status is recalculated
+- If service has no other active events, status is set to `operational`
+- If service has other active events, stored status remains unchanged (effective status computed from remaining events)
 
 **Effective Status (Service Status in Events):**
 - When creating events, operator specifies status for each service/group via `affected_services` and `affected_groups`

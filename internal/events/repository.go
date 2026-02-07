@@ -39,12 +39,19 @@ type Repository interface {
 	// Transaction support
 	BeginTx(ctx context.Context) (pgx.Tx, error)
 	CreateEventTx(ctx context.Context, tx pgx.Tx, event *domain.Event) error
+	CreateEventUpdateTx(ctx context.Context, tx pgx.Tx, update *domain.EventUpdate) error
+	UpdateEventTx(ctx context.Context, tx pgx.Tx, event *domain.Event) error
 	AssociateServicesTx(ctx context.Context, tx pgx.Tx, eventID string, serviceIDs []string) error
 	AssociateServiceWithStatusTx(ctx context.Context, tx pgx.Tx, eventID, serviceID string, status domain.ServiceStatus) error
 	UpdateEventServiceStatusTx(ctx context.Context, tx pgx.Tx, eventID, serviceID string, status domain.ServiceStatus) error
 	AssociateGroupsTx(ctx context.Context, tx pgx.Tx, eventID string, groupIDs []string) error
 	AddGroupsTx(ctx context.Context, tx pgx.Tx, eventID string, groupIDs []string) error
 	CreateServiceChangeTx(ctx context.Context, tx pgx.Tx, change *domain.EventServiceChange) error
+	IsServiceInEventTx(ctx context.Context, tx pgx.Tx, eventID, serviceID string) (bool, error)
+	RemoveServiceFromEventTx(ctx context.Context, tx pgx.Tx, eventID, serviceID string) error
+	AddGroupToEventTx(ctx context.Context, tx pgx.Tx, eventID, groupID string) error
+	GetEventServiceIDsTx(ctx context.Context, tx pgx.Tx, eventID string) ([]string, error)
+	HasOtherActiveEventsTx(ctx context.Context, tx pgx.Tx, serviceID, excludeEventID string) (bool, error)
 }
 
 // EventFilters holds filter options for listing events.

@@ -12,17 +12,19 @@ import (
 
 // Service implements event business logic.
 type Service struct {
-	repo     Repository
-	resolver GroupServiceResolver
-	renderer *TemplateRenderer
+	repo           Repository
+	resolver       GroupServiceResolver
+	catalogService CatalogServiceUpdater
+	renderer       *TemplateRenderer
 }
 
 // NewService creates a new event service.
-func NewService(repo Repository, resolver GroupServiceResolver) *Service {
+func NewService(repo Repository, resolver GroupServiceResolver, catalogService CatalogServiceUpdater) *Service {
 	return &Service{
-		repo:     repo,
-		resolver: resolver,
-		renderer: NewTemplateRenderer(),
+		repo:           repo,
+		resolver:       resolver,
+		catalogService: catalogService,
+		renderer:       NewTemplateRenderer(),
 	}
 }
 
@@ -49,6 +51,11 @@ type CreateEventUpdateInput struct {
 	Status            domain.EventStatus
 	Message           string
 	NotifySubscribers bool
+	ServiceUpdates    []domain.AffectedService // Update statuses of existing services
+	AddServices       []domain.AffectedService // Add new services
+	AddGroups         []domain.AffectedGroup   // Add groups (expand to services)
+	RemoveServiceIDs  []string                 // Remove services from event
+	Reason            string                   // Reason for changes (audit)
 }
 
 // CreateTemplateInput holds data for creating a template.
@@ -170,7 +177,7 @@ func (s *Service) ListEvents(ctx context.Context, filters EventFilters) ([]*doma
 	return s.repo.ListEvents(ctx, filters)
 }
 
-// AddUpdate adds an update to an event and updates its status.
+// AddUpdate adds an update to an event and optionally modifies service associations.
 func (s *Service) AddUpdate(ctx context.Context, input CreateEventUpdateInput, createdBy string) (*domain.EventUpdate, error) {
 	event, err := s.repo.GetEvent(ctx, input.EventID)
 	if err != nil {
@@ -181,6 +188,19 @@ func (s *Service) AddUpdate(ctx context.Context, input CreateEventUpdateInput, c
 		return nil, ErrInvalidStatus
 	}
 
+	// Check if event is already resolved
+	if event.Status.IsResolved() {
+		return nil, ErrEventAlreadyResolved
+	}
+
+	// Begin transaction
+	tx, err := s.repo.BeginTx(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Create EventUpdate
 	update := &domain.EventUpdate{
 		EventID:           input.EventID,
 		Status:            input.Status,
@@ -188,22 +208,166 @@ func (s *Service) AddUpdate(ctx context.Context, input CreateEventUpdateInput, c
 		NotifySubscribers: input.NotifySubscribers,
 		CreatedBy:         createdBy,
 	}
-
-	if err := s.repo.CreateEventUpdate(ctx, update); err != nil {
-		return nil, fmt.Errorf("create event update: %w", err)
+	if err := s.repo.CreateEventUpdateTx(ctx, tx, update); err != nil {
+		return nil, fmt.Errorf("create update: %w", err)
 	}
 
+	// Update event status
 	event.Status = input.Status
 	if input.Status.IsResolved() && event.ResolvedAt == nil {
 		now := time.Now()
 		event.ResolvedAt = &now
 	}
+	if err := s.repo.UpdateEventTx(ctx, tx, event); err != nil {
+		return nil, fmt.Errorf("update event: %w", err)
+	}
 
-	if err := s.repo.UpdateEvent(ctx, event); err != nil {
-		return nil, fmt.Errorf("update event status: %w", err)
+	// Process service changes
+	hasServiceChanges := len(input.ServiceUpdates) > 0 || len(input.AddServices) > 0 ||
+		len(input.AddGroups) > 0 || len(input.RemoveServiceIDs) > 0
+
+	if hasServiceChanges {
+		batchID := uuid.New().String()
+		reason := input.Reason
+		if reason == "" {
+			reason = "Event update"
+		}
+
+		// Update statuses of existing services
+		for _, su := range input.ServiceUpdates {
+			if err := s.repo.UpdateEventServiceStatusTx(ctx, tx, input.EventID, su.ServiceID, su.Status); err != nil {
+				return nil, fmt.Errorf("update service %s status: %w", su.ServiceID, err)
+			}
+		}
+
+		// Add new services
+		for _, as := range input.AddServices {
+			exists, err := s.repo.IsServiceInEventTx(ctx, tx, input.EventID, as.ServiceID)
+			if err != nil {
+				return nil, fmt.Errorf("check service in event: %w", err)
+			}
+			if exists {
+				continue
+			}
+
+			if err := s.repo.AssociateServiceWithStatusTx(ctx, tx, input.EventID, as.ServiceID, as.Status); err != nil {
+				return nil, fmt.Errorf("add service: %w", err)
+			}
+
+			sid := as.ServiceID
+			change := &domain.EventServiceChange{
+				EventID:   input.EventID,
+				BatchID:   &batchID,
+				Action:    domain.ChangeActionAdded,
+				ServiceID: &sid,
+				Reason:    reason,
+				CreatedBy: createdBy,
+			}
+			if err := s.repo.CreateServiceChangeTx(ctx, tx, change); err != nil {
+				return nil, fmt.Errorf("record change: %w", err)
+			}
+		}
+
+		// Add groups
+		for _, ag := range input.AddGroups {
+			serviceIDs, err := s.resolver.GetGroupServices(ctx, ag.GroupID)
+			if err != nil {
+				return nil, fmt.Errorf("resolve group %s: %w", ag.GroupID, err)
+			}
+
+			for _, sid := range serviceIDs {
+				exists, err := s.repo.IsServiceInEventTx(ctx, tx, input.EventID, sid)
+				if err != nil {
+					return nil, err
+				}
+				if exists {
+					continue
+				}
+
+				if err := s.repo.AssociateServiceWithStatusTx(ctx, tx, input.EventID, sid, ag.Status); err != nil {
+					return nil, err
+				}
+			}
+
+			if err := s.repo.AddGroupToEventTx(ctx, tx, input.EventID, ag.GroupID); err != nil {
+				return nil, fmt.Errorf("add group to event: %w", err)
+			}
+
+			gid := ag.GroupID
+			change := &domain.EventServiceChange{
+				EventID:   input.EventID,
+				BatchID:   &batchID,
+				Action:    domain.ChangeActionAdded,
+				GroupID:   &gid,
+				Reason:    reason,
+				CreatedBy: createdBy,
+			}
+			if err := s.repo.CreateServiceChangeTx(ctx, tx, change); err != nil {
+				return nil, err
+			}
+		}
+
+		// Remove services
+		for _, sid := range input.RemoveServiceIDs {
+			if err := s.repo.RemoveServiceFromEventTx(ctx, tx, input.EventID, sid); err != nil {
+				if err == ErrServiceNotInEvent {
+					continue
+				}
+				return nil, fmt.Errorf("remove service: %w", err)
+			}
+
+			sidCopy := sid
+			change := &domain.EventServiceChange{
+				EventID:   input.EventID,
+				BatchID:   &batchID,
+				Action:    domain.ChangeActionRemoved,
+				ServiceID: &sidCopy,
+				Reason:    reason,
+				CreatedBy: createdBy,
+			}
+			if err := s.repo.CreateServiceChangeTx(ctx, tx, change); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	// If event is being resolved, recalculate stored status for affected services
+	if input.Status.IsResolved() {
+		affectedServiceIDs, err := s.repo.GetEventServiceIDsTx(ctx, tx, input.EventID)
+		if err != nil {
+			return nil, fmt.Errorf("get event services: %w", err)
+		}
+
+		if err := s.recalculateServicesStoredStatus(ctx, tx, affectedServiceIDs, input.EventID); err != nil {
+			return nil, fmt.Errorf("recalculate statuses: %w", err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit: %w", err)
 	}
 
 	return update, nil
+}
+
+// recalculateServicesStoredStatus recalculates stored status for services after event resolution.
+func (s *Service) recalculateServicesStoredStatus(ctx context.Context, tx pgx.Tx, serviceIDs []string, excludeEventID string) error {
+	for _, serviceID := range serviceIDs {
+		hasOther, err := s.repo.HasOtherActiveEventsTx(ctx, tx, serviceID, excludeEventID)
+		if err != nil {
+			return fmt.Errorf("check other events for %s: %w", serviceID, err)
+		}
+
+		if !hasOther {
+			// No other active events → set service to operational
+			if err := s.catalogService.UpdateServiceStatusTx(ctx, tx, serviceID, domain.ServiceStatusOperational); err != nil {
+				return fmt.Errorf("update service %s status: %w", serviceID, err)
+			}
+		}
+		// If there are other active events, stored status stays as-is
+		// and effective_status will be computed via worst-case from remaining events
+	}
+	return nil
 }
 
 // GetEventUpdates retrieves all updates for an event.
@@ -322,189 +486,6 @@ func (s *Service) recordInitialChangesTx(ctx context.Context, tx pgx.Tx, eventID
 		if err := s.repo.CreateServiceChangeTx(ctx, tx, change); err != nil {
 			return fmt.Errorf("record group change: %w", err)
 		}
-	}
-
-	return nil
-}
-
-// AddServicesToEventInput holds data for adding services to an event.
-type AddServicesToEventInput struct {
-	ServiceIDs []string
-	GroupIDs   []string
-	Reason     string
-}
-
-// AddServicesToEvent adds services and/or groups to an existing event.
-func (s *Service) AddServicesToEvent(ctx context.Context, eventID string, input AddServicesToEventInput, userID string) error {
-	event, err := s.repo.GetEvent(ctx, eventID)
-	if err != nil {
-		return fmt.Errorf("get event: %w", err)
-	}
-
-	// Собираем текущие сервисы
-	currentServices := make(map[string]bool)
-	for _, sid := range event.ServiceIDs {
-		currentServices[sid] = true
-	}
-
-	// Развернуть новые группы
-	newServiceIDs := make([]string, 0)
-	for _, groupID := range input.GroupIDs {
-		serviceIDs, err := s.resolver.GetGroupServices(ctx, groupID)
-		if err != nil {
-			return fmt.Errorf("resolve group %s: %w", groupID, err)
-		}
-		for _, sid := range serviceIDs {
-			if !currentServices[sid] {
-				newServiceIDs = append(newServiceIDs, sid)
-				currentServices[sid] = true
-			}
-		}
-	}
-
-	// Добавить отдельные сервисы
-	for _, sid := range input.ServiceIDs {
-		if !currentServices[sid] {
-			newServiceIDs = append(newServiceIDs, sid)
-			currentServices[sid] = true
-		}
-	}
-
-	if len(newServiceIDs) == 0 && len(input.GroupIDs) == 0 {
-		return nil // Ничего не изменилось
-	}
-
-	// Генерируем batch_id для группировки изменений
-	batchID := uuid.New().String()
-
-	// Начинаем транзакцию
-	tx, err := s.repo.BeginTx(ctx)
-	if err != nil {
-		return fmt.Errorf("begin transaction: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	// Обновить связи с сервисами с правильным статусом на основе severity события
-	serviceStatus := domain.SeverityToServiceStatus(event.Type, event.Severity)
-	for _, sid := range newServiceIDs {
-		if err := s.repo.AssociateServiceWithStatusTx(ctx, tx, eventID, sid, serviceStatus); err != nil {
-			return fmt.Errorf("update services: %w", err)
-		}
-	}
-
-	// Добавить группы к событию
-	if len(input.GroupIDs) > 0 {
-		if err := s.repo.AddGroupsTx(ctx, tx, eventID, input.GroupIDs); err != nil {
-			return fmt.Errorf("add groups: %w", err)
-		}
-	}
-
-	// Записать изменения в историю
-	for i := range input.ServiceIDs {
-		sid := input.ServiceIDs[i]
-		change := &domain.EventServiceChange{
-			EventID:   eventID,
-			BatchID:   &batchID,
-			Action:    domain.ChangeActionAdded,
-			ServiceID: &sid,
-			Reason:    input.Reason,
-			CreatedBy: userID,
-		}
-		if err := s.repo.CreateServiceChangeTx(ctx, tx, change); err != nil {
-			return fmt.Errorf("record service change: %w", err)
-		}
-	}
-
-	for i := range input.GroupIDs {
-		gid := input.GroupIDs[i]
-		change := &domain.EventServiceChange{
-			EventID:   eventID,
-			BatchID:   &batchID,
-			Action:    domain.ChangeActionAdded,
-			GroupID:   &gid,
-			Reason:    input.Reason,
-			CreatedBy: userID,
-		}
-		if err := s.repo.CreateServiceChangeTx(ctx, tx, change); err != nil {
-			return fmt.Errorf("record group change: %w", err)
-		}
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit transaction: %w", err)
-	}
-
-	return nil
-}
-
-// RemoveServicesFromEventInput holds data for removing services from an event.
-type RemoveServicesFromEventInput struct {
-	ServiceIDs []string
-	Reason     string
-}
-
-// RemoveServicesFromEvent removes services from an existing event.
-func (s *Service) RemoveServicesFromEvent(ctx context.Context, eventID string, input RemoveServicesFromEventInput, userID string) error {
-	event, err := s.repo.GetEvent(ctx, eventID)
-	if err != nil {
-		return fmt.Errorf("get event: %w", err)
-	}
-
-	// Собираем текущие сервисы и удаляем указанные
-	currentServices := make(map[string]bool)
-	for _, sid := range event.ServiceIDs {
-		currentServices[sid] = true
-	}
-
-	removedServices := make([]string, 0)
-	for _, sid := range input.ServiceIDs {
-		if currentServices[sid] {
-			delete(currentServices, sid)
-			removedServices = append(removedServices, sid)
-		}
-	}
-
-	if len(removedServices) == 0 {
-		return nil // Ничего не изменилось
-	}
-
-	// Генерируем batch_id для группировки изменений
-	batchID := uuid.New().String()
-
-	// Начинаем транзакцию
-	tx, err := s.repo.BeginTx(ctx)
-	if err != nil {
-		return fmt.Errorf("begin transaction: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	// Обновить связи
-	remainingServiceIDs := make([]string, 0, len(currentServices))
-	for sid := range currentServices {
-		remainingServiceIDs = append(remainingServiceIDs, sid)
-	}
-	if err := s.repo.AssociateServicesTx(ctx, tx, eventID, remainingServiceIDs); err != nil {
-		return fmt.Errorf("update services: %w", err)
-	}
-
-	// Записать изменения в историю
-	for i := range removedServices {
-		sid := removedServices[i]
-		change := &domain.EventServiceChange{
-			EventID:   eventID,
-			BatchID:   &batchID,
-			Action:    domain.ChangeActionRemoved,
-			ServiceID: &sid,
-			Reason:    input.Reason,
-			CreatedBy: userID,
-		}
-		if err := s.repo.CreateServiceChangeTx(ctx, tx, change); err != nil {
-			return fmt.Errorf("record service change: %w", err)
-		}
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit transaction: %w", err)
 	}
 
 	return nil

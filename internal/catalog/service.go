@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/bissquit/incident-garden/internal/domain"
+	"github.com/jackc/pgx/v5"
 )
 
 // Catalog service errors.
@@ -265,6 +266,11 @@ func (s *Service) GetServiceByIDWithEffectiveStatus(ctx context.Context, id stri
 // ListServicesWithEffectiveStatus returns services with their effective statuses.
 func (s *Service) ListServicesWithEffectiveStatus(ctx context.Context, filter ServiceFilter) ([]domain.ServiceWithEffectiveStatus, error) {
 	return s.repo.ListServicesWithEffectiveStatus(ctx, filter)
+}
+
+// UpdateServiceStatusTx updates the stored status of a service within a transaction.
+func (s *Service) UpdateServiceStatusTx(ctx context.Context, tx pgx.Tx, serviceID string, status domain.ServiceStatus) error {
+	return s.repo.UpdateServiceStatusTx(ctx, tx, serviceID, status)
 }
 
 func validateSlug(slug string) error {
