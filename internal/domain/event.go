@@ -150,3 +150,16 @@ type EventService struct {
 	Status    ServiceStatus `json:"status"`
 	UpdatedAt time.Time     `json:"updated_at"`
 }
+
+// AffectedService represents a service to be associated with an event and its status.
+type AffectedService struct {
+	ServiceID string        `json:"service_id" validate:"required,uuid"`
+	Status    ServiceStatus `json:"status" validate:"required,oneof=operational degraded partial_outage major_outage maintenance"`
+}
+
+// AffectedGroup represents a group whose services will be associated with an event.
+// All services in the group will receive the specified status.
+type AffectedGroup struct {
+	GroupID string        `json:"group_id" validate:"required,uuid"`
+	Status  ServiceStatus `json:"status" validate:"required,oneof=operational degraded partial_outage major_outage maintenance"`
+}

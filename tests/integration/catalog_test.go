@@ -628,14 +628,16 @@ func TestEffectiveStatus_SingleActiveEvent(t *testing.T) {
 	testutil.DecodeJSON(t, resp, &svcResult)
 	serviceID := svcResult.Data.ID
 
-	// Create an incident with this service (minor severity = degraded status)
+	// Create an incident with this service (degraded status)
 	resp, err = client.POST("/api/v1/events", map[string]interface{}{
 		"title":       "Minor Incident",
 		"type":        "incident",
 		"status":      "investigating",
 		"severity":    "minor",
 		"description": "Testing effective status",
-		"service_ids": []string{serviceID},
+		"affected_services": []map[string]interface{}{
+			{"service_id": serviceID, "status": "degraded"},
+		},
 	})
 	require.NoError(t, err)
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
@@ -693,14 +695,16 @@ func TestEffectiveStatus_MultipleActiveEvents_WorstCase(t *testing.T) {
 	testutil.DecodeJSON(t, resp, &svcResult)
 	serviceID := svcResult.Data.ID
 
-	// Create first incident (minor = degraded)
+	// Create first incident (degraded status)
 	resp, err = client.POST("/api/v1/events", map[string]interface{}{
 		"title":       "Minor Incident",
 		"type":        "incident",
 		"status":      "investigating",
 		"severity":    "minor",
 		"description": "Minor issue",
-		"service_ids": []string{serviceID},
+		"affected_services": []map[string]interface{}{
+			{"service_id": serviceID, "status": "degraded"},
+		},
 	})
 	require.NoError(t, err)
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
@@ -713,14 +717,16 @@ func TestEffectiveStatus_MultipleActiveEvents_WorstCase(t *testing.T) {
 	testutil.DecodeJSON(t, resp, &event1Result)
 	event1ID := event1Result.Data.ID
 
-	// Create second incident (critical = major_outage)
+	// Create second incident (major_outage status)
 	resp, err = client.POST("/api/v1/events", map[string]interface{}{
 		"title":       "Critical Incident",
 		"type":        "incident",
 		"status":      "investigating",
 		"severity":    "critical",
 		"description": "Critical issue",
-		"service_ids": []string{serviceID},
+		"affected_services": []map[string]interface{}{
+			{"service_id": serviceID, "status": "major_outage"},
+		},
 	})
 	require.NoError(t, err)
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
@@ -779,14 +785,16 @@ func TestEffectiveStatus_ResolvedEventIgnored(t *testing.T) {
 	testutil.DecodeJSON(t, resp, &svcResult)
 	serviceID := svcResult.Data.ID
 
-	// Create an incident
+	// Create an incident (major_outage status)
 	resp, err = client.POST("/api/v1/events", map[string]interface{}{
 		"title":       "Soon Resolved Incident",
 		"type":        "incident",
 		"status":      "investigating",
 		"severity":    "critical",
 		"description": "Will be resolved",
-		"service_ids": []string{serviceID},
+		"affected_services": []map[string]interface{}{
+			{"service_id": serviceID, "status": "major_outage"},
+		},
 	})
 	require.NoError(t, err)
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
@@ -868,13 +876,15 @@ func TestEffectiveStatus_CompletedMaintenanceIgnored(t *testing.T) {
 	testutil.DecodeJSON(t, resp, &svcResult)
 	serviceID := svcResult.Data.ID
 
-	// Create a maintenance
+	// Create a maintenance (maintenance status)
 	resp, err = client.POST("/api/v1/events", map[string]interface{}{
 		"title":       "Scheduled Maintenance",
 		"type":        "maintenance",
 		"status":      "in_progress",
 		"description": "Will be completed",
-		"service_ids": []string{serviceID},
+		"affected_services": []map[string]interface{}{
+			{"service_id": serviceID, "status": "maintenance"},
+		},
 	})
 	require.NoError(t, err)
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
@@ -956,13 +966,15 @@ func TestEffectiveStatus_MaintenanceVsIncident(t *testing.T) {
 	testutil.DecodeJSON(t, resp, &svcResult)
 	serviceID := svcResult.Data.ID
 
-	// Create maintenance (priority 1)
+	// Create maintenance (maintenance status)
 	resp, err = client.POST("/api/v1/events", map[string]interface{}{
 		"title":       "Scheduled Maintenance",
 		"type":        "maintenance",
 		"status":      "in_progress",
 		"description": "Planned maintenance",
-		"service_ids": []string{serviceID},
+		"affected_services": []map[string]interface{}{
+			{"service_id": serviceID, "status": "maintenance"},
+		},
 	})
 	require.NoError(t, err)
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
@@ -975,14 +987,16 @@ func TestEffectiveStatus_MaintenanceVsIncident(t *testing.T) {
 	testutil.DecodeJSON(t, resp, &maint)
 	maintID := maint.Data.ID
 
-	// Create incident (minor = degraded, priority 2)
+	// Create incident (degraded status, priority 2)
 	resp, err = client.POST("/api/v1/events", map[string]interface{}{
 		"title":       "Minor Incident",
 		"type":        "incident",
 		"status":      "investigating",
 		"severity":    "minor",
 		"description": "Minor issue",
-		"service_ids": []string{serviceID},
+		"affected_services": []map[string]interface{}{
+			{"service_id": serviceID, "status": "degraded"},
+		},
 	})
 	require.NoError(t, err)
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
@@ -1050,14 +1064,16 @@ func TestListServices_FilterByEffectiveStatus(t *testing.T) {
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 	resp.Body.Close()
 
-	// Create an incident for service 1
+	// Create an incident for service 1 (degraded status)
 	resp, err = client.POST("/api/v1/events", map[string]interface{}{
 		"title":       "Filter Test Incident",
 		"type":        "incident",
 		"status":      "investigating",
 		"severity":    "minor",
 		"description": "Testing filter",
-		"service_ids": []string{service1ID},
+		"affected_services": []map[string]interface{}{
+			{"service_id": service1ID, "status": "degraded"},
+		},
 	})
 	require.NoError(t, err)
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
