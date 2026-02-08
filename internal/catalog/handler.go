@@ -6,10 +6,18 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strconv"
 
 	"github.com/bissquit/incident-garden/internal/domain"
+	"github.com/bissquit/incident-garden/internal/pkg/httputil"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-playground/validator/v10"
+)
+
+// Pagination constants for status log.
+const (
+	DefaultStatusLogLimit = 50
+	MaxStatusLogLimit     = 100
 )
 
 // Handler handles HTTP requests for the catalog module.
@@ -26,7 +34,7 @@ func NewHandler(service *Service) *Handler {
 	}
 }
 
-// RegisterRoutes registers all HTTP routes for the catalog module.
+// RegisterRoutes registers all HTTP routes for the catalog module (admin only).
 func (h *Handler) RegisterRoutes(r chi.Router) {
 	r.Route("/groups", func(r chi.Router) {
 		r.Get("/", h.ListGroups)
@@ -47,6 +55,11 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 		r.Get("/{slug}/tags", h.GetServiceTags)
 		r.Put("/{slug}/tags", h.UpdateServiceTags)
 	})
+}
+
+// RegisterOperatorRoutes registers routes that require operator role.
+func (h *Handler) RegisterOperatorRoutes(r chi.Router) {
+	r.Get("/services/{slug}/status-log", h.GetServiceStatusLog)
 }
 
 // CreateGroupRequest represents the request body for creating a service group.
@@ -118,6 +131,7 @@ type UpdateServiceRequest struct {
 	Status      string   `json:"status" validate:"required,oneof=operational degraded partial_outage major_outage maintenance"`
 	GroupIDs    []string `json:"group_ids"`
 	Order       int      `json:"order"`
+	Reason      string   `json:"reason"` // Reason for status change (recorded in audit log)
 }
 
 // UpdateServiceTagsRequest represents the request body for updating service tags.
@@ -369,7 +383,14 @@ func (h *Handler) UpdateService(w http.ResponseWriter, r *http.Request) {
 	}
 	existing.Order = req.Order
 
-	if err := h.service.UpdateService(r.Context(), existing); err != nil {
+	userID := httputil.GetUserID(r.Context())
+	input := UpdateServiceInput{
+		Service:   existing,
+		UpdatedBy: userID,
+		Reason:    req.Reason,
+	}
+
+	if err := h.service.UpdateService(r.Context(), input); err != nil {
 		h.handleServiceError(w, err)
 		return
 	}
@@ -425,6 +446,57 @@ func (h *Handler) RestoreService(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.respondJSON(w, http.StatusOK, result)
+}
+
+// GetServiceStatusLog handles GET /services/{slug}/status-log request.
+func (h *Handler) GetServiceStatusLog(w http.ResponseWriter, r *http.Request) {
+	slug := chi.URLParam(r, "slug")
+
+	service, err := h.service.GetServiceBySlug(r.Context(), slug)
+	if err != nil {
+		h.handleServiceError(w, err)
+		return
+	}
+
+	// Parse pagination parameters with validation
+	limit := DefaultStatusLogLimit
+	offset := 0
+
+	if l := r.URL.Query().Get("limit"); l != "" {
+		parsed, err := strconv.Atoi(l)
+		if err != nil || parsed < 1 {
+			h.respondError(w, http.StatusBadRequest, "limit must be a positive integer")
+			return
+		}
+		if parsed > MaxStatusLogLimit {
+			parsed = MaxStatusLogLimit
+		}
+		limit = parsed
+	}
+
+	if o := r.URL.Query().Get("offset"); o != "" {
+		parsed, err := strconv.Atoi(o)
+		if err != nil || parsed < 0 {
+			h.respondError(w, http.StatusBadRequest, "offset must be a non-negative integer")
+			return
+		}
+		offset = parsed
+	}
+
+	entries, total, err := h.service.ListStatusLog(r.Context(), service.ID, limit, offset)
+	if err != nil {
+		h.handleServiceError(w, err)
+		return
+	}
+
+	response := map[string]interface{}{
+		"entries": entries,
+		"total":   total,
+		"limit":   limit,
+		"offset":  offset,
+	}
+
+	h.respondJSON(w, http.StatusOK, response)
 }
 
 // GetServiceTags handles GET /services/{slug}/tags request.

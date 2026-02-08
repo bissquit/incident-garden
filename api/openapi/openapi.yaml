@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: StatusPage API
   description: API for managing service statuses and incidents
-  version: 2.1.0
+  version: 2.2.0
   contact:
     name: API Support
 servers:
@@ -321,6 +321,51 @@ paths:
           $ref: '#/components/responses/NotFoundError'
         '409':
           $ref: '#/components/responses/ConflictError'
+  /api/v1/services/{slug}/status-log:
+    get:
+      tags: [services]
+      summary: Get service status change history
+      description: |
+        Returns the audit log of status changes for a service.
+        Requires operator or admin role.
+
+        Each entry shows:
+        - What the status changed from/to
+        - Source (manual, event, webhook)
+        - Associated event (if applicable)
+        - Who made the change
+        - When it happened
+      operationId: getServiceStatusLog
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ServiceSlug'
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: Status change history
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceStatusLogResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
   /api/v1/services/{slug}/tags:
     get:
       tags: [services]
@@ -1110,6 +1155,10 @@ components:
     ChangeAction:
       type: string
       enum: [added, removed]
+    StatusLogSourceType:
+      type: string
+      enum: [manual, event, webhook]
+      description: Source of the status change
     ChannelType:
       type: string
       enum: [email, telegram]
@@ -1478,6 +1527,9 @@ components:
             format: uuid
         order:
           type: integer
+        reason:
+          type: string
+          description: Reason for status change (recorded in audit log)
       required: [name, slug, status]
     UpdateTagsRequest:
       type: object
@@ -1801,6 +1853,52 @@ components:
               type: object
               additionalProperties:
                 type: string
+    ServiceStatusLogEntry:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        service_id:
+          type: string
+          format: uuid
+        old_status:
+          allOf:
+            - $ref: '#/components/schemas/ServiceStatus'
+          nullable: true
+        new_status:
+          $ref: '#/components/schemas/ServiceStatus'
+        source_type:
+          $ref: '#/components/schemas/StatusLogSourceType'
+        event_id:
+          type: string
+          format: uuid
+          nullable: true
+        reason:
+          type: string
+        created_by:
+          type: string
+          format: uuid
+        created_at:
+          type: string
+          format: date-time
+      required: [id, service_id, new_status, source_type, created_by, created_at]
+    ServiceStatusLogResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            entries:
+              type: array
+              items:
+                $ref: '#/components/schemas/ServiceStatusLogEntry'
+            total:
+              type: integer
+            limit:
+              type: integer
+            offset:
+              type: integer
     PublicStatusResponse:
       type: object
       properties:

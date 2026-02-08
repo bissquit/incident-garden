@@ -52,6 +52,7 @@ type Repository interface {
 	AddGroupToEventTx(ctx context.Context, tx pgx.Tx, eventID, groupID string) error
 	GetEventServiceIDsTx(ctx context.Context, tx pgx.Tx, eventID string) ([]string, error)
 	HasOtherActiveEventsTx(ctx context.Context, tx pgx.Tx, serviceID, excludeEventID string) (bool, error)
+	GetEventServiceStatusTx(ctx context.Context, tx pgx.Tx, eventID, serviceID string) (domain.ServiceStatus, error)
 }
 
 // EventFilters holds filter options for listing events.

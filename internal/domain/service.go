@@ -76,3 +76,26 @@ type ServiceTag struct {
 	Key       string `json:"key"`
 	Value     string `json:"value"`
 }
+
+// StatusLogSourceType represents the source of a status change.
+type StatusLogSourceType string
+
+// Status log source types.
+const (
+	StatusLogSourceManual  StatusLogSourceType = "manual"
+	StatusLogSourceEvent   StatusLogSourceType = "event"
+	StatusLogSourceWebhook StatusLogSourceType = "webhook"
+)
+
+// ServiceStatusLogEntry represents a single status change in the audit log.
+type ServiceStatusLogEntry struct {
+	ID         string              `json:"id"`
+	ServiceID  string              `json:"service_id"`
+	OldStatus  *ServiceStatus      `json:"old_status,omitempty"`
+	NewStatus  ServiceStatus       `json:"new_status"`
+	SourceType StatusLogSourceType `json:"source_type"`
+	EventID    *string             `json:"event_id,omitempty"`
+	Reason     string              `json:"reason,omitempty"`
+	CreatedBy  string              `json:"created_by"`
+	CreatedAt  time.Time           `json:"created_at"`
+}
