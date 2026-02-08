@@ -130,6 +130,14 @@ event_service_changes (audit trail)
 ├── service_id (nullable), group_id (nullable)
 ├── reason, created_by, created_at
 
+service_status_log (audit trail — status changes)
+├── id, service_id FK → services
+├── old_status (nullable), new_status
+├── source_type ('manual'|'event'|'webhook')
+├── event_id FK → events (nullable, ON DELETE SET NULL)
+├── reason, created_by, created_at
+└── Indexes: service_id, event_id, created_at DESC, source_type
+
 v_service_effective_status (VIEW — computed effective status)
 ├── service_id, status (stored), effective_status (computed)
 ├── has_active_events BOOLEAN
@@ -173,8 +181,11 @@ Key interfaces:
 - GetServiceBySlugWithEffectiveStatus(ctx, slug) → *ServiceWithEffectiveStatus
 - ListServicesWithEffectiveStatus(ctx, filter) → []ServiceWithEffectiveStatus
 - SetServiceTags(ctx, serviceID, tags) / GetServiceTags(ctx, serviceID) → []ServiceTag
+- GetServiceStatus(ctx, serviceID) → ServiceStatus
+- CreateStatusLogEntry(ctx, entry) / CreateStatusLogEntryTx(ctx, tx, entry)
+- ListStatusLog(ctx, serviceID, limit, offset) → []ServiceStatusLogEntry
 
-Dependencies: domain.Service, domain.ServiceGroup, domain.ServiceWithEffectiveStatus, pkg/postgres
+Dependencies: domain.Service, domain.ServiceGroup, domain.ServiceWithEffectiveStatus, domain.ServiceStatusLogEntry, pkg/postgres
 ```
 
 ### Module: events
@@ -204,6 +215,7 @@ Key interfaces:
 - AddGroupToEventTx(ctx, tx, eventID, groupID)
 - GetEventServiceIDsTx(ctx, tx, eventID) → []string
 - HasOtherActiveEventsTx(ctx, tx, serviceID, excludeEventID) → bool
+- GetEventServiceStatusTx(ctx, tx, eventID, serviceID) → ServiceStatus
 
 Dependencies: domain.Event, domain.EventService, domain.AffectedService, domain.AffectedGroup, catalog.Service (as GroupServiceResolver + CatalogServiceUpdater), pkg/postgres
 ```
@@ -230,7 +242,8 @@ internal/notifications/
 internal/domain/           → User, Service, ServiceGroup, Event, EventUpdate, EventServiceChange,
                              Template, Channel, Subscription,
                              ServiceWithEffectiveStatus, ServiceTag, EventService,
-                             AffectedService, AffectedGroup (API input types)
+                             AffectedService, AffectedGroup (API input types),
+                             ServiceStatusLogEntry, StatusLogSourceType
 internal/pkg/httputil/     → response.go (Success/Error), middleware.go
 internal/pkg/postgres/     → Connect(cfg) → *pgxpool.Pool
 internal/testutil/         → HTTP test client, testcontainers setup, fixtures, OpenAPI validator
@@ -460,6 +473,7 @@ docker volume rm docker_postgres_data
   - `add_groups`: add groups (expand to services) with specified status
   - `remove_service_ids`: remove services from event
   - On `resolved`/`completed`: recalculates stored status for affected services
+- `GET /api/v1/services/{slug}/status-log?limit=N&offset=N` — service status change history
 
 **Admin:**
 - `DELETE /api/v1/events/{id}`
@@ -508,6 +522,14 @@ docker volume rm docker_postgres_data
 - Computed via `v_service_effective_status` view, accessible via `GetEffectiveStatus()` and `ListServicesWithEffectiveStatus()`
 - If no active events, effective status = stored service status
 
+**Service Status Audit Log:**
+- Every service status change is recorded in `service_status_log`
+- Sources: `manual` (PATCH /services), `event` (event creation/update/resolution), `webhook` (future)
+- Records old_status (nullable for initial), new_status, source_type, event_id (if applicable), reason
+- Accessible via `GET /services/{slug}/status-log` (requires operator+ role)
+- Supports pagination with limit/offset
+- event_id uses ON DELETE SET NULL to preserve history when events are deleted
+
 ### Enums
 
 ```
@@ -519,6 +541,7 @@ event_status:    investigating, identified, monitoring, resolved (incident)
                  scheduled, in_progress, completed (maintenance)
 severity:        minor, major, critical
 change_action:   added, removed
+status_log_source: manual, event, webhook
 ```
 
 ### Test Users (from migrations)
@@ -565,7 +588,8 @@ make docker-build
 - Soft delete for services and groups
 - Service status tracking within events (affected_services/affected_groups with explicit statuses)
 - Effective status computation (v_service_effective_status view)
-- Integration tests (25+)
+- Service status audit log (manual changes, event-driven changes, with full history)
+- Integration tests (30+)
 
 ⚠️ **Partial:** Notifications (structure ready, senders are stubs)
 

@@ -15,4 +15,6 @@ type GroupServiceResolver interface {
 // CatalogServiceUpdater updates service status within a transaction.
 type CatalogServiceUpdater interface {
 	UpdateServiceStatusTx(ctx context.Context, tx pgx.Tx, serviceID string, status domain.ServiceStatus) error
+	CreateStatusLogEntryTx(ctx context.Context, tx pgx.Tx, entry *domain.ServiceStatusLogEntry) error
+	GetServiceStatus(ctx context.Context, serviceID string) (domain.ServiceStatus, error)
 }

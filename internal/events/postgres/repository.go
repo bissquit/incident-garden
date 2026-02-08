@@ -887,3 +887,17 @@ func (r *Repository) HasOtherActiveEventsTx(ctx context.Context, tx pgx.Tx, serv
 	err := tx.QueryRow(ctx, query, serviceID, excludeEventID).Scan(&exists)
 	return exists, err
 }
+
+// GetEventServiceStatusTx returns the status of a service in an event context.
+func (r *Repository) GetEventServiceStatusTx(ctx context.Context, tx pgx.Tx, eventID, serviceID string) (domain.ServiceStatus, error) {
+	query := `SELECT status FROM event_services WHERE event_id = $1 AND service_id = $2`
+	var status domain.ServiceStatus
+	err := tx.QueryRow(ctx, query, eventID, serviceID).Scan(&status)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", events.ErrServiceNotInEvent
+		}
+		return "", err
+	}
+	return status, nil
+}

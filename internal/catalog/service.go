@@ -167,8 +167,16 @@ func (s *Service) ListServices(ctx context.Context, filter ServiceFilter) ([]dom
 	return s.repo.ListServices(ctx, filter)
 }
 
+// UpdateServiceInput contains data for updating a service with audit info.
+type UpdateServiceInput struct {
+	Service   *domain.Service
+	UpdatedBy string
+	Reason    string
+}
+
 // UpdateService updates an existing service.
-func (s *Service) UpdateService(ctx context.Context, service *domain.Service) error {
+func (s *Service) UpdateService(ctx context.Context, input UpdateServiceInput) error {
+	service := input.Service
 	if err := validateSlug(service.Slug); err != nil {
 		return err
 	}
@@ -188,13 +196,41 @@ func (s *Service) UpdateService(ctx context.Context, service *domain.Service) er
 		}
 	}
 
-	if err := s.repo.UpdateService(ctx, service); err != nil {
+	// Start transaction for atomic update
+	tx, err := s.repo.BeginTx(ctx)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	// Log status change if status differs
+	if existing.Status != service.Status {
+		entry := &domain.ServiceStatusLogEntry{
+			ServiceID:  service.ID,
+			OldStatus:  &existing.Status,
+			NewStatus:  service.Status,
+			SourceType: domain.StatusLogSourceManual,
+			Reason:     input.Reason,
+			CreatedBy:  input.UpdatedBy,
+		}
+		if err := s.repo.CreateStatusLogEntryTx(ctx, tx, entry); err != nil {
+			return fmt.Errorf("create status log entry: %w", err)
+		}
+	}
+
+	if err := s.repo.UpdateServiceTx(ctx, tx, service); err != nil {
 		return err
 	}
 
 	// Update service groups
-	if err := s.repo.SetServiceGroups(ctx, service.ID, service.GroupIDs); err != nil {
+	if err := s.repo.SetServiceGroupsTx(ctx, tx, service.ID, service.GroupIDs); err != nil {
 		return fmt.Errorf("set service groups: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit transaction: %w", err)
 	}
 
 	return nil
@@ -271,6 +307,40 @@ func (s *Service) ListServicesWithEffectiveStatus(ctx context.Context, filter Se
 // UpdateServiceStatusTx updates the stored status of a service within a transaction.
 func (s *Service) UpdateServiceStatusTx(ctx context.Context, tx pgx.Tx, serviceID string, status domain.ServiceStatus) error {
 	return s.repo.UpdateServiceStatusTx(ctx, tx, serviceID, status)
+}
+
+// GetServiceStatus returns the stored status of a service.
+func (s *Service) GetServiceStatus(ctx context.Context, serviceID string) (domain.ServiceStatus, error) {
+	service, err := s.repo.GetServiceByID(ctx, serviceID)
+	if err != nil {
+		return "", err
+	}
+	return service.Status, nil
+}
+
+// CreateStatusLogEntry creates a new entry in the service status log.
+func (s *Service) CreateStatusLogEntry(ctx context.Context, entry *domain.ServiceStatusLogEntry) error {
+	return s.repo.CreateStatusLogEntry(ctx, entry)
+}
+
+// CreateStatusLogEntryTx creates a new entry within a transaction.
+func (s *Service) CreateStatusLogEntryTx(ctx context.Context, tx pgx.Tx, entry *domain.ServiceStatusLogEntry) error {
+	return s.repo.CreateStatusLogEntryTx(ctx, tx, entry)
+}
+
+// ListStatusLog returns the status change history for a service.
+func (s *Service) ListStatusLog(ctx context.Context, serviceID string, limit, offset int) ([]domain.ServiceStatusLogEntry, int, error) {
+	entries, err := s.repo.ListStatusLog(ctx, serviceID, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	total, err := s.repo.CountStatusLog(ctx, serviceID)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return entries, total, nil
 }
 
 func validateSlug(slug string) error {

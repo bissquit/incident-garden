@@ -189,6 +189,7 @@ func (a *App) setupRouter() *chi.Mux {
 			r.Group(func(r chi.Router) {
 				r.Use(httputil.RequireRole(domain.RoleOperator))
 				eventsHandler.RegisterOperatorRoutes(r)
+				catalogHandler.RegisterOperatorRoutes(r)
 			})
 
 			r.Group(func(r chi.Router) {

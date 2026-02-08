@@ -3,6 +3,7 @@ package events
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/bissquit/incident-garden/internal/domain"
@@ -138,12 +139,33 @@ func (s *Service) CreateEvent(ctx context.Context, input CreateEventInput, creat
 		return nil, fmt.Errorf("create event: %w", err)
 	}
 
-	// Associate services with their statuses
+	// Associate services with their statuses and log status changes
 	serviceIDs := make([]string, 0, len(serviceStatuses))
 	for serviceID, status := range serviceStatuses {
+		// Get current service status for audit log
+		currentStatus, err := s.catalogService.GetServiceStatus(ctx, serviceID)
+		if err != nil {
+			return nil, fmt.Errorf("get current status for %s: %w", serviceID, err)
+		}
+
 		if err := s.repo.AssociateServiceWithStatusTx(ctx, tx, event.ID, serviceID, status); err != nil {
 			return nil, fmt.Errorf("associate service %s: %w", serviceID, err)
 		}
+
+		// Log status change
+		logEntry := &domain.ServiceStatusLogEntry{
+			ServiceID:  serviceID,
+			OldStatus:  &currentStatus,
+			NewStatus:  status,
+			SourceType: domain.StatusLogSourceEvent,
+			EventID:    &event.ID,
+			Reason:     fmt.Sprintf("Event created: %s", input.Title),
+			CreatedBy:  createdBy,
+		}
+		if err := s.catalogService.CreateStatusLogEntryTx(ctx, tx, logEntry); err != nil {
+			return nil, fmt.Errorf("create status log: %w", err)
+		}
+
 		serviceIDs = append(serviceIDs, serviceID)
 	}
 	event.ServiceIDs = serviceIDs
@@ -235,8 +257,30 @@ func (s *Service) AddUpdate(ctx context.Context, input CreateEventUpdateInput, c
 
 		// Update statuses of existing services
 		for _, su := range input.ServiceUpdates {
-			if err := s.repo.UpdateEventServiceStatusTx(ctx, tx, input.EventID, su.ServiceID, su.Status); err != nil {
-				return nil, fmt.Errorf("update service %s status: %w", su.ServiceID, err)
+			// Get current status from event_services
+			currentEventStatus, err := s.repo.GetEventServiceStatusTx(ctx, tx, input.EventID, su.ServiceID)
+			if err != nil {
+				return nil, fmt.Errorf("get current event service status: %w", err)
+			}
+
+			if currentEventStatus != su.Status {
+				if err := s.repo.UpdateEventServiceStatusTx(ctx, tx, input.EventID, su.ServiceID, su.Status); err != nil {
+					return nil, fmt.Errorf("update service %s status: %w", su.ServiceID, err)
+				}
+
+				// Log status change
+				logEntry := &domain.ServiceStatusLogEntry{
+					ServiceID:  su.ServiceID,
+					OldStatus:  &currentEventStatus,
+					NewStatus:  su.Status,
+					SourceType: domain.StatusLogSourceEvent,
+					EventID:    &input.EventID,
+					Reason:     reason,
+					CreatedBy:  createdBy,
+				}
+				if err := s.catalogService.CreateStatusLogEntryTx(ctx, tx, logEntry); err != nil {
+					return nil, fmt.Errorf("create status log: %w", err)
+				}
 			}
 		}
 
@@ -250,8 +294,25 @@ func (s *Service) AddUpdate(ctx context.Context, input CreateEventUpdateInput, c
 				continue
 			}
 
+			// Get current service status for audit log
+			currentStatus, _ := s.catalogService.GetServiceStatus(ctx, as.ServiceID)
+
 			if err := s.repo.AssociateServiceWithStatusTx(ctx, tx, input.EventID, as.ServiceID, as.Status); err != nil {
 				return nil, fmt.Errorf("add service: %w", err)
+			}
+
+			// Log status change
+			logEntry := &domain.ServiceStatusLogEntry{
+				ServiceID:  as.ServiceID,
+				OldStatus:  &currentStatus,
+				NewStatus:  as.Status,
+				SourceType: domain.StatusLogSourceEvent,
+				EventID:    &input.EventID,
+				Reason:     reason,
+				CreatedBy:  createdBy,
+			}
+			if err := s.catalogService.CreateStatusLogEntryTx(ctx, tx, logEntry); err != nil {
+				return nil, fmt.Errorf("create status log: %w", err)
 			}
 
 			sid := as.ServiceID
@@ -270,12 +331,12 @@ func (s *Service) AddUpdate(ctx context.Context, input CreateEventUpdateInput, c
 
 		// Add groups
 		for _, ag := range input.AddGroups {
-			serviceIDs, err := s.resolver.GetGroupServices(ctx, ag.GroupID)
+			groupServiceIDs, err := s.resolver.GetGroupServices(ctx, ag.GroupID)
 			if err != nil {
 				return nil, fmt.Errorf("resolve group %s: %w", ag.GroupID, err)
 			}
 
-			for _, sid := range serviceIDs {
+			for _, sid := range groupServiceIDs {
 				exists, err := s.repo.IsServiceInEventTx(ctx, tx, input.EventID, sid)
 				if err != nil {
 					return nil, err
@@ -284,8 +345,25 @@ func (s *Service) AddUpdate(ctx context.Context, input CreateEventUpdateInput, c
 					continue
 				}
 
+				// Get current service status for audit log
+				currentStatus, _ := s.catalogService.GetServiceStatus(ctx, sid)
+
 				if err := s.repo.AssociateServiceWithStatusTx(ctx, tx, input.EventID, sid, ag.Status); err != nil {
 					return nil, err
+				}
+
+				// Log status change
+				logEntry := &domain.ServiceStatusLogEntry{
+					ServiceID:  sid,
+					OldStatus:  &currentStatus,
+					NewStatus:  ag.Status,
+					SourceType: domain.StatusLogSourceEvent,
+					EventID:    &input.EventID,
+					Reason:     reason,
+					CreatedBy:  createdBy,
+				}
+				if err := s.catalogService.CreateStatusLogEntryTx(ctx, tx, logEntry); err != nil {
+					return nil, fmt.Errorf("create status log: %w", err)
 				}
 			}
 
@@ -338,7 +416,7 @@ func (s *Service) AddUpdate(ctx context.Context, input CreateEventUpdateInput, c
 			return nil, fmt.Errorf("get event services: %w", err)
 		}
 
-		if err := s.recalculateServicesStoredStatus(ctx, tx, affectedServiceIDs, input.EventID); err != nil {
+		if err := s.recalculateServicesStoredStatus(ctx, tx, affectedServiceIDs, input.EventID, createdBy); err != nil {
 			return nil, fmt.Errorf("recalculate statuses: %w", err)
 		}
 	}
@@ -351,7 +429,7 @@ func (s *Service) AddUpdate(ctx context.Context, input CreateEventUpdateInput, c
 }
 
 // recalculateServicesStoredStatus recalculates stored status for services after event resolution.
-func (s *Service) recalculateServicesStoredStatus(ctx context.Context, tx pgx.Tx, serviceIDs []string, excludeEventID string) error {
+func (s *Service) recalculateServicesStoredStatus(ctx context.Context, tx pgx.Tx, serviceIDs []string, excludeEventID, updatedBy string) error {
 	for _, serviceID := range serviceIDs {
 		hasOther, err := s.repo.HasOtherActiveEventsTx(ctx, tx, serviceID, excludeEventID)
 		if err != nil {
@@ -359,9 +437,35 @@ func (s *Service) recalculateServicesStoredStatus(ctx context.Context, tx pgx.Tx
 		}
 
 		if !hasOther {
+			// Get current status for audit log
+			var oldStatus *domain.ServiceStatus
+			if currentStatus, err := s.catalogService.GetServiceStatus(ctx, serviceID); err != nil {
+				slog.Warn("failed to get current service status for audit log",
+					"service_id", serviceID,
+					"error", err)
+				// Continue with nil old_status
+			} else {
+				oldStatus = &currentStatus
+			}
+			newStatus := domain.ServiceStatusOperational
+
 			// No other active events → set service to operational
-			if err := s.catalogService.UpdateServiceStatusTx(ctx, tx, serviceID, domain.ServiceStatusOperational); err != nil {
+			if err := s.catalogService.UpdateServiceStatusTx(ctx, tx, serviceID, newStatus); err != nil {
 				return fmt.Errorf("update service %s status: %w", serviceID, err)
+			}
+
+			// Log status change
+			logEntry := &domain.ServiceStatusLogEntry{
+				ServiceID:  serviceID,
+				OldStatus:  oldStatus,
+				NewStatus:  newStatus,
+				SourceType: domain.StatusLogSourceEvent,
+				EventID:    &excludeEventID,
+				Reason:     "Event resolved, no other active events",
+				CreatedBy:  updatedBy,
+			}
+			if err := s.catalogService.CreateStatusLogEntryTx(ctx, tx, logEntry); err != nil {
+				return fmt.Errorf("create status log: %w", err)
 			}
 		}
 		// If there are other active events, stored status stays as-is

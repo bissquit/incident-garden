@@ -51,7 +51,16 @@ type Repository interface {
 	ListServicesWithEffectiveStatus(ctx context.Context, filter ServiceFilter) ([]domain.ServiceWithEffectiveStatus, error)
 
 	// Transaction methods
+	BeginTx(ctx context.Context) (pgx.Tx, error)
+	UpdateServiceTx(ctx context.Context, tx pgx.Tx, service *domain.Service) error
+	SetServiceGroupsTx(ctx context.Context, tx pgx.Tx, serviceID string, groupIDs []string) error
 	UpdateServiceStatusTx(ctx context.Context, tx pgx.Tx, serviceID string, status domain.ServiceStatus) error
+
+	// Status log methods
+	CreateStatusLogEntry(ctx context.Context, entry *domain.ServiceStatusLogEntry) error
+	CreateStatusLogEntryTx(ctx context.Context, tx pgx.Tx, entry *domain.ServiceStatusLogEntry) error
+	ListStatusLog(ctx context.Context, serviceID string, limit, offset int) ([]domain.ServiceStatusLogEntry, error)
+	CountStatusLog(ctx context.Context, serviceID string) (int, error)
 }
 
 // ServiceFilter represents filter criteria for listing services.

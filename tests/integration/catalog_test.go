@@ -1242,3 +1242,474 @@ func TestCatalog_EmptyList_ReturnsEmptyArray(t *testing.T) {
 		assert.NotEqual(t, slug, svc.Slug, "archived service should not appear in default list")
 	}
 }
+
+func TestStatusLog_ManualChange(t *testing.T) {
+	client := newTestClient(t)
+	client.LoginAsAdmin(t)
+
+	// Create a service
+	slug := testutil.RandomSlug("status-log-manual")
+	resp, err := client.POST("/api/v1/services", map[string]interface{}{
+		"name":   "Status Log Manual",
+		"slug":   slug,
+		"status": "operational",
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	resp.Body.Close()
+
+	// Change status with reason
+	resp, err = client.PATCH("/api/v1/services/"+slug, map[string]interface{}{
+		"name":   "Status Log Manual",
+		"slug":   slug,
+		"status": "degraded",
+		"reason": "Testing status log",
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	resp.Body.Close()
+
+	// Get status log
+	resp, err = client.GET("/api/v1/services/" + slug + "/status-log")
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var logResult struct {
+		Data struct {
+			Entries []struct {
+				ID         string  `json:"id"`
+				ServiceID  string  `json:"service_id"`
+				OldStatus  *string `json:"old_status"`
+				NewStatus  string  `json:"new_status"`
+				SourceType string  `json:"source_type"`
+				EventID    *string `json:"event_id"`
+				Reason     string  `json:"reason"`
+				CreatedBy  string  `json:"created_by"`
+			} `json:"entries"`
+			Total  int `json:"total"`
+			Limit  int `json:"limit"`
+			Offset int `json:"offset"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &logResult)
+
+	require.GreaterOrEqual(t, logResult.Data.Total, 1)
+	require.GreaterOrEqual(t, len(logResult.Data.Entries), 1)
+
+	// Find the manual entry
+	var foundManual bool
+	for _, entry := range logResult.Data.Entries {
+		if entry.SourceType == "manual" && entry.NewStatus == "degraded" {
+			foundManual = true
+			assert.NotNil(t, entry.OldStatus)
+			assert.Equal(t, "operational", *entry.OldStatus)
+			assert.Equal(t, "Testing status log", entry.Reason)
+			assert.Nil(t, entry.EventID)
+			break
+		}
+	}
+	assert.True(t, foundManual, "should find manual status change entry")
+
+	// Cleanup
+	client.DELETE("/api/v1/services/" + slug)
+}
+
+func TestStatusLog_EventChange(t *testing.T) {
+	client := newTestClient(t)
+	client.LoginAsAdmin(t)
+
+	// Create a service
+	slug := testutil.RandomSlug("status-log-event")
+	resp, err := client.POST("/api/v1/services", map[string]interface{}{
+		"name":   "Status Log Event",
+		"slug":   slug,
+		"status": "operational",
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var svcResult struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &svcResult)
+	serviceID := svcResult.Data.ID
+
+	// Create an incident
+	resp, err = client.POST("/api/v1/events", map[string]interface{}{
+		"title":       "Status Log Test Incident",
+		"type":        "incident",
+		"status":      "investigating",
+		"severity":    "minor",
+		"description": "Testing status log from event",
+		"affected_services": []map[string]interface{}{
+			{"service_id": serviceID, "status": "degraded"},
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var eventResult struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &eventResult)
+	eventID := eventResult.Data.ID
+
+	// Get status log
+	resp, err = client.GET("/api/v1/services/" + slug + "/status-log")
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var logResult struct {
+		Data struct {
+			Entries []struct {
+				SourceType string  `json:"source_type"`
+				NewStatus  string  `json:"new_status"`
+				EventID    *string `json:"event_id"`
+			} `json:"entries"`
+			Total int `json:"total"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &logResult)
+
+	require.GreaterOrEqual(t, logResult.Data.Total, 1)
+
+	// Find the event entry
+	var foundEvent bool
+	for _, entry := range logResult.Data.Entries {
+		if entry.SourceType == "event" && entry.NewStatus == "degraded" {
+			foundEvent = true
+			assert.NotNil(t, entry.EventID)
+			assert.Equal(t, eventID, *entry.EventID)
+			break
+		}
+	}
+	assert.True(t, foundEvent, "should find event-triggered status change entry")
+
+	// Cleanup
+	client.DELETE("/api/v1/events/" + eventID)
+	client.DELETE("/api/v1/services/" + slug)
+}
+
+func TestStatusLog_EventUpdate(t *testing.T) {
+	client := newTestClient(t)
+	client.LoginAsAdmin(t)
+
+	// Create a service
+	slug := testutil.RandomSlug("status-log-update")
+	resp, err := client.POST("/api/v1/services", map[string]interface{}{
+		"name":   "Status Log Update",
+		"slug":   slug,
+		"status": "operational",
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var svcResult struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &svcResult)
+	serviceID := svcResult.Data.ID
+
+	// Create an incident with degraded status
+	resp, err = client.POST("/api/v1/events", map[string]interface{}{
+		"title":       "Status Log Update Test Incident",
+		"type":        "incident",
+		"status":      "investigating",
+		"severity":    "minor",
+		"description": "Testing status log from event update",
+		"affected_services": []map[string]interface{}{
+			{"service_id": serviceID, "status": "degraded"},
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var eventResult struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &eventResult)
+	eventID := eventResult.Data.ID
+
+	// Update the event with service_updates to change status to major_outage
+	resp, err = client.POST("/api/v1/events/"+eventID+"/updates", map[string]interface{}{
+		"status":  "identified",
+		"message": "Issue identified, escalating severity",
+		"service_updates": []map[string]interface{}{
+			{"service_id": serviceID, "status": "major_outage"},
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	resp.Body.Close()
+
+	// Get status log
+	resp, err = client.GET("/api/v1/services/" + slug + "/status-log")
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var logResult struct {
+		Data struct {
+			Entries []struct {
+				SourceType string  `json:"source_type"`
+				OldStatus  *string `json:"old_status"`
+				NewStatus  string  `json:"new_status"`
+				EventID    *string `json:"event_id"`
+			} `json:"entries"`
+			Total int `json:"total"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &logResult)
+
+	// Should have at least 2 entries: initial creation and update
+	require.GreaterOrEqual(t, logResult.Data.Total, 2)
+
+	// Find the update entry (should be first, most recent)
+	var foundUpdate bool
+	for _, entry := range logResult.Data.Entries {
+		if entry.SourceType == "event" && entry.NewStatus == "major_outage" {
+			foundUpdate = true
+			assert.NotNil(t, entry.EventID)
+			assert.Equal(t, eventID, *entry.EventID)
+			// Old status should be degraded
+			assert.NotNil(t, entry.OldStatus)
+			assert.Equal(t, "degraded", *entry.OldStatus)
+			break
+		}
+	}
+	assert.True(t, foundUpdate, "should find event update status change entry")
+
+	// Cleanup
+	client.DELETE("/api/v1/events/" + eventID)
+	client.DELETE("/api/v1/services/" + slug)
+}
+
+func TestStatusLog_EventResolved(t *testing.T) {
+	client := newTestClient(t)
+	client.LoginAsAdmin(t)
+
+	// Create a service
+	slug := testutil.RandomSlug("status-log-resolved")
+	resp, err := client.POST("/api/v1/services", map[string]interface{}{
+		"name":   "Status Log Resolved",
+		"slug":   slug,
+		"status": "operational",
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var svcResult struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &svcResult)
+	serviceID := svcResult.Data.ID
+
+	// Create an incident
+	resp, err = client.POST("/api/v1/events", map[string]interface{}{
+		"title":       "Resolved Incident",
+		"type":        "incident",
+		"status":      "investigating",
+		"severity":    "minor",
+		"description": "Will be resolved",
+		"affected_services": []map[string]interface{}{
+			{"service_id": serviceID, "status": "major_outage"},
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var eventResult struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &eventResult)
+	eventID := eventResult.Data.ID
+
+	// Resolve the incident
+	resp, err = client.POST("/api/v1/events/"+eventID+"/updates", map[string]interface{}{
+		"status":  "resolved",
+		"message": "Issue resolved",
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	resp.Body.Close()
+
+	// Get status log
+	resp, err = client.GET("/api/v1/services/" + slug + "/status-log")
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var logResult struct {
+		Data struct {
+			Entries []struct {
+				SourceType string `json:"source_type"`
+				OldStatus  string `json:"old_status"`
+				NewStatus  string `json:"new_status"`
+				Reason     string `json:"reason"`
+			} `json:"entries"`
+			Total int `json:"total"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &logResult)
+
+	// Should have at least 2 entries: creation and resolution
+	require.GreaterOrEqual(t, logResult.Data.Total, 2)
+
+	// Find the resolution entry (should be operational now)
+	var foundResolution bool
+	for _, entry := range logResult.Data.Entries {
+		if entry.SourceType == "event" && entry.NewStatus == "operational" {
+			foundResolution = true
+			assert.Contains(t, entry.Reason, "resolved")
+			break
+		}
+	}
+	assert.True(t, foundResolution, "should find resolution status change entry")
+
+	// Cleanup
+	client.DELETE("/api/v1/events/" + eventID)
+	client.DELETE("/api/v1/services/" + slug)
+}
+
+func TestStatusLog_Pagination(t *testing.T) {
+	client := newTestClient(t)
+	client.LoginAsAdmin(t)
+
+	// Create a service
+	slug := testutil.RandomSlug("status-log-pag")
+	resp, err := client.POST("/api/v1/services", map[string]interface{}{
+		"name":   "Status Log Pagination",
+		"slug":   slug,
+		"status": "operational",
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	resp.Body.Close()
+
+	// Change status multiple times
+	statuses := []string{"degraded", "partial_outage", "major_outage", "operational"}
+	for _, status := range statuses {
+		resp, err = client.PATCH("/api/v1/services/"+slug, map[string]interface{}{
+			"name":   "Status Log Pagination",
+			"slug":   slug,
+			"status": status,
+		})
+		require.NoError(t, err)
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+		resp.Body.Close()
+	}
+
+	// Get with limit=2
+	resp, err = client.GET("/api/v1/services/" + slug + "/status-log?limit=2")
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var page1 struct {
+		Data struct {
+			Entries []struct {
+				NewStatus string `json:"new_status"`
+			} `json:"entries"`
+			Total  int `json:"total"`
+			Limit  int `json:"limit"`
+			Offset int `json:"offset"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &page1)
+
+	assert.Equal(t, 2, page1.Data.Limit)
+	assert.Equal(t, 0, page1.Data.Offset)
+	assert.Equal(t, 2, len(page1.Data.Entries))
+	assert.GreaterOrEqual(t, page1.Data.Total, 4) // At least 4 changes
+
+	// Get with offset=2
+	resp, err = client.GET("/api/v1/services/" + slug + "/status-log?limit=2&offset=2")
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var page2 struct {
+		Data struct {
+			Entries []struct {
+				NewStatus string `json:"new_status"`
+			} `json:"entries"`
+			Offset int `json:"offset"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &page2)
+
+	assert.Equal(t, 2, page2.Data.Offset)
+	assert.GreaterOrEqual(t, len(page2.Data.Entries), 1)
+
+	// Cleanup
+	client.DELETE("/api/v1/services/" + slug)
+}
+
+func TestStatusLog_RequiresAuth(t *testing.T) {
+	client := newTestClient(t)
+	client.LoginAsAdmin(t)
+
+	// Create a service
+	slug := testutil.RandomSlug("status-log-auth")
+	resp, err := client.POST("/api/v1/services", map[string]interface{}{
+		"name":   "Status Log Auth",
+		"slug":   slug,
+		"status": "operational",
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	resp.Body.Close()
+
+	// Try to access without auth
+	publicClient := newTestClient(t)
+	resp, err = publicClient.GET("/api/v1/services/" + slug + "/status-log")
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+	resp.Body.Close()
+
+	// Cleanup
+	client.DELETE("/api/v1/services/" + slug)
+}
+
+func TestStatusLog_RequiresOperatorRole(t *testing.T) {
+	adminClient := newTestClient(t)
+	adminClient.LoginAsAdmin(t)
+
+	// Create a service
+	slug := testutil.RandomSlug("status-log-role")
+	resp, err := adminClient.POST("/api/v1/services", map[string]interface{}{
+		"name":   "Status Log Role",
+		"slug":   slug,
+		"status": "operational",
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	resp.Body.Close()
+
+	// Try as user (should fail with 403)
+	userClient := newTestClient(t)
+	userClient.LoginAsUser(t)
+	resp, err = userClient.GET("/api/v1/services/" + slug + "/status-log")
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+	resp.Body.Close()
+
+	// Try as operator (should succeed)
+	operatorClient := newTestClient(t)
+	operatorClient.LoginAsOperator(t)
+	resp, err = operatorClient.GET("/api/v1/services/" + slug + "/status-log")
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	resp.Body.Close()
+
+	// Cleanup
+	adminClient.DELETE("/api/v1/services/" + slug)
+}

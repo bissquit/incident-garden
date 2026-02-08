@@ -897,6 +897,57 @@ func (r *Repository) ListServicesWithEffectiveStatus(ctx context.Context, filter
 	return result, nil
 }
 
+// BeginTx starts a new transaction.
+func (r *Repository) BeginTx(ctx context.Context) (pgx.Tx, error) {
+	return r.db.Begin(ctx)
+}
+
+// UpdateServiceTx updates an existing service within a transaction.
+func (r *Repository) UpdateServiceTx(ctx context.Context, tx pgx.Tx, service *domain.Service) error {
+	query := `
+		UPDATE services
+		SET name = $2, slug = $3, description = $4, status = $5, "order" = $6, updated_at = NOW()
+		WHERE id = $1
+		RETURNING updated_at
+	`
+	err := tx.QueryRow(ctx, query,
+		service.ID,
+		service.Name,
+		service.Slug,
+		service.Description,
+		service.Status,
+		service.Order,
+	).Scan(&service.UpdatedAt)
+
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return catalog.ErrServiceNotFound
+		}
+		return fmt.Errorf("update service: %w", err)
+	}
+	return nil
+}
+
+// SetServiceGroupsTx replaces all group memberships for a service within a transaction.
+func (r *Repository) SetServiceGroupsTx(ctx context.Context, tx pgx.Tx, serviceID string, groupIDs []string) error {
+	// Delete old group memberships
+	_, err := tx.Exec(ctx, `DELETE FROM service_group_members WHERE service_id = $1`, serviceID)
+	if err != nil {
+		return fmt.Errorf("delete old group memberships: %w", err)
+	}
+
+	// Insert new group memberships
+	for _, groupID := range groupIDs {
+		_, err = tx.Exec(ctx,
+			`INSERT INTO service_group_members (service_id, group_id) VALUES ($1, $2)`,
+			serviceID, groupID)
+		if err != nil {
+			return fmt.Errorf("insert group membership: %w", err)
+		}
+	}
+	return nil
+}
+
 // UpdateServiceStatusTx updates the stored status of a service within a transaction.
 func (r *Repository) UpdateServiceStatusTx(ctx context.Context, tx pgx.Tx, serviceID string, status domain.ServiceStatus) error {
 	query := `UPDATE services SET status = $2, updated_at = NOW() WHERE id = $1`
@@ -909,3 +960,84 @@ func (r *Repository) UpdateServiceStatusTx(ctx context.Context, tx pgx.Tx, servi
 	}
 	return nil
 }
+
+// CreateStatusLogEntry creates a new entry in the service status log.
+func (r *Repository) CreateStatusLogEntry(ctx context.Context, entry *domain.ServiceStatusLogEntry) error {
+	query := `
+		INSERT INTO service_status_log (service_id, old_status, new_status, source_type, event_id, reason, created_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		RETURNING id, created_at
+	`
+	return r.db.QueryRow(ctx, query,
+		entry.ServiceID,
+		entry.OldStatus,
+		entry.NewStatus,
+		entry.SourceType,
+		entry.EventID,
+		entry.Reason,
+		entry.CreatedBy,
+	).Scan(&entry.ID, &entry.CreatedAt)
+}
+
+// CreateStatusLogEntryTx creates a new entry in the service status log within a transaction.
+func (r *Repository) CreateStatusLogEntryTx(ctx context.Context, tx pgx.Tx, entry *domain.ServiceStatusLogEntry) error {
+	query := `
+		INSERT INTO service_status_log (service_id, old_status, new_status, source_type, event_id, reason, created_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		RETURNING id, created_at
+	`
+	return tx.QueryRow(ctx, query,
+		entry.ServiceID,
+		entry.OldStatus,
+		entry.NewStatus,
+		entry.SourceType,
+		entry.EventID,
+		entry.Reason,
+		entry.CreatedBy,
+	).Scan(&entry.ID, &entry.CreatedAt)
+}
+
+// ListStatusLog returns the status change history for a service.
+func (r *Repository) ListStatusLog(ctx context.Context, serviceID string, limit, offset int) ([]domain.ServiceStatusLogEntry, error) {
+	query := `
+		SELECT id, service_id, old_status, new_status, source_type, event_id, reason, created_by, created_at
+		FROM service_status_log
+		WHERE service_id = $1
+		ORDER BY created_at DESC
+		LIMIT $2 OFFSET $3
+	`
+	rows, err := r.db.Query(ctx, query, serviceID, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("list status log: %w", err)
+	}
+	defer rows.Close()
+
+	result := make([]domain.ServiceStatusLogEntry, 0)
+	for rows.Next() {
+		var entry domain.ServiceStatusLogEntry
+		if err := rows.Scan(
+			&entry.ID,
+			&entry.ServiceID,
+			&entry.OldStatus,
+			&entry.NewStatus,
+			&entry.SourceType,
+			&entry.EventID,
+			&entry.Reason,
+			&entry.CreatedBy,
+			&entry.CreatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan status log entry: %w", err)
+		}
+		result = append(result, entry)
+	}
+	return result, rows.Err()
+}
+
+// CountStatusLog returns the total number of log entries for a service.
+func (r *Repository) CountStatusLog(ctx context.Context, serviceID string) (int, error) {
+	query := `SELECT COUNT(*) FROM service_status_log WHERE service_id = $1`
+	var count int
+	err := r.db.QueryRow(ctx, query, serviceID).Scan(&count)
+	return count, err
+}
+
