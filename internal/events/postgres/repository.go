@@ -1014,3 +1014,17 @@ func (r *Repository) CountEventsByServiceID(ctx context.Context, serviceID strin
 	}
 	return count, nil
 }
+
+// DeleteEventTx deletes an event within a transaction.
+// CASCADE will automatically delete: event_services, event_groups, event_updates, event_service_changes.
+func (r *Repository) DeleteEventTx(ctx context.Context, tx pgx.Tx, id string) error {
+	query := `DELETE FROM events WHERE id = $1`
+	result, err := tx.Exec(ctx, query, id)
+	if err != nil {
+		return fmt.Errorf("delete event: %w", err)
+	}
+	if result.RowsAffected() == 0 {
+		return events.ErrEventNotFound
+	}
+	return nil
+}

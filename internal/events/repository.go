@@ -57,6 +57,10 @@ type Repository interface {
 	// Service events methods
 	ListEventsByServiceID(ctx context.Context, serviceID string, filter ServiceEventFilter) ([]*domain.Event, error)
 	CountEventsByServiceID(ctx context.Context, serviceID string, filter ServiceEventFilter) (int, error)
+
+	// DeleteEventTx deletes an event within a transaction.
+	// CASCADE will automatically delete: event_services, event_groups, event_updates, event_service_changes.
+	DeleteEventTx(ctx context.Context, tx pgx.Tx, id string) error
 }
 
 // EventFilters holds filter options for listing events.
