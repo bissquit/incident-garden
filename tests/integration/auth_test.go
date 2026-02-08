@@ -85,6 +85,30 @@ func TestAuth_Login_InvalidCredentials(t *testing.T) {
 	resp.Body.Close()
 }
 
+func TestAuth_Register_InvalidEmail(t *testing.T) {
+	client := newTestClient(t)
+
+	resp, err := client.POST("/api/v1/auth/register", map[string]string{
+		"email":    "not-an-email",
+		"password": "password123",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	resp.Body.Close()
+}
+
+func TestAuth_Register_ShortPassword(t *testing.T) {
+	client := newTestClient(t)
+
+	resp, err := client.POST("/api/v1/auth/register", map[string]string{
+		"email":    testutil.RandomEmail(),
+		"password": "short",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	resp.Body.Close()
+}
+
 func TestAuth_Register_DuplicateEmail(t *testing.T) {
 	client := newTestClient(t)
 	email := testutil.RandomEmail()
