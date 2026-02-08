@@ -34,16 +34,22 @@ func toSlugPrefix(name string) string {
 // Use t.Cleanup for automatic deletion.
 func createTestService(t *testing.T, client *testutil.Client, name string, opts ...serviceOption) (id, slug string) {
 	t.Helper()
-	slug = testutil.RandomSlug(toSlugPrefix(name))
 
 	payload := map[string]interface{}{
 		"name":   name,
-		"slug":   slug,
 		"status": "operational",
 	}
 
 	for _, opt := range opts {
 		opt(payload)
+	}
+
+	// Use provided slug or generate one
+	if s, ok := payload["slug"].(string); ok && s != "" {
+		slug = s
+	} else {
+		slug = testutil.RandomSlug(toSlugPrefix(name))
+		payload["slug"] = slug
 	}
 
 	resp, err := client.POST("/api/v1/services", payload)
@@ -60,6 +66,12 @@ func createTestService(t *testing.T, client *testutil.Client, name string, opts 
 }
 
 type serviceOption func(map[string]interface{})
+
+func withSlug(slug string) serviceOption {
+	return func(m map[string]interface{}) {
+		m["slug"] = slug
+	}
+}
 
 func withGroupIDs(groupIDs []string) serviceOption {
 	return func(m map[string]interface{}) {
@@ -82,15 +94,21 @@ func withDescription(description string) serviceOption {
 // createTestGroup creates a group and returns its ID and slug.
 func createTestGroup(t *testing.T, client *testutil.Client, name string, opts ...groupOption) (id, slug string) {
 	t.Helper()
-	slug = testutil.RandomSlug(toSlugPrefix(name))
 
 	payload := map[string]interface{}{
 		"name": name,
-		"slug": slug,
 	}
 
 	for _, opt := range opts {
 		opt(payload)
+	}
+
+	// Use provided slug or generate one
+	if s, ok := payload["slug"].(string); ok && s != "" {
+		slug = s
+	} else {
+		slug = testutil.RandomSlug(toSlugPrefix(name))
+		payload["slug"] = slug
 	}
 
 	resp, err := client.POST("/api/v1/groups", payload)
@@ -107,6 +125,12 @@ func createTestGroup(t *testing.T, client *testutil.Client, name string, opts ..
 }
 
 type groupOption func(map[string]interface{})
+
+func withGroupSlug(slug string) groupOption {
+	return func(m map[string]interface{}) {
+		m["slug"] = slug
+	}
+}
 
 func withGroupDescription(description string) groupOption {
 	return func(m map[string]interface{}) {
@@ -232,7 +256,7 @@ func createTestMaintenance(t *testing.T, client *testutil.Client, title string, 
 	return result.Data.ID
 }
 
-// deleteService soft-deletes a service. Does not fail if already deleted.
+// deleteService soft-deletes a service. Does not fail if already deleted or has active events.
 func deleteService(t *testing.T, client *testutil.Client, slug string) {
 	t.Helper()
 	resp, err := client.DELETE("/api/v1/services/" + slug)
@@ -240,16 +264,22 @@ func deleteService(t *testing.T, client *testutil.Client, slug string) {
 		t.Logf("cleanup warning (service %s): %v", slug, err)
 		return
 	}
+	if resp.StatusCode == http.StatusConflict {
+		t.Logf("cleanup warning (service %s): has active events", slug)
+	}
 	resp.Body.Close()
 }
 
-// deleteGroup soft-deletes a group. Does not fail if already deleted.
+// deleteGroup soft-deletes a group. Does not fail if already deleted or has active services.
 func deleteGroup(t *testing.T, client *testutil.Client, slug string) {
 	t.Helper()
 	resp, err := client.DELETE("/api/v1/groups/" + slug)
 	if err != nil {
 		t.Logf("cleanup warning (group %s): %v", slug, err)
 		return
+	}
+	if resp.StatusCode == http.StatusConflict {
+		t.Logf("cleanup warning (group %s): has active services", slug)
 	}
 	resp.Body.Close()
 }

@@ -579,47 +579,16 @@ func TestAddUpdate_ResolvedRecalculatesStoredStatus(t *testing.T) {
 	client := newTestClient(t)
 	client.LoginAsAdmin(t)
 
-	// Create a service
-	serviceSlug := testutil.RandomSlug("recalc-svc")
-	resp, err := client.POST("/api/v1/services", map[string]string{
-		"name": "Recalc Service",
-		"slug": serviceSlug,
-	})
-	require.NoError(t, err)
-	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	serviceID, slug := createTestService(t, client, "Recalc Service")
+	t.Cleanup(func() { deleteService(t, client, slug) })
 
-	var svcResult struct {
-		Data struct {
-			ID string `json:"id"`
-		} `json:"data"`
-	}
-	testutil.DecodeJSON(t, resp, &svcResult)
-	serviceID := svcResult.Data.ID
-
-	// Create event with the service
-	resp, err = client.POST("/api/v1/events", map[string]interface{}{
-		"title":       "Recalc Test Incident",
-		"type":        "incident",
-		"status":      "investigating",
-		"severity":    "major",
-		"description": "Testing stored status recalculation",
-		"affected_services": []map[string]interface{}{
-			{"service_id": serviceID, "status": "major_outage"},
-		},
-	})
-	require.NoError(t, err)
-	require.Equal(t, http.StatusCreated, resp.StatusCode)
-
-	var eventResult struct {
-		Data struct {
-			ID string `json:"id"`
-		} `json:"data"`
-	}
-	testutil.DecodeJSON(t, resp, &eventResult)
-	eventID := eventResult.Data.ID
+	eventID := createTestIncident(t, client, "Recalc Test Incident", []AffectedService{
+		{ServiceID: serviceID, Status: "major_outage"},
+	}, nil)
+	t.Cleanup(func() { deleteEvent(t, client, eventID) })
 
 	// Verify service has effective_status = major_outage
-	resp, err = client.GET("/api/v1/services/" + serviceSlug)
+	resp, err := client.GET("/api/v1/services/" + slug)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
@@ -634,187 +603,64 @@ func TestAddUpdate_ResolvedRecalculatesStoredStatus(t *testing.T) {
 	assert.True(t, svcCheck.Data.HasActiveEvents)
 
 	// Resolve the event
-	resp, err = client.POST("/api/v1/events/"+eventID+"/updates", map[string]interface{}{
-		"status":  "resolved",
-		"message": "Issue fixed",
-	})
-	require.NoError(t, err)
-	require.Equal(t, http.StatusCreated, resp.StatusCode)
-	resp.Body.Close()
+	resolveEvent(t, client, eventID)
 
 	// Verify service is now operational
-	resp, err = client.GET("/api/v1/services/" + serviceSlug)
+	resp, err = client.GET("/api/v1/services/" + slug)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	testutil.DecodeJSON(t, resp, &svcCheck)
 	assert.Equal(t, "operational", svcCheck.Data.EffectiveStatus)
 	assert.False(t, svcCheck.Data.HasActiveEvents)
-
-	// Cleanup
-	resp, _ = client.DELETE("/api/v1/events/" + eventID)
-	resp.Body.Close()
-	client.DELETE("/api/v1/services/" + serviceSlug)
 }
 
 func TestAddUpdate_ResolvedWithOtherActiveEvent(t *testing.T) {
 	client := newTestClient(t)
 	client.LoginAsAdmin(t)
 
-	// Create a service
-	serviceSlug := testutil.RandomSlug("multi-event-svc")
-	resp, err := client.POST("/api/v1/services", map[string]string{
-		"name": "Multi-Event Service",
-		"slug": serviceSlug,
-	})
-	require.NoError(t, err)
-	require.Equal(t, http.StatusCreated, resp.StatusCode)
-
-	var svcResult struct {
-		Data struct {
-			ID string `json:"id"`
-		} `json:"data"`
-	}
-	testutil.DecodeJSON(t, resp, &svcResult)
-	serviceID := svcResult.Data.ID
+	serviceID, slug := createTestService(t, client, "Multi-Event Service")
+	t.Cleanup(func() { deleteService(t, client, slug) })
 
 	// Create first event with major_outage
-	resp, err = client.POST("/api/v1/events", map[string]interface{}{
-		"title":       "Event A",
-		"type":        "incident",
-		"status":      "investigating",
-		"severity":    "critical",
-		"description": "First event",
-		"affected_services": []map[string]interface{}{
-			{"service_id": serviceID, "status": "major_outage"},
-		},
-	})
-	require.NoError(t, err)
-	require.Equal(t, http.StatusCreated, resp.StatusCode)
-
-	var eventAResult struct {
-		Data struct {
-			ID string `json:"id"`
-		} `json:"data"`
-	}
-	testutil.DecodeJSON(t, resp, &eventAResult)
-	eventAID := eventAResult.Data.ID
+	eventAID := createTestIncident(t, client, "Event A", []AffectedService{
+		{ServiceID: serviceID, Status: "major_outage"},
+	}, nil)
+	t.Cleanup(func() { deleteEvent(t, client, eventAID) })
 
 	// Create second event with degraded
-	resp, err = client.POST("/api/v1/events", map[string]interface{}{
-		"title":       "Event B",
-		"type":        "incident",
-		"status":      "investigating",
-		"severity":    "minor",
-		"description": "Second event",
-		"affected_services": []map[string]interface{}{
-			{"service_id": serviceID, "status": "degraded"},
-		},
-	})
-	require.NoError(t, err)
-	require.Equal(t, http.StatusCreated, resp.StatusCode)
-
-	var eventBResult struct {
-		Data struct {
-			ID string `json:"id"`
-		} `json:"data"`
-	}
-	testutil.DecodeJSON(t, resp, &eventBResult)
-	eventBID := eventBResult.Data.ID
+	eventBID := createTestIncident(t, client, "Event B", []AffectedService{
+		{ServiceID: serviceID, Status: "degraded"},
+	}, nil)
+	t.Cleanup(func() { deleteEvent(t, client, eventBID) })
 
 	// Verify service has effective_status = major_outage (worst case)
-	resp, err = client.GET("/api/v1/services/" + serviceSlug)
-	require.NoError(t, err)
-
-	var svcCheck struct {
-		Data struct {
-			EffectiveStatus string `json:"effective_status"`
-		} `json:"data"`
-	}
-	testutil.DecodeJSON(t, resp, &svcCheck)
-	assert.Equal(t, "major_outage", svcCheck.Data.EffectiveStatus)
+	assert.Equal(t, "major_outage", getServiceEffectiveStatus(t, client, slug))
 
 	// Resolve first event (major_outage)
-	resp, err = client.POST("/api/v1/events/"+eventAID+"/updates", map[string]interface{}{
-		"status":  "resolved",
-		"message": "Event A fixed",
-	})
-	require.NoError(t, err)
-	require.Equal(t, http.StatusCreated, resp.StatusCode)
-	resp.Body.Close()
+	resolveEvent(t, client, eventAID)
 
 	// Verify service now has effective_status = degraded (from Event B)
-	resp, err = client.GET("/api/v1/services/" + serviceSlug)
-	require.NoError(t, err)
-
-	testutil.DecodeJSON(t, resp, &svcCheck)
-	assert.Equal(t, "degraded", svcCheck.Data.EffectiveStatus)
-
-	// Cleanup
-	resp, _ = client.DELETE("/api/v1/events/" + eventAID)
-	resp.Body.Close()
-	resp, _ = client.DELETE("/api/v1/events/" + eventBID)
-	resp.Body.Close()
-	client.DELETE("/api/v1/services/" + serviceSlug)
+	assert.Equal(t, "degraded", getServiceEffectiveStatus(t, client, slug))
 }
 
 func TestAddUpdate_UpdateServiceStatuses(t *testing.T) {
 	client := newTestClient(t)
 	client.LoginAsAdmin(t)
 
-	// Create a service
-	serviceSlug := testutil.RandomSlug("update-status-svc")
-	resp, err := client.POST("/api/v1/services", map[string]string{
-		"name": "Update Status Service",
-		"slug": serviceSlug,
-	})
-	require.NoError(t, err)
-	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	serviceID, slug := createTestService(t, client, "Update Status Service")
+	t.Cleanup(func() { deleteService(t, client, slug) })
 
-	var svcResult struct {
-		Data struct {
-			ID string `json:"id"`
-		} `json:"data"`
-	}
-	testutil.DecodeJSON(t, resp, &svcResult)
-	serviceID := svcResult.Data.ID
-
-	// Create event with service in major_outage
-	resp, err = client.POST("/api/v1/events", map[string]interface{}{
-		"title":       "Status Update Test",
-		"type":        "incident",
-		"status":      "investigating",
-		"severity":    "critical",
-		"description": "Testing service status updates",
-		"affected_services": []map[string]interface{}{
-			{"service_id": serviceID, "status": "major_outage"},
-		},
-	})
-	require.NoError(t, err)
-	require.Equal(t, http.StatusCreated, resp.StatusCode)
-
-	var eventResult struct {
-		Data struct {
-			ID string `json:"id"`
-		} `json:"data"`
-	}
-	testutil.DecodeJSON(t, resp, &eventResult)
-	eventID := eventResult.Data.ID
+	eventID := createTestIncident(t, client, "Status Update Test", []AffectedService{
+		{ServiceID: serviceID, Status: "major_outage"},
+	}, nil)
+	t.Cleanup(func() { deleteEvent(t, client, eventID) })
 
 	// Verify effective status is major_outage
-	resp, err = client.GET("/api/v1/services/" + serviceSlug)
-	require.NoError(t, err)
-
-	var svcCheck struct {
-		Data struct {
-			EffectiveStatus string `json:"effective_status"`
-		} `json:"data"`
-	}
-	testutil.DecodeJSON(t, resp, &svcCheck)
-	assert.Equal(t, "major_outage", svcCheck.Data.EffectiveStatus)
+	assert.Equal(t, "major_outage", getServiceEffectiveStatus(t, client, slug))
 
 	// Update service status to degraded via event update
-	resp, err = client.POST("/api/v1/events/"+eventID+"/updates", map[string]interface{}{
+	resp, err := client.POST("/api/v1/events/"+eventID+"/updates", map[string]interface{}{
 		"status":  "monitoring",
 		"message": "Service partially recovered",
 		"service_updates": []map[string]interface{}{
@@ -826,41 +672,18 @@ func TestAddUpdate_UpdateServiceStatuses(t *testing.T) {
 	resp.Body.Close()
 
 	// Verify effective status is now degraded
-	resp, err = client.GET("/api/v1/services/" + serviceSlug)
-	require.NoError(t, err)
-
-	testutil.DecodeJSON(t, resp, &svcCheck)
-	assert.Equal(t, "degraded", svcCheck.Data.EffectiveStatus)
-
-	// Cleanup
-	resp, _ = client.DELETE("/api/v1/events/" + eventID)
-	resp.Body.Close()
-	client.DELETE("/api/v1/services/" + serviceSlug)
+	assert.Equal(t, "degraded", getServiceEffectiveStatus(t, client, slug))
 }
 
 func TestEvents_ServiceStatus_DefaultValue(t *testing.T) {
 	client := newTestClient(t)
 	client.LoginAsAdmin(t)
 
-	// Create a service
-	serviceSlug := testutil.RandomSlug("status-svc")
-	resp, err := client.POST("/api/v1/services", map[string]string{
-		"name": "Status Test Service",
-		"slug": serviceSlug,
-	})
-	require.NoError(t, err)
-	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	serviceID, slug := createTestService(t, client, "Status Test Service")
+	t.Cleanup(func() { deleteService(t, client, slug) })
 
-	var svcResult struct {
-		Data struct {
-			ID string `json:"id"`
-		} `json:"data"`
-	}
-	testutil.DecodeJSON(t, resp, &svcResult)
-	serviceID := svcResult.Data.ID
-
-	// Create an event with this service using new affected_services format
-	resp, err = client.POST("/api/v1/events", map[string]interface{}{
+	// Create an event with this service using affected_services format
+	resp, err := client.POST("/api/v1/events", map[string]interface{}{
 		"title":       "Status Test Incident",
 		"type":        "incident",
 		"status":      "investigating",
@@ -881,83 +704,33 @@ func TestEvents_ServiceStatus_DefaultValue(t *testing.T) {
 	}
 	testutil.DecodeJSON(t, resp, &eventResult)
 	eventID := eventResult.Data.ID
+	t.Cleanup(func() { deleteEvent(t, client, eventID) })
 
 	// Verify service is associated with the event
 	require.Len(t, eventResult.Data.ServiceIDs, 1)
 	assert.Equal(t, serviceID, eventResult.Data.ServiceIDs[0])
-
-	// Cleanup
-	resp, _ = client.DELETE("/api/v1/events/" + eventID)
-	resp.Body.Close()
-	client.DELETE("/api/v1/services/" + serviceSlug)
 }
 
 func TestEvents_CreateWithGroup_BatchID(t *testing.T) {
 	client := newTestClient(t)
 	client.LoginAsAdmin(t)
 
-	// Create a group
-	groupSlug := testutil.RandomSlug("batch-grp")
-	resp, err := client.POST("/api/v1/groups", map[string]string{
-		"name": "Batch Test Group",
-		"slug": groupSlug,
+	groupID, groupSlug := createTestGroup(t, client, "Batch Test Group")
+	t.Cleanup(func() { deleteGroup(t, client, groupSlug) })
+
+	_, svc1Slug := createTestService(t, client, "Group Service 1", withGroupIDs([]string{groupID}))
+	t.Cleanup(func() { deleteService(t, client, svc1Slug) })
+
+	_, svc2Slug := createTestService(t, client, "Group Service 2", withGroupIDs([]string{groupID}))
+	t.Cleanup(func() { deleteService(t, client, svc2Slug) })
+
+	eventID := createTestIncident(t, client, "Group Batch Test", nil, []AffectedGroup{
+		{GroupID: groupID, Status: "partial_outage"},
 	})
-	require.NoError(t, err)
-	require.Equal(t, http.StatusCreated, resp.StatusCode)
-	var groupResult struct {
-		Data struct {
-			ID string `json:"id"`
-		} `json:"data"`
-	}
-	testutil.DecodeJSON(t, resp, &groupResult)
-	groupID := groupResult.Data.ID
-
-	// Create services in the group
-	service1Slug := testutil.RandomSlug("grp-svc1")
-	service2Slug := testutil.RandomSlug("grp-svc2")
-
-	resp, err = client.POST("/api/v1/services", map[string]interface{}{
-		"name":      "Group Service 1",
-		"slug":      service1Slug,
-		"group_ids": []string{groupID},
-	})
-	require.NoError(t, err)
-	require.Equal(t, http.StatusCreated, resp.StatusCode)
-	resp.Body.Close()
-
-	resp, err = client.POST("/api/v1/services", map[string]interface{}{
-		"name":      "Group Service 2",
-		"slug":      service2Slug,
-		"group_ids": []string{groupID},
-	})
-	require.NoError(t, err)
-	require.Equal(t, http.StatusCreated, resp.StatusCode)
-	resp.Body.Close()
-
-	// Create event with group using new affected_groups format
-	resp, err = client.POST("/api/v1/events", map[string]interface{}{
-		"title":       "Group Batch Test",
-		"type":        "incident",
-		"status":      "investigating",
-		"severity":    "minor",
-		"description": "Testing group batch_id",
-		"affected_groups": []map[string]interface{}{
-			{"group_id": groupID, "status": "partial_outage"},
-		},
-	})
-	require.NoError(t, err)
-	require.Equal(t, http.StatusCreated, resp.StatusCode)
-
-	var eventResult struct {
-		Data struct {
-			ID string `json:"id"`
-		} `json:"data"`
-	}
-	testutil.DecodeJSON(t, resp, &eventResult)
-	eventID := eventResult.Data.ID
+	t.Cleanup(func() { deleteEvent(t, client, eventID) })
 
 	// Get service changes
-	resp, err = client.GET("/api/v1/events/" + eventID + "/changes")
+	resp, err := client.GET("/api/v1/events/" + eventID + "/changes")
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
@@ -976,61 +749,28 @@ func TestEvents_CreateWithGroup_BatchID(t *testing.T) {
 	require.NotNil(t, changesResult.Data[0].BatchID, "group change should have batch_id")
 	require.NotNil(t, changesResult.Data[0].GroupID, "change should reference group")
 	assert.Equal(t, groupID, *changesResult.Data[0].GroupID)
-
-	// Cleanup
-	resp, _ = client.DELETE("/api/v1/events/" + eventID)
-	resp.Body.Close()
-	client.DELETE("/api/v1/services/" + service1Slug)
-	client.DELETE("/api/v1/services/" + service2Slug)
-	client.DELETE("/api/v1/groups/" + groupSlug)
 }
 
 func TestEvents_CreateWithAffectedServices(t *testing.T) {
 	client := newTestClient(t)
 	client.LoginAsAdmin(t)
 
-	// Create test services
-	service1Slug := testutil.RandomSlug("aff-svc1")
-	service2Slug := testutil.RandomSlug("aff-svc2")
+	svc1ID, slug1 := createTestService(t, client, "Affected Service 1")
+	t.Cleanup(func() { deleteService(t, client, slug1) })
 
-	resp, err := client.POST("/api/v1/services", map[string]string{
-		"name": "Affected Service 1",
-		"slug": service1Slug,
-	})
-	require.NoError(t, err)
-	require.Equal(t, http.StatusCreated, resp.StatusCode)
-	var svc1Result struct {
-		Data struct {
-			ID string `json:"id"`
-		} `json:"data"`
-	}
-	testutil.DecodeJSON(t, resp, &svc1Result)
-	service1ID := svc1Result.Data.ID
-
-	resp, err = client.POST("/api/v1/services", map[string]string{
-		"name": "Affected Service 2",
-		"slug": service2Slug,
-	})
-	require.NoError(t, err)
-	require.Equal(t, http.StatusCreated, resp.StatusCode)
-	var svc2Result struct {
-		Data struct {
-			ID string `json:"id"`
-		} `json:"data"`
-	}
-	testutil.DecodeJSON(t, resp, &svc2Result)
-	service2ID := svc2Result.Data.ID
+	svc2ID, slug2 := createTestService(t, client, "Affected Service 2")
+	t.Cleanup(func() { deleteService(t, client, slug2) })
 
 	// Create event with different statuses for each service
-	resp, err = client.POST("/api/v1/events", map[string]interface{}{
+	resp, err := client.POST("/api/v1/events", map[string]interface{}{
 		"title":       "Affected Services Test",
 		"type":        "incident",
 		"status":      "investigating",
 		"severity":    "major",
 		"description": "Testing affected_services",
 		"affected_services": []map[string]interface{}{
-			{"service_id": service1ID, "status": "degraded"},
-			{"service_id": service2ID, "status": "major_outage"},
+			{"service_id": svc1ID, "status": "degraded"},
+			{"service_id": svc2ID, "status": "major_outage"},
 		},
 	})
 	require.NoError(t, err)
@@ -1044,105 +784,46 @@ func TestEvents_CreateWithAffectedServices(t *testing.T) {
 	}
 	testutil.DecodeJSON(t, resp, &eventResult)
 	eventID := eventResult.Data.ID
+	t.Cleanup(func() { deleteEvent(t, client, eventID) })
 
 	// Verify both services are associated
 	require.Len(t, eventResult.Data.ServiceIDs, 2)
 
 	// Check that services have correct effective_status
-	resp, err = client.GET("/api/v1/services/" + service1Slug)
-	require.NoError(t, err)
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-	var svc1StatusResult struct {
-		Data struct {
-			EffectiveStatus string `json:"effective_status"`
-		} `json:"data"`
-	}
-	testutil.DecodeJSON(t, resp, &svc1StatusResult)
-	assert.Equal(t, "degraded", svc1StatusResult.Data.EffectiveStatus)
-
-	resp, err = client.GET("/api/v1/services/" + service2Slug)
-	require.NoError(t, err)
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-	var svc2StatusResult struct {
-		Data struct {
-			EffectiveStatus string `json:"effective_status"`
-		} `json:"data"`
-	}
-	testutil.DecodeJSON(t, resp, &svc2StatusResult)
-	assert.Equal(t, "major_outage", svc2StatusResult.Data.EffectiveStatus)
-
-	// Cleanup
-	resp, _ = client.DELETE("/api/v1/events/" + eventID)
-	resp.Body.Close()
-	client.DELETE("/api/v1/services/" + service1Slug)
-	client.DELETE("/api/v1/services/" + service2Slug)
+	assert.Equal(t, "degraded", getServiceEffectiveStatus(t, client, slug1))
+	assert.Equal(t, "major_outage", getServiceEffectiveStatus(t, client, slug2))
 }
 
 func TestEvents_CreateWithAffectedGroups(t *testing.T) {
 	client := newTestClient(t)
 	client.LoginAsAdmin(t)
 
-	// Create a group
-	groupSlug := testutil.RandomSlug("aff-grp")
-	resp, err := client.POST("/api/v1/groups", map[string]string{
-		"name": "Affected Group",
-		"slug": groupSlug,
-	})
-	require.NoError(t, err)
-	require.Equal(t, http.StatusCreated, resp.StatusCode)
-	var groupResult struct {
-		Data struct {
-			ID string `json:"id"`
-		} `json:"data"`
-	}
-	testutil.DecodeJSON(t, resp, &groupResult)
-	groupID := groupResult.Data.ID
+	groupID, groupSlug := createTestGroup(t, client, "Affected Group")
+	t.Cleanup(func() { deleteGroup(t, client, groupSlug) })
 
-	// Create services in the group
-	service1Slug := testutil.RandomSlug("grp-aff-svc1")
-	service2Slug := testutil.RandomSlug("grp-aff-svc2")
+	_, svc1Slug := createTestService(t, client, "Group Affected Service 1", withGroupIDs([]string{groupID}))
+	t.Cleanup(func() { deleteService(t, client, svc1Slug) })
 
-	resp, err = client.POST("/api/v1/services", map[string]interface{}{
-		"name":      "Group Affected Service 1",
-		"slug":      service1Slug,
-		"group_ids": []string{groupID},
-	})
-	require.NoError(t, err)
-	require.Equal(t, http.StatusCreated, resp.StatusCode)
-	resp.Body.Close()
+	_, svc2Slug := createTestService(t, client, "Group Affected Service 2", withGroupIDs([]string{groupID}))
+	t.Cleanup(func() { deleteService(t, client, svc2Slug) })
 
-	resp, err = client.POST("/api/v1/services", map[string]interface{}{
-		"name":      "Group Affected Service 2",
-		"slug":      service2Slug,
-		"group_ids": []string{groupID},
+	eventID := createTestIncident(t, client, "Affected Groups Test", nil, []AffectedGroup{
+		{GroupID: groupID, Status: "partial_outage"},
 	})
-	require.NoError(t, err)
-	require.Equal(t, http.StatusCreated, resp.StatusCode)
-	resp.Body.Close()
+	t.Cleanup(func() { deleteEvent(t, client, eventID) })
 
-	// Create event with affected_groups - all services in group get same status
-	resp, err = client.POST("/api/v1/events", map[string]interface{}{
-		"title":       "Affected Groups Test",
-		"type":        "incident",
-		"status":      "investigating",
-		"severity":    "major",
-		"description": "Testing affected_groups",
-		"affected_groups": []map[string]interface{}{
-			{"group_id": groupID, "status": "partial_outage"},
-		},
-	})
+	// Get event to verify services were associated
+	resp, err := client.GET("/api/v1/events/" + eventID)
 	require.NoError(t, err)
-	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	var eventResult struct {
 		Data struct {
-			ID         string   `json:"id"`
 			ServiceIDs []string `json:"service_ids"`
 			GroupIDs   []string `json:"group_ids"`
 		} `json:"data"`
 	}
 	testutil.DecodeJSON(t, resp, &eventResult)
-	eventID := eventResult.Data.ID
 
 	// Verify both services are associated (expanded from group)
 	require.Len(t, eventResult.Data.ServiceIDs, 2, "should have 2 services from group")
@@ -1150,87 +831,26 @@ func TestEvents_CreateWithAffectedGroups(t *testing.T) {
 	assert.Equal(t, groupID, eventResult.Data.GroupIDs[0])
 
 	// Check that both services have the same effective_status from group
-	resp, err = client.GET("/api/v1/services/" + service1Slug)
-	require.NoError(t, err)
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-	var svc1StatusResult struct {
-		Data struct {
-			EffectiveStatus string `json:"effective_status"`
-		} `json:"data"`
-	}
-	testutil.DecodeJSON(t, resp, &svc1StatusResult)
-	assert.Equal(t, "partial_outage", svc1StatusResult.Data.EffectiveStatus)
-
-	resp, err = client.GET("/api/v1/services/" + service2Slug)
-	require.NoError(t, err)
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-	var svc2StatusResult struct {
-		Data struct {
-			EffectiveStatus string `json:"effective_status"`
-		} `json:"data"`
-	}
-	testutil.DecodeJSON(t, resp, &svc2StatusResult)
-	assert.Equal(t, "partial_outage", svc2StatusResult.Data.EffectiveStatus)
-
-	// Cleanup
-	resp, _ = client.DELETE("/api/v1/events/" + eventID)
-	resp.Body.Close()
-	client.DELETE("/api/v1/services/" + service1Slug)
-	client.DELETE("/api/v1/services/" + service2Slug)
-	client.DELETE("/api/v1/groups/" + groupSlug)
+	assert.Equal(t, "partial_outage", getServiceEffectiveStatus(t, client, svc1Slug))
+	assert.Equal(t, "partial_outage", getServiceEffectiveStatus(t, client, svc2Slug))
 }
 
 func TestEvents_ServiceOverridesGroup(t *testing.T) {
 	client := newTestClient(t)
 	client.LoginAsAdmin(t)
 
-	// Create a group
-	groupSlug := testutil.RandomSlug("override-grp")
-	resp, err := client.POST("/api/v1/groups", map[string]string{
-		"name": "Override Group",
-		"slug": groupSlug,
-	})
-	require.NoError(t, err)
-	require.Equal(t, http.StatusCreated, resp.StatusCode)
-	var groupResult struct {
-		Data struct {
-			ID string `json:"id"`
-		} `json:"data"`
-	}
-	testutil.DecodeJSON(t, resp, &groupResult)
-	groupID := groupResult.Data.ID
+	groupID, groupSlug := createTestGroup(t, client, "Override Group")
+	t.Cleanup(func() { deleteGroup(t, client, groupSlug) })
 
-	// Create services in the group
-	service1Slug := testutil.RandomSlug("override-svc1")
-	service2Slug := testutil.RandomSlug("override-svc2")
+	svc1ID, svc1Slug := createTestService(t, client, "Override Service 1", withGroupIDs([]string{groupID}))
+	t.Cleanup(func() { deleteService(t, client, svc1Slug) })
 
-	resp, err = client.POST("/api/v1/services", map[string]interface{}{
-		"name":      "Override Service 1",
-		"slug":      service1Slug,
-		"group_ids": []string{groupID},
-	})
-	require.NoError(t, err)
-	require.Equal(t, http.StatusCreated, resp.StatusCode)
-	var svc1Result struct {
-		Data struct {
-			ID string `json:"id"`
-		} `json:"data"`
-	}
-	testutil.DecodeJSON(t, resp, &svc1Result)
-	service1ID := svc1Result.Data.ID
-
-	resp, err = client.POST("/api/v1/services", map[string]interface{}{
-		"name":      "Override Service 2",
-		"slug":      service2Slug,
-		"group_ids": []string{groupID},
-	})
-	require.NoError(t, err)
-	require.Equal(t, http.StatusCreated, resp.StatusCode)
-	resp.Body.Close()
+	_, svc2Slug := createTestService(t, client, "Override Service 2", withGroupIDs([]string{groupID}))
+	t.Cleanup(func() { deleteService(t, client, svc2Slug) })
 
 	// Create event with group AND explicit service with different status
 	// Service1 is in group but also specified explicitly - explicit should win
-	resp, err = client.POST("/api/v1/events", map[string]interface{}{
+	resp, err := client.POST("/api/v1/events", map[string]interface{}{
 		"title":       "Override Test",
 		"type":        "incident",
 		"status":      "investigating",
@@ -1240,7 +860,7 @@ func TestEvents_ServiceOverridesGroup(t *testing.T) {
 			{"group_id": groupID, "status": "degraded"},
 		},
 		"affected_services": []map[string]interface{}{
-			{"service_id": service1ID, "status": "major_outage"},
+			{"service_id": svc1ID, "status": "major_outage"},
 		},
 	})
 	require.NoError(t, err)
@@ -1253,39 +873,15 @@ func TestEvents_ServiceOverridesGroup(t *testing.T) {
 	}
 	testutil.DecodeJSON(t, resp, &eventResult)
 	eventID := eventResult.Data.ID
+	t.Cleanup(func() { deleteEvent(t, client, eventID) })
 
 	// Service1 should have major_outage (from explicit affected_services)
-	resp, err = client.GET("/api/v1/services/" + service1Slug)
-	require.NoError(t, err)
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-	var svc1StatusResult struct {
-		Data struct {
-			EffectiveStatus string `json:"effective_status"`
-		} `json:"data"`
-	}
-	testutil.DecodeJSON(t, resp, &svc1StatusResult)
-	assert.Equal(t, "major_outage", svc1StatusResult.Data.EffectiveStatus,
+	assert.Equal(t, "major_outage", getServiceEffectiveStatus(t, client, svc1Slug),
 		"explicit service status should override group status")
 
 	// Service2 should have degraded (from group)
-	resp, err = client.GET("/api/v1/services/" + service2Slug)
-	require.NoError(t, err)
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-	var svc2StatusResult struct {
-		Data struct {
-			EffectiveStatus string `json:"effective_status"`
-		} `json:"data"`
-	}
-	testutil.DecodeJSON(t, resp, &svc2StatusResult)
-	assert.Equal(t, "degraded", svc2StatusResult.Data.EffectiveStatus,
+	assert.Equal(t, "degraded", getServiceEffectiveStatus(t, client, svc2Slug),
 		"service from group should have group status")
-
-	// Cleanup
-	resp, _ = client.DELETE("/api/v1/events/" + eventID)
-	resp.Body.Close()
-	client.DELETE("/api/v1/services/" + service1Slug)
-	client.DELETE("/api/v1/services/" + service2Slug)
-	client.DELETE("/api/v1/groups/" + groupSlug)
 }
 
 func TestEvents_CreateNoServices(t *testing.T) {
@@ -1323,29 +919,15 @@ func TestEvents_CreateNoServices(t *testing.T) {
 
 func TestEvents_InvalidServiceStatus(t *testing.T) {
 	client := newTestClientWithoutValidation()
-	client.LoginAsOperator(t)
-
-	// Create a service first
 	client.LoginAsAdmin(t)
-	serviceSlug := testutil.RandomSlug("invalid-status-svc")
-	resp, err := client.POST("/api/v1/services", map[string]string{
-		"name": "Invalid Status Service",
-		"slug": serviceSlug,
-	})
-	require.NoError(t, err)
-	require.Equal(t, http.StatusCreated, resp.StatusCode)
-	var svcResult struct {
-		Data struct {
-			ID string `json:"id"`
-		} `json:"data"`
-	}
-	testutil.DecodeJSON(t, resp, &svcResult)
-	serviceID := svcResult.Data.ID
+
+	serviceID, slug := createTestService(t, client, "Invalid Status Service")
+	t.Cleanup(func() { deleteService(t, client, slug) })
 
 	client.LoginAsOperator(t)
 
 	// Try to create event with invalid service status
-	resp, err = client.POST("/api/v1/events", map[string]interface{}{
+	resp, err := client.POST("/api/v1/events", map[string]interface{}{
 		"title":       "Invalid Status Test",
 		"type":        "incident",
 		"status":      "investigating",
@@ -1358,10 +940,6 @@ func TestEvents_InvalidServiceStatus(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusBadRequest, resp.StatusCode, "should reject invalid service status")
 	resp.Body.Close()
-
-	// Cleanup
-	client.LoginAsAdmin(t)
-	client.DELETE("/api/v1/services/" + serviceSlug)
 }
 
 func TestEvents_NonexistentService(t *testing.T) {
