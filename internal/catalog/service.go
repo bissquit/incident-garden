@@ -343,6 +343,11 @@ func (s *Service) ListStatusLog(ctx context.Context, serviceID string, limit, of
 	return entries, total, nil
 }
 
+// DeleteStatusLogByEventIDTx deletes all status log entries for a given event within a transaction.
+func (s *Service) DeleteStatusLogByEventIDTx(ctx context.Context, tx pgx.Tx, eventID string) error {
+	return s.repo.DeleteStatusLogByEventIDTx(ctx, tx, eventID)
+}
+
 func validateSlug(slug string) error {
 	slug = strings.TrimSpace(slug)
 	if slug == "" {

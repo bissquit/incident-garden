@@ -199,6 +199,7 @@ func (h *Handler) GetEventUpdates(w http.ResponseWriter, r *http.Request) {
 // DeleteEvent handles DELETE /events/{id}.
 func (h *Handler) DeleteEvent(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+
 	if err := h.service.DeleteEvent(r.Context(), id); err != nil {
 		h.handleServiceError(w, err)
 		return
@@ -400,6 +401,8 @@ func (h *Handler) handleServiceError(w http.ResponseWriter, err error) {
 		h.respondError(w, http.StatusBadRequest, "severity is required for incidents")
 	case errors.Is(err, ErrEventAlreadyResolved):
 		h.respondError(w, http.StatusConflict, "cannot update resolved event")
+	case errors.Is(err, ErrEventNotResolved):
+		h.respondError(w, http.StatusConflict, "cannot delete active event: resolve it first")
 	case errors.Is(err, ErrServiceNotInEvent):
 		h.respondError(w, http.StatusBadRequest, "service is not in this event")
 	default:

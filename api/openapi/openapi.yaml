@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: StatusPage API
   description: API for managing service statuses and incidents
-  version: 2.3.0
+  version: 2.4.0
   contact:
     name: API Support
 servers:
@@ -665,7 +665,24 @@ paths:
     delete:
       tags: [events]
       summary: Delete an event
-      description: Requires admin role
+      description: |
+        Deletes an event and all associated data.
+
+        **Requirements:**
+        - Requires admin role
+        - Event must be resolved/completed (active events cannot be deleted)
+
+        **What gets deleted:**
+        - The event itself
+        - All event updates
+        - Service associations (event_services)
+        - Group associations (event_groups)
+        - Service change audit trail (event_service_changes)
+        - Status log entries referencing this event
+
+        **Note:** This is a destructive operation. The event and its history
+        will be permanently removed. Consider if you really need to delete
+        rather than just keeping the resolved event in history.
       operationId: deleteEvent
       security:
         - BearerAuth: []
@@ -673,13 +690,26 @@ paths:
         - $ref: '#/components/parameters/EventId'
       responses:
         '204':
-          description: Event deleted
+          description: Event deleted successfully
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '409':
+          description: Cannot delete active event
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      message:
+                        type: string
+                        example: "cannot delete active event: resolve it first"
   /api/v1/events/{id}/updates:
     get:
       tags: [events]

@@ -61,6 +61,7 @@ type Repository interface {
 	CreateStatusLogEntryTx(ctx context.Context, tx pgx.Tx, entry *domain.ServiceStatusLogEntry) error
 	ListStatusLog(ctx context.Context, serviceID string, limit, offset int) ([]domain.ServiceStatusLogEntry, error)
 	CountStatusLog(ctx context.Context, serviceID string) (int, error)
+	DeleteStatusLogByEventIDTx(ctx context.Context, tx pgx.Tx, eventID string) error
 }
 
 // ServiceFilter represents filter criteria for listing services.

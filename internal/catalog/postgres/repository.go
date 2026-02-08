@@ -1041,3 +1041,10 @@ func (r *Repository) CountStatusLog(ctx context.Context, serviceID string) (int,
 	return count, err
 }
 
+// DeleteStatusLogByEventIDTx deletes all status log entries for a given event within a transaction.
+func (r *Repository) DeleteStatusLogByEventIDTx(ctx context.Context, tx pgx.Tx, eventID string) error {
+	query := `DELETE FROM service_status_log WHERE event_id = $1`
+	_, err := tx.Exec(ctx, query, eventID)
+	return err
+}
+

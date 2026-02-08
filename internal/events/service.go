@@ -479,9 +479,55 @@ func (s *Service) GetEventUpdates(ctx context.Context, eventID string) ([]*domai
 	return s.repo.ListEventUpdates(ctx, eventID)
 }
 
-// DeleteEvent deletes an event by ID.
+// DeleteEvent deletes a resolved event and all associated data.
+//
+// Deletion rules:
+// 1. Only resolved/completed events can be deleted
+// 2. Active events must be resolved first
+//
+// What gets deleted (via CASCADE and explicit deletion):
+// - event_services: service associations with statuses
+// - event_groups: group associations
+// - event_updates: status updates
+// - event_service_changes: audit trail of service additions/removals
+// - service_status_log: entries referencing this event
+//
+// What is NOT affected:
+// - services.status: stored status remains unchanged
+// - effective_status: since event is already resolved, it wasn't affecting effective status
+//
+// This is a destructive operation that removes historical data.
 func (s *Service) DeleteEvent(ctx context.Context, id string) error {
-	return s.repo.DeleteEvent(ctx, id)
+	event, err := s.repo.GetEvent(ctx, id)
+	if err != nil {
+		return fmt.Errorf("get event: %w", err)
+	}
+
+	if !event.Status.IsResolved() {
+		return ErrEventNotResolved
+	}
+
+	tx, err := s.repo.BeginTx(ctx)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Delete status log entries referencing this event
+	if err := s.catalogService.DeleteStatusLogByEventIDTx(ctx, tx, id); err != nil {
+		return fmt.Errorf("delete status log entries: %w", err)
+	}
+
+	// Delete event (CASCADE will delete event_services, event_groups, event_updates, event_service_changes)
+	if err := s.repo.DeleteEventTx(ctx, tx, id); err != nil {
+		return fmt.Errorf("delete event: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+
+	return nil
 }
 
 // CreateTemplate creates a new event template with validation.

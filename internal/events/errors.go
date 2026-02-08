@@ -11,4 +11,5 @@ var (
 	ErrInvalidSeverity      = errors.New("severity is required for incidents")
 	ErrServiceNotInEvent    = errors.New("service is not associated with this event")
 	ErrEventAlreadyResolved = errors.New("cannot update resolved event")
+	ErrEventNotResolved     = errors.New("cannot delete active event: resolve it first")
 )

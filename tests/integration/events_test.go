@@ -1433,3 +1433,587 @@ func TestEvents_NonexistentGroup(t *testing.T) {
 	assert.NotEqual(t, http.StatusCreated, resp.StatusCode, "should reject nonexistent group")
 	resp.Body.Close()
 }
+
+func TestDeleteEvent_ActiveEvent_Forbidden(t *testing.T) {
+	client := newTestClient(t)
+	client.LoginAsOperator(t)
+
+	// Create an active incident
+	resp, err := client.POST("/api/v1/events", map[string]interface{}{
+		"title":       "Active Event Delete Test",
+		"type":        "incident",
+		"status":      "investigating",
+		"severity":    "minor",
+		"description": "Testing cannot delete active event",
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var eventResult struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &eventResult)
+	eventID := eventResult.Data.ID
+
+	// Try to delete as admin - should fail with 409
+	client.LoginAsAdmin(t)
+	resp, err = client.DELETE("/api/v1/events/" + eventID)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusConflict, resp.StatusCode, "should not allow deleting active event")
+
+	var errorResult struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	testutil.DecodeJSON(t, resp, &errorResult)
+	assert.Contains(t, errorResult.Error.Message, "resolve it first")
+
+	// Cleanup: resolve the event first, then delete
+	client.LoginAsOperator(t)
+	resp, _ = client.POST("/api/v1/events/"+eventID+"/updates", map[string]interface{}{
+		"status":  "resolved",
+		"message": "Resolved for cleanup",
+	})
+	resp.Body.Close()
+
+	client.LoginAsAdmin(t)
+	resp, _ = client.DELETE("/api/v1/events/" + eventID)
+	resp.Body.Close()
+}
+
+func TestDeleteEvent_ResolvedEvent_Success(t *testing.T) {
+	client := newTestClient(t)
+	client.LoginAsOperator(t)
+
+	// Create incident
+	resp, err := client.POST("/api/v1/events", map[string]interface{}{
+		"title":       "Resolved Event Delete Test",
+		"type":        "incident",
+		"status":      "investigating",
+		"severity":    "minor",
+		"description": "Testing delete resolved event",
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var eventResult struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &eventResult)
+	eventID := eventResult.Data.ID
+
+	// Resolve the event
+	resp, err = client.POST("/api/v1/events/"+eventID+"/updates", map[string]interface{}{
+		"status":  "resolved",
+		"message": "Issue fixed",
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	resp.Body.Close()
+
+	// Delete as admin
+	client.LoginAsAdmin(t)
+	resp, err = client.DELETE("/api/v1/events/" + eventID)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusNoContent, resp.StatusCode)
+	resp.Body.Close()
+
+	// Verify event is deleted
+	resp, err = client.GET("/api/v1/events/" + eventID)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+	resp.Body.Close()
+}
+
+func TestDeleteEvent_MaintenanceCompleted_Success(t *testing.T) {
+	client := newTestClient(t)
+	client.LoginAsOperator(t)
+
+	// Create maintenance
+	resp, err := client.POST("/api/v1/events", map[string]interface{}{
+		"title":              "Maintenance Delete Test",
+		"type":               "maintenance",
+		"status":             "scheduled",
+		"description":        "Testing delete completed maintenance",
+		"scheduled_start_at": "2030-01-20T02:00:00Z",
+		"scheduled_end_at":   "2030-01-20T04:00:00Z",
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var eventResult struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &eventResult)
+	eventID := eventResult.Data.ID
+
+	// Move to in_progress
+	resp, _ = client.POST("/api/v1/events/"+eventID+"/updates", map[string]interface{}{
+		"status":  "in_progress",
+		"message": "Starting maintenance",
+	})
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	resp.Body.Close()
+
+	// Complete the maintenance
+	resp, _ = client.POST("/api/v1/events/"+eventID+"/updates", map[string]interface{}{
+		"status":  "completed",
+		"message": "Maintenance completed",
+	})
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	resp.Body.Close()
+
+	// Delete as admin
+	client.LoginAsAdmin(t)
+	resp, err = client.DELETE("/api/v1/events/" + eventID)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusNoContent, resp.StatusCode)
+	resp.Body.Close()
+}
+
+func TestDeleteEvent_RequiresAdmin(t *testing.T) {
+	client := newTestClient(t)
+	client.LoginAsOperator(t)
+
+	// Create and resolve incident
+	resp, err := client.POST("/api/v1/events", map[string]interface{}{
+		"title":       "Admin Role Test",
+		"type":        "incident",
+		"status":      "investigating",
+		"severity":    "minor",
+		"description": "Testing admin role requirement",
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var eventResult struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &eventResult)
+	eventID := eventResult.Data.ID
+
+	resp, _ = client.POST("/api/v1/events/"+eventID+"/updates", map[string]interface{}{
+		"status":  "resolved",
+		"message": "Resolved",
+	})
+	resp.Body.Close()
+
+	// Try to delete as operator - should fail with 403
+	resp, err = client.DELETE("/api/v1/events/" + eventID)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode, "operator should not be able to delete events")
+	resp.Body.Close()
+
+	// Delete as admin - should succeed
+	client.LoginAsAdmin(t)
+	resp, err = client.DELETE("/api/v1/events/" + eventID)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusNoContent, resp.StatusCode)
+	resp.Body.Close()
+}
+
+func TestDeleteEvent_NotFound(t *testing.T) {
+	client := newTestClient(t)
+	client.LoginAsAdmin(t)
+
+	fakeEventID := "00000000-0000-0000-0000-000000000000"
+	resp, err := client.DELETE("/api/v1/events/" + fakeEventID)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+	resp.Body.Close()
+}
+
+func TestDeleteEvent_CascadeDeletesEventUpdates(t *testing.T) {
+	client := newTestClient(t)
+	client.LoginAsOperator(t)
+
+	// Create incident
+	resp, err := client.POST("/api/v1/events", map[string]interface{}{
+		"title":       "Cascade Updates Test",
+		"type":        "incident",
+		"status":      "investigating",
+		"severity":    "minor",
+		"description": "Testing cascade delete of updates",
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var eventResult struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &eventResult)
+	eventID := eventResult.Data.ID
+
+	// Add some updates
+	resp, _ = client.POST("/api/v1/events/"+eventID+"/updates", map[string]interface{}{
+		"status":  "identified",
+		"message": "Found the issue",
+	})
+	resp.Body.Close()
+
+	resp, _ = client.POST("/api/v1/events/"+eventID+"/updates", map[string]interface{}{
+		"status":  "monitoring",
+		"message": "Fix deployed",
+	})
+	resp.Body.Close()
+
+	resp, _ = client.POST("/api/v1/events/"+eventID+"/updates", map[string]interface{}{
+		"status":  "resolved",
+		"message": "Confirmed fixed",
+	})
+	resp.Body.Close()
+
+	// Verify updates exist
+	resp, err = client.GET("/api/v1/events/" + eventID + "/updates")
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var updatesResult struct {
+		Data []interface{} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &updatesResult)
+	require.GreaterOrEqual(t, len(updatesResult.Data), 3, "should have at least 3 updates")
+
+	// Delete event
+	client.LoginAsAdmin(t)
+	resp, err = client.DELETE("/api/v1/events/" + eventID)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusNoContent, resp.StatusCode)
+	resp.Body.Close()
+
+	// Verify event is deleted
+	resp, err = client.GET("/api/v1/events/" + eventID)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+	resp.Body.Close()
+}
+
+func TestDeleteEvent_CascadeDeletesEventServices(t *testing.T) {
+	client := newTestClient(t)
+	client.LoginAsAdmin(t)
+
+	// Create service
+	serviceSlug := testutil.RandomSlug("cascade-svc")
+	resp, err := client.POST("/api/v1/services", map[string]string{
+		"name": "Cascade Service Test",
+		"slug": serviceSlug,
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var svcResult struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &svcResult)
+	serviceID := svcResult.Data.ID
+
+	// Create event with service
+	resp, err = client.POST("/api/v1/events", map[string]interface{}{
+		"title":       "Cascade Services Test",
+		"type":        "incident",
+		"status":      "investigating",
+		"severity":    "major",
+		"description": "Testing cascade delete of services",
+		"affected_services": []map[string]interface{}{
+			{"service_id": serviceID, "status": "major_outage"},
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var eventResult struct {
+		Data struct {
+			ID         string   `json:"id"`
+			ServiceIDs []string `json:"service_ids"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &eventResult)
+	eventID := eventResult.Data.ID
+	require.Len(t, eventResult.Data.ServiceIDs, 1)
+
+	// Resolve and delete
+	client.LoginAsOperator(t)
+	resp, _ = client.POST("/api/v1/events/"+eventID+"/updates", map[string]interface{}{
+		"status":  "resolved",
+		"message": "Fixed",
+	})
+	resp.Body.Close()
+
+	client.LoginAsAdmin(t)
+	resp, err = client.DELETE("/api/v1/events/" + eventID)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusNoContent, resp.StatusCode)
+	resp.Body.Close()
+
+	// Cleanup service
+	client.DELETE("/api/v1/services/" + serviceSlug)
+}
+
+func TestDeleteEvent_CascadeDeletesEventGroups(t *testing.T) {
+	client := newTestClient(t)
+	client.LoginAsAdmin(t)
+
+	// Create group
+	groupSlug := testutil.RandomSlug("cascade-grp")
+	resp, err := client.POST("/api/v1/groups", map[string]string{
+		"name": "Cascade Group Test",
+		"slug": groupSlug,
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var groupResult struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &groupResult)
+	groupID := groupResult.Data.ID
+
+	// Create service in group
+	serviceSlug := testutil.RandomSlug("cascade-grp-svc")
+	resp, _ = client.POST("/api/v1/services", map[string]interface{}{
+		"name":      "Cascade Group Service",
+		"slug":      serviceSlug,
+		"group_ids": []string{groupID},
+	})
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	resp.Body.Close()
+
+	// Create event with group
+	resp, err = client.POST("/api/v1/events", map[string]interface{}{
+		"title":       "Cascade Groups Test",
+		"type":        "incident",
+		"status":      "investigating",
+		"severity":    "major",
+		"description": "Testing cascade delete of groups",
+		"affected_groups": []map[string]interface{}{
+			{"group_id": groupID, "status": "partial_outage"},
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var eventResult struct {
+		Data struct {
+			ID       string   `json:"id"`
+			GroupIDs []string `json:"group_ids"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &eventResult)
+	eventID := eventResult.Data.ID
+	require.Len(t, eventResult.Data.GroupIDs, 1)
+
+	// Resolve and delete
+	client.LoginAsOperator(t)
+	resp, _ = client.POST("/api/v1/events/"+eventID+"/updates", map[string]interface{}{
+		"status":  "resolved",
+		"message": "Fixed",
+	})
+	resp.Body.Close()
+
+	client.LoginAsAdmin(t)
+	resp, err = client.DELETE("/api/v1/events/" + eventID)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusNoContent, resp.StatusCode)
+	resp.Body.Close()
+
+	// Cleanup
+	client.DELETE("/api/v1/services/" + serviceSlug)
+	client.DELETE("/api/v1/groups/" + groupSlug)
+}
+
+func TestDeleteEvent_CascadeDeletesServiceChanges(t *testing.T) {
+	client := newTestClient(t)
+	client.LoginAsAdmin(t)
+
+	// Create services
+	service1Slug := testutil.RandomSlug("changes-svc1")
+	service2Slug := testutil.RandomSlug("changes-svc2")
+
+	resp, _ := client.POST("/api/v1/services", map[string]string{
+		"name": "Changes Service 1",
+		"slug": service1Slug,
+	})
+	var svc1Result struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &svc1Result)
+	service1ID := svc1Result.Data.ID
+
+	resp, _ = client.POST("/api/v1/services", map[string]string{
+		"name": "Changes Service 2",
+		"slug": service2Slug,
+	})
+	var svc2Result struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &svc2Result)
+	service2ID := svc2Result.Data.ID
+
+	// Create event with one service
+	resp, err := client.POST("/api/v1/events", map[string]interface{}{
+		"title":       "Changes Cascade Test",
+		"type":        "incident",
+		"status":      "investigating",
+		"severity":    "minor",
+		"description": "Testing cascade delete of changes",
+		"affected_services": []map[string]interface{}{
+			{"service_id": service1ID, "status": "degraded"},
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var eventResult struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &eventResult)
+	eventID := eventResult.Data.ID
+
+	// Add another service (creates more change records)
+	client.LoginAsOperator(t)
+	resp, _ = client.POST("/api/v1/events/"+eventID+"/updates", map[string]interface{}{
+		"status":  "identified",
+		"message": "Adding more services",
+		"add_services": []map[string]interface{}{
+			{"service_id": service2ID, "status": "partial_outage"},
+		},
+	})
+	resp.Body.Close()
+
+	// Verify changes exist
+	resp, err = client.GET("/api/v1/events/" + eventID + "/changes")
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var changesResult struct {
+		Data []interface{} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &changesResult)
+	require.GreaterOrEqual(t, len(changesResult.Data), 2, "should have at least 2 changes")
+
+	// Resolve and delete
+	resp, _ = client.POST("/api/v1/events/"+eventID+"/updates", map[string]interface{}{
+		"status":  "resolved",
+		"message": "Fixed",
+	})
+	resp.Body.Close()
+
+	client.LoginAsAdmin(t)
+	resp, err = client.DELETE("/api/v1/events/" + eventID)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusNoContent, resp.StatusCode)
+	resp.Body.Close()
+
+	// Cleanup
+	client.DELETE("/api/v1/services/" + service1Slug)
+	client.DELETE("/api/v1/services/" + service2Slug)
+}
+
+func TestDeleteEvent_ServiceStatusUnchanged(t *testing.T) {
+	client := newTestClient(t)
+	client.LoginAsAdmin(t)
+
+	// Create service
+	serviceSlug := testutil.RandomSlug("status-unchanged-svc")
+	resp, err := client.POST("/api/v1/services", map[string]string{
+		"name": "Status Unchanged Service",
+		"slug": serviceSlug,
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var svcResult struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &svcResult)
+	serviceID := svcResult.Data.ID
+
+	// Verify service starts operational
+	resp, _ = client.GET("/api/v1/services/" + serviceSlug)
+	var svcCheck struct {
+		Data struct {
+			EffectiveStatus string `json:"effective_status"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &svcCheck)
+	assert.Equal(t, "operational", svcCheck.Data.EffectiveStatus)
+
+	// Create event with service
+	resp, err = client.POST("/api/v1/events", map[string]interface{}{
+		"title":       "Status Unchanged Test",
+		"type":        "incident",
+		"status":      "investigating",
+		"severity":    "major",
+		"description": "Testing status after delete",
+		"affected_services": []map[string]interface{}{
+			{"service_id": serviceID, "status": "major_outage"},
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var eventResult struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &eventResult)
+	eventID := eventResult.Data.ID
+
+	// Verify service is in major_outage
+	resp, _ = client.GET("/api/v1/services/" + serviceSlug)
+	testutil.DecodeJSON(t, resp, &svcCheck)
+	assert.Equal(t, "major_outage", svcCheck.Data.EffectiveStatus)
+
+	// Resolve event (service should become operational)
+	client.LoginAsOperator(t)
+	resp, _ = client.POST("/api/v1/events/"+eventID+"/updates", map[string]interface{}{
+		"status":  "resolved",
+		"message": "Fixed",
+	})
+	resp.Body.Close()
+
+	// Verify service is operational after resolution
+	resp, _ = client.GET("/api/v1/services/" + serviceSlug)
+	testutil.DecodeJSON(t, resp, &svcCheck)
+	assert.Equal(t, "operational", svcCheck.Data.EffectiveStatus)
+
+	// Delete event
+	client.LoginAsAdmin(t)
+	resp, err = client.DELETE("/api/v1/events/" + eventID)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusNoContent, resp.StatusCode)
+	resp.Body.Close()
+
+	// Verify service is STILL operational (deleting closed event doesn't change status)
+	resp, _ = client.GET("/api/v1/services/" + serviceSlug)
+	testutil.DecodeJSON(t, resp, &svcCheck)
+	assert.Equal(t, "operational", svcCheck.Data.EffectiveStatus,
+		"deleting resolved event should not change service status")
+
+	// Cleanup
+	client.DELETE("/api/v1/services/" + serviceSlug)
+}

@@ -491,7 +491,7 @@ docker volume rm docker_postgres_data
   - Events sorted: active first, then by created_at DESC
 
 **Admin:**
-- `DELETE /api/v1/events/{id}`
+- `DELETE /api/v1/events/{id}` — deletes event (only resolved/completed events can be deleted, returns 409 for active events)
 - `POST|GET|DELETE /api/v1/templates`
 - `POST /api/v1/templates/{slug}/preview`
 - `POST|PATCH|DELETE /api/v1/services`, `/groups` — soft delete on DELETE
@@ -543,7 +543,14 @@ docker volume rm docker_postgres_data
 - Records old_status (nullable for initial), new_status, source_type, event_id (if applicable), reason
 - Accessible via `GET /services/{slug}/status-log` (requires operator+ role)
 - Supports pagination with limit/offset
-- event_id uses ON DELETE SET NULL to preserve history when events are deleted
+- Status log entries are deleted when the referenced event is deleted
+
+**Event Deletion:**
+- Only resolved/completed events can be deleted (active events return 409 Conflict)
+- Requires admin role
+- CASCADE deletes: event_services, event_groups, event_updates, event_service_changes
+- Status log entries referencing the event are deleted explicitly
+- Service statuses are NOT changed (event was already resolved)
 
 ### Enums
 
