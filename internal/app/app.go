@@ -161,11 +161,12 @@ func (a *App) setupRouter() *chi.Mux {
 
 	catalogRepo := catalogpostgres.NewRepository(a.db)
 	catalogService := catalog.NewService(catalogRepo)
-	catalogHandler := catalog.NewHandler(catalogService)
 
 	eventsRepo := eventspostgres.NewRepository(a.db)
 	eventsService := events.NewService(eventsRepo, catalogService, catalogService)
 	eventsHandler := events.NewHandler(eventsService)
+
+	catalogHandler := catalog.NewHandler(catalogService, eventsService)
 
 	notificationsRepo := notificationspostgres.NewRepository(a.db)
 	emailSender := email.NewSender(email.Config{})
@@ -203,6 +204,8 @@ func (a *App) setupRouter() *chi.Mux {
 		r.Get("/services/{slug}", catalogHandler.GetService)
 		r.Get("/groups", catalogHandler.ListGroups)
 		r.Get("/groups/{slug}", catalogHandler.GetGroup)
+
+		catalogHandler.RegisterPublicServiceRoutes(r)
 	})
 
 	return r

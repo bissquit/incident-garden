@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: StatusPage API
   description: API for managing service statuses and incidents
-  version: 2.2.0
+  version: 2.3.0
   contact:
     name: API Support
 servers:
@@ -364,6 +364,49 @@ paths:
           $ref: '#/components/responses/UnauthorizedError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+  /api/v1/services/{slug}/events:
+    get:
+      tags: [services]
+      summary: Get events for a service
+      description: |
+        Returns events (incidents and maintenance) associated with a service.
+        This is a public endpoint, no authentication required.
+
+        Events are sorted with active events first, then by creation date descending.
+      operationId: getServiceEvents
+      parameters:
+        - $ref: '#/components/parameters/ServiceSlug'
+        - name: status
+          in: query
+          description: Filter by event status
+          schema:
+            type: string
+            enum: [active, resolved]
+          example: active
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: Events for the service
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceEventsResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
         '404':
           $ref: '#/components/responses/NotFoundError'
   /api/v1/services/{slug}/tags:
@@ -1895,6 +1938,23 @@ components:
                 $ref: '#/components/schemas/ServiceStatusLogEntry'
             total:
               type: integer
+            limit:
+              type: integer
+            offset:
+              type: integer
+    ServiceEventsResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            events:
+              type: array
+              items:
+                $ref: '#/components/schemas/Event'
+            total:
+              type: integer
+              description: Total number of events matching the filter
             limit:
               type: integer
             offset:

@@ -53,6 +53,10 @@ type Repository interface {
 	GetEventServiceIDsTx(ctx context.Context, tx pgx.Tx, eventID string) ([]string, error)
 	HasOtherActiveEventsTx(ctx context.Context, tx pgx.Tx, serviceID, excludeEventID string) (bool, error)
 	GetEventServiceStatusTx(ctx context.Context, tx pgx.Tx, eventID, serviceID string) (domain.ServiceStatus, error)
+
+	// Service events methods
+	ListEventsByServiceID(ctx context.Context, serviceID string, filter ServiceEventFilter) ([]*domain.Event, error)
+	CountEventsByServiceID(ctx context.Context, serviceID string, filter ServiceEventFilter) (int, error)
 }
 
 // EventFilters holds filter options for listing events.
@@ -60,5 +64,15 @@ type EventFilters struct {
 	Type   *domain.EventType
 	Status *domain.EventStatus
 	Limit  int
+	Offset int
+}
+
+// ServiceEventFilter holds filters for listing events by service.
+type ServiceEventFilter struct {
+	// Status filter: "active" (not resolved), "resolved", or "" (all)
+	Status string
+	// Limit for pagination
+	Limit int
+	// Offset for pagination
 	Offset int
 }

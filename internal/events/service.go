@@ -599,3 +599,18 @@ func (s *Service) recordInitialChangesTx(ctx context.Context, tx pgx.Tx, eventID
 func (s *Service) GetServiceChanges(ctx context.Context, eventID string) ([]*domain.EventServiceChange, error) {
 	return s.repo.ListServiceChanges(ctx, eventID)
 }
+
+// ListEventsByServiceID returns events associated with a service.
+func (s *Service) ListEventsByServiceID(ctx context.Context, serviceID string, filter ServiceEventFilter) ([]*domain.Event, int, error) {
+	eventsList, err := s.repo.ListEventsByServiceID(ctx, serviceID, filter)
+	if err != nil {
+		return nil, 0, fmt.Errorf("list events: %w", err)
+	}
+
+	total, err := s.repo.CountEventsByServiceID(ctx, serviceID, filter)
+	if err != nil {
+		return nil, 0, fmt.Errorf("count events: %w", err)
+	}
+
+	return eventsList, total, nil
+}
