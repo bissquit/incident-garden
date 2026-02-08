@@ -2,6 +2,7 @@
 package catalog
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -9,28 +10,38 @@ import (
 	"strconv"
 
 	"github.com/bissquit/incident-garden/internal/domain"
+	"github.com/bissquit/incident-garden/internal/events"
 	"github.com/bissquit/incident-garden/internal/pkg/httputil"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-playground/validator/v10"
 )
 
-// Pagination constants for status log.
+// EventsServiceReader interface for reading events (used by catalog handler).
+type EventsServiceReader interface {
+	ListEventsByServiceID(ctx context.Context, serviceID string, filter events.ServiceEventFilter) ([]*domain.Event, int, error)
+}
+
+// Pagination constants.
 const (
 	DefaultStatusLogLimit = 50
 	MaxStatusLogLimit     = 100
+	DefaultEventsLimit    = 20
+	MaxEventsLimit        = 100
 )
 
 // Handler handles HTTP requests for the catalog module.
 type Handler struct {
-	service   *Service
-	validator *validator.Validate
+	service       *Service
+	eventsService EventsServiceReader
+	validator     *validator.Validate
 }
 
 // NewHandler creates a new catalog handler.
-func NewHandler(service *Service) *Handler {
+func NewHandler(service *Service, eventsService EventsServiceReader) *Handler {
 	return &Handler{
-		service:   service,
-		validator: validator.New(),
+		service:       service,
+		eventsService: eventsService,
+		validator:     validator.New(),
 	}
 }
 
@@ -60,6 +71,11 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 // RegisterOperatorRoutes registers routes that require operator role.
 func (h *Handler) RegisterOperatorRoutes(r chi.Router) {
 	r.Get("/services/{slug}/status-log", h.GetServiceStatusLog)
+}
+
+// RegisterPublicServiceRoutes registers public routes for services.
+func (h *Handler) RegisterPublicServiceRoutes(r chi.Router) {
+	r.Get("/services/{slug}/events", h.GetServiceEvents)
 }
 
 // CreateGroupRequest represents the request body for creating a service group.
@@ -494,6 +510,71 @@ func (h *Handler) GetServiceStatusLog(w http.ResponseWriter, r *http.Request) {
 		"total":   total,
 		"limit":   limit,
 		"offset":  offset,
+	}
+
+	h.respondJSON(w, http.StatusOK, response)
+}
+
+// GetServiceEvents handles GET /services/{slug}/events request.
+func (h *Handler) GetServiceEvents(w http.ResponseWriter, r *http.Request) {
+	slug := chi.URLParam(r, "slug")
+
+	service, err := h.service.GetServiceBySlug(r.Context(), slug)
+	if err != nil {
+		h.handleServiceError(w, err)
+		return
+	}
+
+	// Parse status filter
+	statusFilter := r.URL.Query().Get("status")
+	if statusFilter != "" && statusFilter != "active" && statusFilter != "resolved" {
+		h.respondError(w, http.StatusBadRequest, "invalid status filter, must be 'active', 'resolved', or empty")
+		return
+	}
+
+	// Parse pagination with validation
+	limit := DefaultEventsLimit
+	offset := 0
+
+	if l := r.URL.Query().Get("limit"); l != "" {
+		parsed, err := strconv.Atoi(l)
+		if err != nil || parsed < 1 {
+			h.respondError(w, http.StatusBadRequest, "limit must be a positive integer")
+			return
+		}
+		if parsed > MaxEventsLimit {
+			parsed = MaxEventsLimit
+		}
+		limit = parsed
+	}
+
+	if o := r.URL.Query().Get("offset"); o != "" {
+		parsed, err := strconv.Atoi(o)
+		if err != nil || parsed < 0 {
+			h.respondError(w, http.StatusBadRequest, "offset must be a non-negative integer")
+			return
+		}
+		offset = parsed
+	}
+
+	filter := events.ServiceEventFilter{
+		Status: statusFilter,
+		Limit:  limit,
+		Offset: offset,
+	}
+
+	eventsList, total, err := h.eventsService.ListEventsByServiceID(r.Context(), service.ID, filter)
+	if err != nil {
+		slog.Error("failed to list events for service", "service_id", service.ID, "error", err)
+		h.respondError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	response := map[string]interface{}{
+		"events": eventsList,
+		"total":  total,
+		"limit":  limit,
+		"offset": offset,
 	}
 
 	h.respondJSON(w, http.StatusOK, response)

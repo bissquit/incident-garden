@@ -901,3 +901,116 @@ func (r *Repository) GetEventServiceStatusTx(ctx context.Context, tx pgx.Tx, eve
 	}
 	return status, nil
 }
+
+// ListEventsByServiceID returns events associated with a service.
+func (r *Repository) ListEventsByServiceID(ctx context.Context, serviceID string, filter events.ServiceEventFilter) ([]*domain.Event, error) {
+	query := `
+		SELECT
+			e.id, e.title, e.type, e.status, e.severity, e.description,
+			e.started_at, e.resolved_at, e.scheduled_start_at, e.scheduled_end_at,
+			e.notify_subscribers, e.template_id, e.created_by,
+			e.created_at, e.updated_at
+		FROM events e
+		WHERE EXISTS (SELECT 1 FROM event_services es WHERE es.event_id = e.id AND es.service_id = $1)
+	`
+	args := []interface{}{serviceID}
+	argNum := 2
+
+	switch filter.Status {
+	case "active":
+		query += " AND e.status NOT IN ('resolved', 'completed')"
+	case "resolved":
+		query += " AND e.status IN ('resolved', 'completed')"
+	}
+
+	query += `
+		ORDER BY
+			CASE WHEN e.status NOT IN ('resolved', 'completed') THEN 0 ELSE 1 END,
+			e.created_at DESC
+	`
+
+	if filter.Limit > 0 {
+		query += fmt.Sprintf(" LIMIT $%d", argNum)
+		args = append(args, filter.Limit)
+		argNum++
+	}
+	if filter.Offset > 0 {
+		query += fmt.Sprintf(" OFFSET $%d", argNum)
+		args = append(args, filter.Offset)
+	}
+
+	rows, err := r.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list events by service: %w", err)
+	}
+	defer rows.Close()
+
+	eventsList := make([]*domain.Event, 0)
+	for rows.Next() {
+		var event domain.Event
+		if err := rows.Scan(
+			&event.ID,
+			&event.Title,
+			&event.Type,
+			&event.Status,
+			&event.Severity,
+			&event.Description,
+			&event.StartedAt,
+			&event.ResolvedAt,
+			&event.ScheduledStartAt,
+			&event.ScheduledEndAt,
+			&event.NotifySubscribers,
+			&event.TemplateID,
+			&event.CreatedBy,
+			&event.CreatedAt,
+			&event.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan event: %w", err)
+		}
+		eventsList = append(eventsList, &event)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// Load service_ids and group_ids for each event
+	for _, event := range eventsList {
+		serviceIDs, err := r.GetEventServiceIDs(ctx, event.ID)
+		if err != nil {
+			return nil, fmt.Errorf("get event services: %w", err)
+		}
+		event.ServiceIDs = serviceIDs
+
+		groupIDs, err := r.GetEventGroups(ctx, event.ID)
+		if err != nil {
+			return nil, fmt.Errorf("get event groups: %w", err)
+		}
+		event.GroupIDs = groupIDs
+	}
+
+	return eventsList, nil
+}
+
+// CountEventsByServiceID returns the total count of events for a service.
+func (r *Repository) CountEventsByServiceID(ctx context.Context, serviceID string, filter events.ServiceEventFilter) (int, error) {
+	query := `
+		SELECT COUNT(*)
+		FROM events e
+		WHERE EXISTS (SELECT 1 FROM event_services es WHERE es.event_id = e.id AND es.service_id = $1)
+	`
+
+	switch filter.Status {
+	case "active":
+		query += " AND e.status NOT IN ('resolved', 'completed')"
+	case "resolved":
+		query += " AND e.status IN ('resolved', 'completed')"
+	}
+
+	var count int
+	err := r.db.QueryRow(ctx, query, serviceID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count events by service: %w", err)
+	}
+	return count, nil
+}

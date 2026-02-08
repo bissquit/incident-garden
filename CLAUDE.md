@@ -163,7 +163,7 @@ Dependencies: domain.User, pkg/postgres, pkg/httputil
 
 ```
 internal/catalog/
-├── handler.go             → CRUD /services, /groups + /restore endpoints
+├── handler.go             → CRUD /services, /groups + /restore + /services/{slug}/events endpoints
 ├── service.go             → CreateService, UpdateService, DeleteService (soft), RestoreService
 ├── service_test.go        → Unit tests
 ├── repository.go          → Interface with M:N methods + soft delete
@@ -185,7 +185,10 @@ Key interfaces:
 - CreateStatusLogEntry(ctx, entry) / CreateStatusLogEntryTx(ctx, tx, entry)
 - ListStatusLog(ctx, serviceID, limit, offset) → []ServiceStatusLogEntry
 
-Dependencies: domain.Service, domain.ServiceGroup, domain.ServiceWithEffectiveStatus, domain.ServiceStatusLogEntry, pkg/postgres
+Handler interfaces:
+- EventsServiceReader (for /services/{slug}/events endpoint)
+
+Dependencies: domain.Service, domain.ServiceGroup, domain.ServiceWithEffectiveStatus, domain.ServiceStatusLogEntry, events.ServiceEventFilter, pkg/postgres
 ```
 
 ### Module: events
@@ -216,6 +219,11 @@ Key interfaces:
 - GetEventServiceIDsTx(ctx, tx, eventID) → []string
 - HasOtherActiveEventsTx(ctx, tx, serviceID, excludeEventID) → bool
 - GetEventServiceStatusTx(ctx, tx, eventID, serviceID) → ServiceStatus
+- ListEventsByServiceID(ctx, serviceID, filter) → []*Event
+- CountEventsByServiceID(ctx, serviceID, filter) → int
+
+Service methods:
+- ListEventsByServiceID(ctx, serviceID, filter) → ([]*Event, total, error)
 
 Dependencies: domain.Event, domain.EventService, domain.AffectedService, domain.AffectedGroup, catalog.Service (as GroupServiceResolver + CatalogServiceUpdater), pkg/postgres
 ```
@@ -474,6 +482,13 @@ docker volume rm docker_postgres_data
   - `remove_service_ids`: remove services from event
   - On `resolved`/`completed`: recalculates stored status for affected services
 - `GET /api/v1/services/{slug}/status-log?limit=N&offset=N` — service status change history
+
+**Public (no auth):**
+- `GET /api/v1/services/{slug}/events?status=active|resolved&limit=N&offset=N` — events for a service
+  - Returns events with pagination (total, limit, offset)
+  - `status=active` filters to non-resolved/completed events
+  - `status=resolved` filters to resolved/completed events
+  - Events sorted: active first, then by created_at DESC
 
 **Admin:**
 - `DELETE /api/v1/events/{id}`
