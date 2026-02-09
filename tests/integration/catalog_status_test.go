@@ -337,6 +337,90 @@ func TestListServices_EffectiveStatusInResponse(t *testing.T) {
 	assert.True(t, found, "service should be in list")
 }
 
+// TestManualStatusChange_WithActiveEvent verifies that manual status changes
+// update the stored status but effective_status remains driven by active events.
+// When resolved, the system resets stored status to operational (current behavior).
+func TestManualStatusChange_WithActiveEvent(t *testing.T) {
+	client := newTestClient(t)
+	client.LoginAsAdmin(t)
+
+	// Create service
+	serviceID, serviceSlug := createTestService(t, client, "manual-with-event-svc")
+	t.Cleanup(func() { deleteService(t, client, serviceSlug) })
+
+	// Create active incident
+	resp, err := client.POST("/api/v1/events", map[string]interface{}{
+		"title":       "Active Incident",
+		"type":        "incident",
+		"status":      "investigating",
+		"severity":    "critical",
+		"description": "Testing manual status change during active event",
+		"affected_services": []map[string]interface{}{
+			{"service_id": serviceID, "status": "major_outage"},
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var eventResult struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &eventResult)
+	eventID := eventResult.Data.ID
+	// Note: cleanup will resolve the event first, so we track resolved state
+	eventResolved := false
+	t.Cleanup(func() {
+		if !eventResolved {
+			resolveEvent(t, client, eventID)
+		}
+		deleteEvent(t, client, eventID)
+	})
+
+	// Verify effective_status = major_outage (from event)
+	assert.Equal(t, "major_outage", getServiceEffectiveStatus(t, client, serviceSlug))
+
+	// Act: Manual change of stored status while event is active
+	resp, err = client.PATCH("/api/v1/services/"+serviceSlug, map[string]interface{}{
+		"name":   "manual-with-event-svc",
+		"slug":   serviceSlug,
+		"status": "degraded",
+		"reason": "Manual override during incident",
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	resp.Body.Close()
+
+	// Assert: effective_status still major_outage (from event)
+	assert.Equal(t, "major_outage", getServiceEffectiveStatus(t, client, serviceSlug),
+		"effective_status should still be from event (major_outage)")
+
+	// Verify stored status changed to degraded
+	resp, err = client.GET("/api/v1/services/" + serviceSlug)
+	require.NoError(t, err)
+	var svc struct {
+		Data struct {
+			Status          string `json:"status"`
+			EffectiveStatus string `json:"effective_status"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &svc)
+	assert.Equal(t, "degraded", svc.Data.Status,
+		"stored status should be manually changed to degraded")
+	assert.Equal(t, "major_outage", svc.Data.EffectiveStatus,
+		"effective status should still be from event")
+
+	// Act: Resolve incident
+	resolveEvent(t, client, eventID)
+	eventResolved = true
+
+	// Assert: After resolution, system resets stored status to operational
+	// (current behavior: resolve without other active events → operational)
+	assert.Equal(t, "operational", getServiceEffectiveStatus(t, client, serviceSlug),
+		"after event resolved, status should be reset to operational (current behavior)")
+}
+
 func TestStatusLog_ManualChange(t *testing.T) {
 	client := newTestClient(t)
 	client.LoginAsAdmin(t)

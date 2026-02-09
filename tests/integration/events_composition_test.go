@@ -11,6 +11,86 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestPartialRecovery_OneServiceOperational verifies that when one service is recovered
+// (set to operational) during an active incident, it correctly shows operational effective_status
+// while other services remain affected (Scenario A3).
+func TestPartialRecovery_OneServiceOperational(t *testing.T) {
+	client := newTestClient(t)
+	client.LoginAsAdmin(t)
+
+	// Create 2 services
+	service1ID, service1Slug := createTestService(t, client, "partial-recovery-svc1")
+	service2ID, service2Slug := createTestService(t, client, "partial-recovery-svc2")
+	t.Cleanup(func() {
+		deleteService(t, client, service1Slug)
+		deleteService(t, client, service2Slug)
+	})
+
+	// Create incident with both services
+	resp, err := client.POST("/api/v1/events", map[string]interface{}{
+		"title":       "Partial Recovery Test",
+		"type":        "incident",
+		"status":      "investigating",
+		"severity":    "major",
+		"description": "Testing partial recovery scenario",
+		"affected_services": []map[string]interface{}{
+			{"service_id": service1ID, "status": "major_outage"},
+			{"service_id": service2ID, "status": "degraded"},
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var eventResult struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &eventResult)
+	eventID := eventResult.Data.ID
+	t.Cleanup(func() {
+		resolveEvent(t, client, eventID)
+		deleteEvent(t, client, eventID)
+	})
+
+	// Verify initial statuses
+	assert.Equal(t, "major_outage", getServiceEffectiveStatus(t, client, service1Slug))
+	assert.Equal(t, "degraded", getServiceEffectiveStatus(t, client, service2Slug))
+
+	// Act: Partial recovery - service1 becomes operational
+	resp, err = client.POST("/api/v1/events/"+eventID+"/updates", map[string]interface{}{
+		"status":  "monitoring",
+		"message": "Service 1 recovered, still working on Service 2",
+		"service_updates": []map[string]interface{}{
+			{"service_id": service1ID, "status": "operational"},
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	resp.Body.Close()
+
+	// Assert
+	// Service1: operational inside event → effective = operational
+	assert.Equal(t, "operational", getServiceEffectiveStatus(t, client, service1Slug),
+		"recovered service should show operational")
+
+	// Service2: still degraded
+	assert.Equal(t, "degraded", getServiceEffectiveStatus(t, client, service2Slug),
+		"still affected service should show degraded")
+
+	// Incident is still active (monitoring)
+	resp, err = client.GET("/api/v1/events/" + eventID)
+	require.NoError(t, err)
+	var event struct {
+		Data struct {
+			Status string `json:"status"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &event)
+	assert.Equal(t, "monitoring", event.Data.Status,
+		"incident should still be active")
+}
+
 func TestAddUpdate_AddServices(t *testing.T) {
 	client := newTestClient(t)
 	client.LoginAsAdmin(t)
