@@ -50,15 +50,10 @@ func TestDeleteEvent_ActiveEvent_Forbidden(t *testing.T) {
 
 	// Cleanup: resolve the event first, then delete
 	client.LoginAsOperator(t)
-	resp, _ = client.POST("/api/v1/events/"+eventID+"/updates", map[string]interface{}{
-		"status":  "resolved",
-		"message": "Resolved for cleanup",
-	})
-	resp.Body.Close()
+	resolveEvent(t, client, eventID)
 
 	client.LoginAsAdmin(t)
-	resp, _ = client.DELETE("/api/v1/events/" + eventID)
-	resp.Body.Close()
+	deleteEvent(t, client, eventID)
 }
 
 func TestDeleteEvent_ResolvedEvent_Success(t *testing.T) {
@@ -132,20 +127,16 @@ func TestDeleteEvent_MaintenanceCompleted_Success(t *testing.T) {
 	eventID := eventResult.Data.ID
 
 	// Move to in_progress
-	resp, _ = client.POST("/api/v1/events/"+eventID+"/updates", map[string]interface{}{
+	resp, err = client.POST("/api/v1/events/"+eventID+"/updates", map[string]interface{}{
 		"status":  "in_progress",
 		"message": "Starting maintenance",
 	})
+	require.NoError(t, err)
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 	resp.Body.Close()
 
 	// Complete the maintenance
-	resp, _ = client.POST("/api/v1/events/"+eventID+"/updates", map[string]interface{}{
-		"status":  "completed",
-		"message": "Maintenance completed",
-	})
-	require.Equal(t, http.StatusCreated, resp.StatusCode)
-	resp.Body.Close()
+	completeMaintenance(t, client, eventID)
 
 	// Delete as admin
 	client.LoginAsAdmin(t)
@@ -178,11 +169,7 @@ func TestDeleteEvent_RequiresAdmin(t *testing.T) {
 	testutil.DecodeJSON(t, resp, &eventResult)
 	eventID := eventResult.Data.ID
 
-	resp, _ = client.POST("/api/v1/events/"+eventID+"/updates", map[string]interface{}{
-		"status":  "resolved",
-		"message": "Resolved",
-	})
-	resp.Body.Close()
+	resolveEvent(t, client, eventID)
 
 	// Try to delete as operator - should fail with 403
 	resp, err = client.DELETE("/api/v1/events/" + eventID)
@@ -233,23 +220,23 @@ func TestDeleteEvent_CascadeDeletesEventUpdates(t *testing.T) {
 	eventID := eventResult.Data.ID
 
 	// Add some updates
-	resp, _ = client.POST("/api/v1/events/"+eventID+"/updates", map[string]interface{}{
+	resp, err = client.POST("/api/v1/events/"+eventID+"/updates", map[string]interface{}{
 		"status":  "identified",
 		"message": "Found the issue",
 	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
 	resp.Body.Close()
 
-	resp, _ = client.POST("/api/v1/events/"+eventID+"/updates", map[string]interface{}{
+	resp, err = client.POST("/api/v1/events/"+eventID+"/updates", map[string]interface{}{
 		"status":  "monitoring",
 		"message": "Fix deployed",
 	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
 	resp.Body.Close()
 
-	resp, _ = client.POST("/api/v1/events/"+eventID+"/updates", map[string]interface{}{
-		"status":  "resolved",
-		"message": "Confirmed fixed",
-	})
-	resp.Body.Close()
+	resolveEvent(t, client, eventID)
 
 	// Verify updates exist
 	resp, err = client.GET("/api/v1/events/" + eventID + "/updates")

@@ -42,8 +42,16 @@ func TestEvents_Incident_Lifecycle(t *testing.T) {
 		"message": "Root cause identified",
 	})
 	require.NoError(t, err)
-	assert.Equal(t, http.StatusCreated, resp.StatusCode)
-	resp.Body.Close()
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var updateResult struct {
+		Data struct {
+			ID      string `json:"id"`
+			Message string `json:"message"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &updateResult)
+	assert.NotEmpty(t, updateResult.Data.ID)
 
 	resp, err = client.GET("/api/v1/events/" + eventID)
 	require.NoError(t, err)
@@ -62,8 +70,15 @@ func TestEvents_Incident_Lifecycle(t *testing.T) {
 		"message": "Issue resolved",
 	})
 	require.NoError(t, err)
-	assert.Equal(t, http.StatusCreated, resp.StatusCode)
-	resp.Body.Close()
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var resolveUpdateResult struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &resolveUpdateResult)
+	assert.NotEmpty(t, resolveUpdateResult.Data.ID)
 
 	resp, err = client.GET("/api/v1/events/" + eventID)
 	require.NoError(t, err)
@@ -267,8 +282,7 @@ func TestEvents_CreateNoServices(t *testing.T) {
 
 	// Cleanup
 	client.LoginAsAdmin(t)
-	resp, _ = client.DELETE("/api/v1/events/" + eventID)
-	resp.Body.Close()
+	deleteEvent(t, client, eventID)
 }
 
 func TestEvents_InvalidServiceStatus(t *testing.T) {

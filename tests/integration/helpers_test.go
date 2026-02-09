@@ -210,14 +210,51 @@ func resolveEvent(t *testing.T, client *testutil.Client, eventID string) {
 }
 
 // completeMaintenance completes a maintenance event (maintenance -> completed).
+// If maintenance is in 'scheduled' state, it will first transition to 'in_progress'.
 func completeMaintenance(t *testing.T, client *testutil.Client, eventID string) {
 	t.Helper()
-	resp, err := client.POST("/api/v1/events/"+eventID+"/updates", map[string]interface{}{
+
+	// Get current status
+	resp, err := client.GET("/api/v1/events/" + eventID)
+	if err != nil {
+		t.Logf("completeMaintenance: failed to get event %s: %v", eventID, err)
+		return
+	}
+
+	var event struct {
+		Data struct {
+			Status string `json:"status"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &event)
+
+	// If already completed, nothing to do
+	if event.Data.Status == "completed" {
+		return
+	}
+
+	// If scheduled, first transition to in_progress
+	if event.Data.Status == "scheduled" {
+		resp, err = client.POST("/api/v1/events/"+eventID+"/updates", map[string]interface{}{
+			"status":  "in_progress",
+			"message": "Starting maintenance for cleanup",
+		})
+		if err != nil {
+			t.Logf("completeMaintenance: failed to start maintenance %s: %v", eventID, err)
+			return
+		}
+		resp.Body.Close()
+	}
+
+	// Now complete
+	resp, err = client.POST("/api/v1/events/"+eventID+"/updates", map[string]interface{}{
 		"status":  "completed",
 		"message": "Maintenance completed",
 	})
-	require.NoError(t, err)
-	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	if err != nil {
+		t.Logf("completeMaintenance: failed to complete maintenance %s: %v", eventID, err)
+		return
+	}
 	resp.Body.Close()
 }
 

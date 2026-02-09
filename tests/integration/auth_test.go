@@ -118,8 +118,17 @@ func TestAuth_Register_DuplicateEmail(t *testing.T) {
 		"password": "password123",
 	})
 	require.NoError(t, err)
-	assert.Equal(t, http.StatusCreated, resp.StatusCode)
-	resp.Body.Close()
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var firstResult struct {
+		Data struct {
+			ID    string `json:"id"`
+			Email string `json:"email"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &firstResult)
+	assert.NotEmpty(t, firstResult.Data.ID)
+	assert.Equal(t, email, firstResult.Data.Email)
 
 	resp, err = client.POST("/api/v1/auth/register", map[string]string{
 		"email":    email,
@@ -162,16 +171,29 @@ func TestAuth_CookieAuth_WorksWithCSRF(t *testing.T) {
 	client := newTestClient(t)
 	client.LoginAsAdmin(t)
 
+	slug := testutil.RandomSlug("test")
 	// POST request should work with CSRF token
 	resp, err := client.POST("/api/v1/services", map[string]interface{}{
 		"name":        "Test Service",
-		"slug":        testutil.RandomSlug("test"),
+		"slug":        slug,
 		"description": "Test",
 		"status":      "operational",
 	})
 	require.NoError(t, err)
-	assert.Equal(t, http.StatusCreated, resp.StatusCode)
-	resp.Body.Close()
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var result struct {
+		Data struct {
+			ID   string `json:"id"`
+			Slug string `json:"slug"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &result)
+	assert.NotEmpty(t, result.Data.ID)
+	assert.Equal(t, slug, result.Data.Slug)
+
+	// Cleanup
+	deleteService(t, client, slug)
 }
 
 func TestAuth_CookieAuth_FailsWithoutCSRF(t *testing.T) {

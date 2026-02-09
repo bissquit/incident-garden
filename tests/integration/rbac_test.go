@@ -73,10 +73,19 @@ func TestRBAC_AdminCanCreateService(t *testing.T) {
 		"slug": slug,
 	})
 	require.NoError(t, err)
-	assert.Equal(t, http.StatusCreated, resp.StatusCode)
-	resp.Body.Close()
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
 
-	client.DELETE("/api/v1/services/" + slug)
+	var result struct {
+		Data struct {
+			ID   string `json:"id"`
+			Slug string `json:"slug"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &result)
+	assert.NotEmpty(t, result.Data.ID)
+	assert.Equal(t, slug, result.Data.Slug)
+
+	deleteService(t, client, slug)
 }
 
 func TestRBAC_OperatorCanCreateEvent(t *testing.T) {
@@ -91,8 +100,21 @@ func TestRBAC_OperatorCanCreateEvent(t *testing.T) {
 		"description": "Test",
 	})
 	require.NoError(t, err)
-	assert.Equal(t, http.StatusCreated, resp.StatusCode)
-	resp.Body.Close()
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var result struct {
+		Data struct {
+			ID     string `json:"id"`
+			Status string `json:"status"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &result)
+	assert.NotEmpty(t, result.Data.ID)
+	assert.Equal(t, "investigating", result.Data.Status)
+
+	// Cleanup
+	client.LoginAsAdmin(t)
+	deleteEvent(t, client, result.Data.ID)
 }
 
 func TestRBAC_UnauthenticatedCanReadPublicEndpoints(t *testing.T) {

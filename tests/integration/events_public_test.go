@@ -16,8 +16,15 @@ func TestEvents_PublicStatus(t *testing.T) {
 
 	resp, err := client.GET("/api/v1/status")
 	require.NoError(t, err)
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
-	resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var result struct {
+		Data struct {
+			Events []interface{} `json:"events"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &result)
+	assert.NotNil(t, result.Data.Events, "events should be present")
 }
 
 func TestEvents_PublicRead_NoAuth(t *testing.T) {
@@ -49,31 +56,54 @@ func TestEvents_PublicRead_NoAuth(t *testing.T) {
 	// GET /events — should be 200 without auth
 	resp, err = publicClient.GET("/api/v1/events")
 	require.NoError(t, err)
-	assert.Equal(t, http.StatusOK, resp.StatusCode, "GET /events should be public")
-	resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode, "GET /events should be public")
+
+	var eventsList struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &eventsList)
+	assert.NotNil(t, eventsList.Data, "data should be array")
 
 	// GET /events/{id} — should be 200 without auth
 	resp, err = publicClient.GET("/api/v1/events/" + eventID)
 	require.NoError(t, err)
-	assert.Equal(t, http.StatusOK, resp.StatusCode, "GET /events/{id} should be public")
-	resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode, "GET /events/{id} should be public")
+
+	var eventDetail struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &eventDetail)
+	assert.Equal(t, eventID, eventDetail.Data.ID)
 
 	// GET /events/{id}/updates — should be 200 without auth
 	resp, err = publicClient.GET("/api/v1/events/" + eventID + "/updates")
 	require.NoError(t, err)
-	assert.Equal(t, http.StatusOK, resp.StatusCode, "GET /events/{id}/updates should be public")
-	resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode, "GET /events/{id}/updates should be public")
+
+	var updates struct {
+		Data []interface{} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &updates)
+	assert.NotNil(t, updates.Data, "updates should be array")
 
 	// GET /events/{id}/changes — should be 200 without auth
 	resp, err = publicClient.GET("/api/v1/events/" + eventID + "/changes")
 	require.NoError(t, err)
-	assert.Equal(t, http.StatusOK, resp.StatusCode, "GET /events/{id}/changes should be public")
-	resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode, "GET /events/{id}/changes should be public")
+
+	var changes struct {
+		Data []interface{} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &changes)
+	assert.NotNil(t, changes.Data, "changes should be array")
 
 	// Cleanup (as admin)
 	client.LoginAsAdmin(t)
-	resp, _ = client.DELETE("/api/v1/events/" + eventID)
-	resp.Body.Close()
+	deleteEvent(t, client, eventID)
 }
 
 func TestEvents_WriteOperations_RequireAuth(t *testing.T) {
@@ -126,6 +156,5 @@ func TestEvents_WriteOperations_RequireAuth(t *testing.T) {
 
 	// Cleanup
 	client.LoginAsAdmin(t)
-	resp, _ = client.DELETE("/api/v1/events/" + eventID)
-	resp.Body.Close()
+	deleteEvent(t, client, eventID)
 }

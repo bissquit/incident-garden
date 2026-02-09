@@ -40,8 +40,17 @@ func TestCatalog_Group_CRUD(t *testing.T) {
 	publicClient := newTestClient(t)
 	resp, err = publicClient.GET("/api/v1/groups/" + slug)
 	require.NoError(t, err)
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
-	resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var getResult struct {
+		Data struct {
+			ID   string `json:"id"`
+			Slug string `json:"slug"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &getResult)
+	assert.NotEmpty(t, getResult.Data.ID)
+	assert.Equal(t, slug, getResult.Data.Slug)
 
 	resp, err = client.PATCH("/api/v1/groups/"+slug, map[string]interface{}{
 		"name":        "Test Group",

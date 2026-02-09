@@ -67,7 +67,14 @@ func TestPartialRecovery_OneServiceOperational(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
-	resp.Body.Close()
+
+	var updateResult struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &updateResult)
+	assert.NotEmpty(t, updateResult.Data.ID)
 
 	// Assert
 	// Service1: operational inside event → effective = operational
@@ -121,7 +128,14 @@ func TestAddUpdate_AddServices(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
-	resp.Body.Close()
+
+	var addServicesUpdateResult struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &addServicesUpdateResult)
+	assert.NotEmpty(t, addServicesUpdateResult.Data.ID)
 
 	// Get service changes
 	resp, err = client.GET("/api/v1/events/" + eventID + "/changes")
@@ -172,7 +186,14 @@ func TestAddUpdate_RemoveServices(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
-	resp.Body.Close()
+
+	var removeUpdateResult struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &removeUpdateResult)
+	assert.NotEmpty(t, removeUpdateResult.Data.ID)
 
 	// Get service changes
 	resp, err = client.GET("/api/v1/events/" + eventID + "/changes")
@@ -257,7 +278,14 @@ func TestAddUpdate_AddGroups(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
-	resp.Body.Close()
+
+	var addGroupsUpdateResult struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &addGroupsUpdateResult)
+	assert.NotEmpty(t, addGroupsUpdateResult.Data.ID)
 
 	// Get event and verify services were expanded from group
 	resp, err = client.GET("/api/v1/events/" + eventID)
@@ -334,7 +362,14 @@ func TestAddUpdate_UpdateServiceStatuses(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
-	resp.Body.Close()
+
+	var statusUpdateResult struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &statusUpdateResult)
+	assert.NotEmpty(t, statusUpdateResult.Data.ID)
 
 	// Verify effective status is now degraded
 	assert.Equal(t, "degraded", getServiceEffectiveStatus(t, client, slug))
@@ -370,7 +405,14 @@ func TestAddUpdate_CannotUpdateResolvedEvent(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
-	resp.Body.Close()
+
+	var resolveResult struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &resolveResult)
+	assert.NotEmpty(t, resolveResult.Data.ID)
 
 	// Try to update resolved event - should fail with 409
 	resp, err = client.POST("/api/v1/events/"+eventID+"/updates", map[string]interface{}{
@@ -383,8 +425,7 @@ func TestAddUpdate_CannotUpdateResolvedEvent(t *testing.T) {
 
 	// Cleanup
 	client.LoginAsAdmin(t)
-	resp, _ = client.DELETE("/api/v1/events/" + eventID)
-	resp.Body.Close()
+	deleteEvent(t, client, eventID)
 }
 
 func TestAddUpdate_ResolvedRecalculatesStoredStatus(t *testing.T) {

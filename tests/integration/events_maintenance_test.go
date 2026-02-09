@@ -50,9 +50,7 @@ func TestMaintenance_ScheduledDoesNotAffectStatus(t *testing.T) {
 	eventID := eventResult.Data.ID
 	t.Cleanup(func() {
 		// Complete and delete
-		client.POST("/api/v1/events/"+eventID+"/updates", map[string]interface{}{
-			"status": "completed", "message": "Done",
-		})
+		completeMaintenance(t, client, eventID)
 		deleteEvent(t, client, eventID)
 	})
 
@@ -126,9 +124,7 @@ func TestMaintenance_CreateWithInProgress(t *testing.T) {
 	testutil.DecodeJSON(t, resp, &eventResult)
 	eventID := eventResult.Data.ID
 	t.Cleanup(func() {
-		client.POST("/api/v1/events/"+eventID+"/updates", map[string]interface{}{
-			"status": "completed", "message": "Done",
-		})
+		completeMaintenance(t, client, eventID)
 		deleteEvent(t, client, eventID)
 	})
 
@@ -247,9 +243,7 @@ func TestEffectiveStatus_ScheduledMaintenanceWithActiveIncident(t *testing.T) {
 	testutil.DecodeJSON(t, maintResp, &maintResult)
 	maintID := maintResult.Data.ID
 	t.Cleanup(func() {
-		client.POST("/api/v1/events/"+maintID+"/updates", map[string]interface{}{
-			"status": "completed", "message": "Done",
-		})
+		completeMaintenance(t, client, maintID)
 		deleteEvent(t, client, maintID)
 	})
 
@@ -458,9 +452,7 @@ func TestService_ArchiveWithScheduledMaintenance(t *testing.T) {
 	testutil.DecodeJSON(t, maintResp, &maintResult)
 	maintID := maintResult.Data.ID
 	t.Cleanup(func() {
-		client.POST("/api/v1/events/"+maintID+"/updates", map[string]interface{}{
-			"status": "completed", "message": "Done",
-		})
+		completeMaintenance(t, client, maintID)
 		deleteEvent(t, client, maintID)
 	})
 
@@ -540,9 +532,7 @@ func TestServiceEvents_ActiveFilterExcludesScheduled(t *testing.T) {
 	testutil.DecodeJSON(t, maintResp, &maintResult)
 	maintID := maintResult.Data.ID
 	t.Cleanup(func() {
-		client.POST("/api/v1/events/"+maintID+"/updates", map[string]interface{}{
-			"status": "completed", "message": "Done",
-		})
+		completeMaintenance(t, client, maintID)
 		deleteEvent(t, client, maintID)
 	})
 
