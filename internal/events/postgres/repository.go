@@ -872,6 +872,8 @@ func (r *Repository) GetEventServiceIDsTx(ctx context.Context, tx pgx.Tx, eventI
 }
 
 // HasOtherActiveEventsTx checks if a service has other active events (excluding the specified event).
+// Active events are those that affect service effective_status: NOT resolved, completed, or scheduled.
+// Scheduled maintenance is not considered active until it transitions to in_progress.
 func (r *Repository) HasOtherActiveEventsTx(ctx context.Context, tx pgx.Tx, serviceID, excludeEventID string) (bool, error) {
 	query := `
 		SELECT EXISTS(
@@ -880,7 +882,7 @@ func (r *Repository) HasOtherActiveEventsTx(ctx context.Context, tx pgx.Tx, serv
 			JOIN events e ON es.event_id = e.id
 			WHERE es.service_id = $1
 			  AND e.id != $2
-			  AND e.status NOT IN ('resolved', 'completed')
+			  AND e.status NOT IN ('resolved', 'completed', 'scheduled')
 		)
 	`
 	var exists bool
@@ -918,14 +920,15 @@ func (r *Repository) ListEventsByServiceID(ctx context.Context, serviceID string
 
 	switch filter.Status {
 	case "active":
-		query += " AND e.status NOT IN ('resolved', 'completed')"
+		// Active events are those affecting effective_status: NOT resolved, completed, or scheduled
+		query += " AND e.status NOT IN ('resolved', 'completed', 'scheduled')"
 	case "resolved":
 		query += " AND e.status IN ('resolved', 'completed')"
 	}
 
 	query += `
 		ORDER BY
-			CASE WHEN e.status NOT IN ('resolved', 'completed') THEN 0 ELSE 1 END,
+			CASE WHEN e.status NOT IN ('resolved', 'completed', 'scheduled') THEN 0 ELSE 1 END,
 			e.created_at DESC
 	`
 
@@ -1002,7 +1005,8 @@ func (r *Repository) CountEventsByServiceID(ctx context.Context, serviceID strin
 
 	switch filter.Status {
 	case "active":
-		query += " AND e.status NOT IN ('resolved', 'completed')"
+		// Active events are those affecting effective_status: NOT resolved, completed, or scheduled
+		query += " AND e.status NOT IN ('resolved', 'completed', 'scheduled')"
 	case "resolved":
 		query += " AND e.status IN ('resolved', 'completed')"
 	}

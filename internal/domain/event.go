@@ -94,8 +94,19 @@ func (s Severity) IsValid() bool {
 }
 
 // IsResolved checks if the status represents a resolved/completed state.
+// Note: 'scheduled' is NOT considered resolved, but it's also NOT active
+// for the purpose of affecting service effective_status.
 func (s EventStatus) IsResolved() bool {
 	return s == EventStatusResolved || s == EventStatusCompleted
+}
+
+// IsActive checks if the event status affects service effective_status.
+// Scheduled maintenance is NOT active until it transitions to in_progress.
+// Use this instead of !IsResolved() when determining if an event affects effective_status.
+func (s EventStatus) IsActive() bool {
+	return s != EventStatusResolved &&
+		s != EventStatusCompleted &&
+		s != EventStatusScheduled
 }
 
 // SeverityToServiceStatus converts severity to service status for incidents.

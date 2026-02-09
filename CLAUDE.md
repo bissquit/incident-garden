@@ -533,9 +533,16 @@ docker volume rm docker_postgres_data
 - When creating events, operator specifies status for each service/group via `affected_services` and `affected_groups`
 - Each `affected_service` contains `{service_id, status}`, each `affected_group` contains `{group_id, status}`
 - Explicit service status overrides group-derived status (priority: service > group)
-- Service's effective status = worst active event status (priority: `major_outage` > `partial_outage` > `degraded` > `maintenance` > `operational`)
+- Service's effective status = worst-case from ACTIVE events (not resolved, completed, or scheduled)
+- **Scheduled maintenance does NOT affect effective_status until it transitions to in_progress**
+- Priority: `major_outage` > `partial_outage` > `degraded` > `maintenance` > `operational`
 - Computed via `v_service_effective_status` view, accessible via `GetEffectiveStatus()` and `ListServicesWithEffectiveStatus()`
 - If no active events, effective status = stored service status
+
+**Status After Event Resolution:**
+- When event is resolved/completed and service has no other active events, stored_status is set to `operational`
+- Manual status changes during active events are overwritten by this behavior
+- To maintain a non-operational status after resolution, set it manually after the event is closed
 
 **Service Status Audit Log:**
 - Every service status change is recorded in `service_status_log`

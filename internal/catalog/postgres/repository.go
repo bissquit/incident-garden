@@ -720,14 +720,16 @@ func (r *Repository) RestoreGroup(ctx context.Context, id string) error {
 	return nil
 }
 
-// GetActiveEventCountForService returns count of active (non-resolved/completed) events for a service.
+// GetActiveEventCountForService returns count of active events for a service.
+// Active events are those that affect service effective_status: NOT resolved, completed, or scheduled.
+// Scheduled maintenance is not considered active until it transitions to in_progress.
 func (r *Repository) GetActiveEventCountForService(ctx context.Context, serviceID string) (int, error) {
 	query := `
 		SELECT COUNT(DISTINCT e.id)
 		FROM events e
 		JOIN event_services es ON e.id = es.event_id
 		WHERE es.service_id = $1
-		  AND e.status NOT IN ('resolved', 'completed')
+		  AND e.status NOT IN ('resolved', 'completed', 'scheduled')
 	`
 	var count int
 	err := r.db.QueryRow(ctx, query, serviceID).Scan(&count)
@@ -738,6 +740,8 @@ func (r *Repository) GetActiveEventCountForService(ctx context.Context, serviceI
 }
 
 // GetActiveEventCountForGroup returns count of active events for any service in the group.
+// Active events are those that affect service effective_status: NOT resolved, completed, or scheduled.
+// Scheduled maintenance is not considered active until it transitions to in_progress.
 func (r *Repository) GetActiveEventCountForGroup(ctx context.Context, groupID string) (int, error) {
 	query := `
 		SELECT COUNT(DISTINCT e.id)
@@ -745,7 +749,7 @@ func (r *Repository) GetActiveEventCountForGroup(ctx context.Context, groupID st
 		JOIN event_services es ON e.id = es.event_id
 		JOIN service_group_members sgm ON es.service_id = sgm.service_id
 		WHERE sgm.group_id = $1
-		  AND e.status NOT IN ('resolved', 'completed')
+		  AND e.status NOT IN ('resolved', 'completed', 'scheduled')
 	`
 	var count int
 	err := r.db.QueryRow(ctx, query, groupID).Scan(&count)
