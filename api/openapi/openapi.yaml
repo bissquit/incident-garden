@@ -280,7 +280,7 @@ paths:
     delete:
       tags: [services]
       summary: Archive a service (soft delete)
-      description: Archives the service. Returns 409 if service has active events.
+      description: Archives the service. Returns 409 if service has active events (not resolved, completed, or scheduled).
       operationId: deleteService
       security:
         - BearerAuth: []
@@ -375,12 +375,13 @@ paths:
         This is a public endpoint, no authentication required.
 
         Events are sorted with active events first, then by creation date descending.
+        Active events are those not resolved, completed, or scheduled.
       operationId: getServiceEvents
       parameters:
         - $ref: '#/components/parameters/ServiceSlug'
         - name: status
           in: query
-          description: Filter by event status
+          description: Filter by event status. Active excludes resolved, completed, and scheduled events.
           schema:
             type: string
             enum: [active, resolved]
@@ -546,7 +547,7 @@ paths:
     delete:
       tags: [groups]
       summary: Archive a group (soft delete)
-      description: Archives the group. Returns 409 if group has active events or has non-archived services assigned.
+      description: Archives the group. Returns 409 if group has active events (not resolved, completed, or scheduled) or has non-archived services assigned.
       operationId: deleteGroup
       security:
         - BearerAuth: []
@@ -1277,10 +1278,10 @@ components:
           description: Stored status (set manually or by closed events)
         effective_status:
           $ref: '#/components/schemas/ServiceStatus'
-          description: Effective status (worst-case from active events, or stored if no active events)
+          description: Effective status (worst-case from active events, or stored if no active events). Active events exclude resolved, completed, and scheduled.
         has_active_events:
           type: boolean
-          description: Whether the service has any active (non-resolved) events
+          description: Whether the service has any active events (not resolved, completed, or scheduled)
         group_ids:
           type: array
           items:
