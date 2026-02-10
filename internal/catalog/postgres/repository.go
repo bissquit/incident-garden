@@ -1052,3 +1052,59 @@ func (r *Repository) DeleteStatusLogByEventIDTx(ctx context.Context, tx pgx.Tx, 
 	return err
 }
 
+// FindMissingServiceIDs returns IDs that don't exist or are archived.
+func (r *Repository) FindMissingServiceIDs(ctx context.Context, ids []string) ([]string, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+
+	query := `
+		SELECT unnest($1::uuid[]) AS id
+		EXCEPT
+		SELECT id FROM services WHERE id = ANY($1) AND archived_at IS NULL
+	`
+	rows, err := r.db.Query(ctx, query, ids)
+	if err != nil {
+		return nil, fmt.Errorf("find missing services: %w", err)
+	}
+	defer rows.Close()
+
+	var missing []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		missing = append(missing, id)
+	}
+	return missing, rows.Err()
+}
+
+// FindMissingGroupIDs returns IDs that don't exist or are archived.
+func (r *Repository) FindMissingGroupIDs(ctx context.Context, ids []string) ([]string, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+
+	query := `
+		SELECT unnest($1::uuid[]) AS id
+		EXCEPT
+		SELECT id FROM service_groups WHERE id = ANY($1) AND archived_at IS NULL
+	`
+	rows, err := r.db.Query(ctx, query, ids)
+	if err != nil {
+		return nil, fmt.Errorf("find missing groups: %w", err)
+	}
+	defer rows.Close()
+
+	var missing []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		missing = append(missing, id)
+	}
+	return missing, rows.Err()
+}
+

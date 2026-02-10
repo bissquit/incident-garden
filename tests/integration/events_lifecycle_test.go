@@ -328,9 +328,16 @@ func TestEvents_NonexistentService(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	// Should fail due to FK constraint
-	assert.Equal(t, http.StatusInternalServerError, resp.StatusCode, "should reject nonexistent service")
-	resp.Body.Close()
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode, "should reject nonexistent service with 400")
+
+	var errResult struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	testutil.DecodeJSON(t, resp, &errResult)
+	assert.Contains(t, errResult.Error.Message, "affected service not found")
+	assert.Contains(t, errResult.Error.Message, fakeServiceID)
 }
 
 func TestEvents_NonexistentGroup(t *testing.T) {
@@ -351,9 +358,16 @@ func TestEvents_NonexistentGroup(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	// Should fail - resolver can't find the group
-	assert.NotEqual(t, http.StatusCreated, resp.StatusCode, "should reject nonexistent group")
-	resp.Body.Close()
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode, "should reject nonexistent group with 400")
+
+	var errResult struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	testutil.DecodeJSON(t, resp, &errResult)
+	assert.Contains(t, errResult.Error.Message, "affected group not found")
+	assert.Contains(t, errResult.Error.Message, fakeGroupID)
 }
 
 func TestEvents_ServiceStatus_DefaultValue(t *testing.T) {
@@ -472,4 +486,114 @@ func TestEvents_ServiceChanges_BatchID(t *testing.T) {
 	require.NotNil(t, changesResult.Data[1].BatchID, "second change should have batch_id")
 	assert.Equal(t, *changesResult.Data[0].BatchID, *changesResult.Data[1].BatchID,
 		"both changes should have the same batch_id")
+}
+
+func TestEvents_ArchivedService_Returns400(t *testing.T) {
+	client := newTestClient(t)
+	client.LoginAsAdmin(t)
+
+	// Create and archive a service
+	serviceID, slug := createTestService(t, client, "Archived Service Test")
+	resp, err := client.DELETE("/api/v1/services/" + slug)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusNoContent, resp.StatusCode)
+	resp.Body.Close()
+	t.Cleanup(func() {
+		client.POST("/api/v1/services/"+slug+"/restore", nil)
+		deleteService(t, client, slug)
+	})
+
+	// Try to create event with archived service
+	resp, err = client.POST("/api/v1/events", map[string]interface{}{
+		"title":       "Archived Service Event",
+		"type":        "incident",
+		"status":      "investigating",
+		"severity":    "minor",
+		"description": "Testing archived service rejection",
+		"affected_services": []map[string]interface{}{
+			{"service_id": serviceID, "status": "degraded"},
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode, "should reject archived service with 400")
+
+	var errResult struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	testutil.DecodeJSON(t, resp, &errResult)
+	assert.Contains(t, errResult.Error.Message, "affected service not found")
+}
+
+func TestEvents_AddUpdate_NonexistentService_Returns400(t *testing.T) {
+	client := newTestClient(t)
+	client.LoginAsAdmin(t)
+
+	// Create a valid event first
+	serviceID, slug := createTestService(t, client, "Valid Service")
+	t.Cleanup(func() { deleteService(t, client, slug) })
+
+	eventID := createTestIncident(t, client, "Update Test Event", []AffectedService{
+		{ServiceID: serviceID, Status: "degraded"},
+	}, nil)
+	t.Cleanup(func() { deleteEvent(t, client, eventID) })
+
+	fakeServiceID := "00000000-0000-0000-0000-000000000000"
+
+	// Try to add non-existent service via update
+	resp, err := client.POST("/api/v1/events/"+eventID+"/updates", map[string]interface{}{
+		"status":  "identified",
+		"message": "Adding fake service",
+		"add_services": []map[string]interface{}{
+			{"service_id": fakeServiceID, "status": "major_outage"},
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode, "should reject nonexistent service in update with 400")
+
+	var errResult struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	testutil.DecodeJSON(t, resp, &errResult)
+	assert.Contains(t, errResult.Error.Message, "affected service not found")
+	assert.Contains(t, errResult.Error.Message, fakeServiceID)
+}
+
+func TestEvents_AddUpdate_NonexistentGroup_Returns400(t *testing.T) {
+	client := newTestClient(t)
+	client.LoginAsAdmin(t)
+
+	// Create a valid event first
+	serviceID, slug := createTestService(t, client, "Valid Service For Group Test")
+	t.Cleanup(func() { deleteService(t, client, slug) })
+
+	eventID := createTestIncident(t, client, "Update Group Test Event", []AffectedService{
+		{ServiceID: serviceID, Status: "degraded"},
+	}, nil)
+	t.Cleanup(func() { deleteEvent(t, client, eventID) })
+
+	fakeGroupID := "00000000-0000-0000-0000-000000000000"
+
+	// Try to add non-existent group via update
+	resp, err := client.POST("/api/v1/events/"+eventID+"/updates", map[string]interface{}{
+		"status":  "identified",
+		"message": "Adding fake group",
+		"add_groups": []map[string]interface{}{
+			{"group_id": fakeGroupID, "status": "major_outage"},
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode, "should reject nonexistent group in update with 400")
+
+	var errResult struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	testutil.DecodeJSON(t, resp, &errResult)
+	assert.Contains(t, errResult.Error.Message, "affected group not found")
+	assert.Contains(t, errResult.Error.Message, fakeGroupID)
 }

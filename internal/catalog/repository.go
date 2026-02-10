@@ -62,6 +62,10 @@ type Repository interface {
 	ListStatusLog(ctx context.Context, serviceID string, limit, offset int) ([]domain.ServiceStatusLogEntry, error)
 	CountStatusLog(ctx context.Context, serviceID string) (int, error)
 	DeleteStatusLogByEventIDTx(ctx context.Context, tx pgx.Tx, eventID string) error
+
+	// Validation methods
+	FindMissingServiceIDs(ctx context.Context, ids []string) ([]string, error)
+	FindMissingGroupIDs(ctx context.Context, ids []string) ([]string, error)
 }
 
 // ServiceFilter represents filter criteria for listing services.

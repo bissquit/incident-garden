@@ -185,6 +185,10 @@ Key interfaces:
 - GetServiceStatus(ctx, serviceID) → ServiceStatus
 - CreateStatusLogEntry(ctx, entry) / CreateStatusLogEntryTx(ctx, tx, entry)
 - ListStatusLog(ctx, serviceID, limit, offset) → []ServiceStatusLogEntry
+- FindMissingServiceIDs(ctx, ids) → []string (validation)
+- FindMissingGroupIDs(ctx, ids) → []string (validation)
+- ValidateServicesExist(ctx, ids) → (missingIDs, error)
+- ValidateGroupsExist(ctx, ids) → (missingIDs, error)
 
 Handler interfaces:
 - EventsServiceReader (for /services/{slug}/events endpoint)
@@ -202,7 +206,7 @@ internal/events/
 ├── repository.go          → Interface with groups + audit methods + transaction methods
 ├── resolver.go            → Interface: GroupServiceResolver, CatalogServiceUpdater (implemented by catalog.Service)
 ├── template_renderer.go   → Go template execution
-├── errors.go              → ErrEventNotFound, ErrInvalidTransition, ErrEventAlreadyResolved...
+├── errors.go              → ErrEventNotFound, ErrInvalidTransition, ErrEventAlreadyResolved, ErrAffectedServiceNotFound, ErrAffectedGroupNotFound...
 └── postgres/repository.go → SQL for events, groups, changes
 
 Key interfaces:
@@ -225,6 +229,11 @@ Key interfaces:
 
 Service methods:
 - ListEventsByServiceID(ctx, serviceID, filter) → ([]*Event, total, error)
+- validateAffectedEntities(ctx, services, groups) → error (validates services/groups exist before transaction)
+
+Resolver interfaces:
+- GroupServiceResolver.ValidateGroupsExist(ctx, ids) → (missingIDs, error)
+- CatalogServiceUpdater.ValidateServicesExist(ctx, ids) → (missingIDs, error)
 
 Dependencies: domain.Event, domain.EventService, domain.AffectedService, domain.AffectedGroup, catalog.Service (as GroupServiceResolver + CatalogServiceUpdater), pkg/postgres
 ```
@@ -712,6 +721,12 @@ TestDeleteEvent_ServiceStatusUnchanged     // side effect verification
 - `group_ids` in request → system resolves to `service_ids` at creation time
 - Both `group_ids` and expanded `service_ids` stored
 - Duplicate services (in multiple groups or explicit) deduplicated
+
+**Affected Entities Validation:**
+- Before creating event or adding services/groups via update, system validates all IDs exist
+- Non-existent service_id returns 400 with message: "affected service not found: <id>"
+- Non-existent group_id returns 400 with message: "affected group not found: <id>"
+- Archived services/groups are treated as non-existent (cannot be used in new events)
 
 **Event Composition Changes (via AddUpdate):**
 - All service management is done through `POST /events/{id}/updates`
