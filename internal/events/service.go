@@ -261,9 +261,6 @@ func (s *Service) AddUpdate(ctx context.Context, input CreateEventUpdateInput, c
 	if hasServiceChanges {
 		batchID := uuid.New().String()
 		reason := input.Reason
-		if reason == "" {
-			reason = "Event update"
-		}
 
 		// Update statuses of existing services
 		for _, su := range input.ServiceUpdates {
