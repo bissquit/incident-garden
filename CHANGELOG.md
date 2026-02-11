@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0](https://github.com/bissquit/incident-garden/compare/v1.6.2...v2.0.0) (2026-02-11)
+
+
+### ⚠ BREAKING CHANGES
+
+* **events:** Change CreateEventRequest to include service statuses ([#49](https://github.com/bissquit/incident-garden/issues/49))
+
+### Features
+
+* **catalog:** Add effective_status computation for services ([#47](https://github.com/bissquit/incident-garden/issues/47)) ([9867dd6](https://github.com/bissquit/incident-garden/commit/9867dd64d64abd1fa43cd45bc23b527b6a5162ea))
+* **catalog:** Add endpoint to get events for a service ([#55](https://github.com/bissquit/incident-garden/issues/55)) ([370ac93](https://github.com/bissquit/incident-garden/commit/370ac93e0a15a852dba5d46fe1d0ccc2d67b1a6b))
+* **catalog:** Add service status audit log ([#53](https://github.com/bissquit/incident-garden/issues/53)) ([81b996f](https://github.com/bissquit/incident-garden/commit/81b996fd55c9d8b2f8de54ae9eb79aaf464a890d))
+* **catalog:** Add service_ids field to UpdateGroup endpoint ([#41](https://github.com/bissquit/incident-garden/issues/41)) ([672ed91](https://github.com/bissquit/incident-garden/commit/672ed91bacb5e3416478715d1a10f30dd25ccbea))
+* **events:** Add service status tracking within events ([#44](https://github.com/bissquit/incident-garden/issues/44)) ([3f3bd9b](https://github.com/bissquit/incident-garden/commit/3f3bd9b0465d9b597f86f5881685210aa16128d9))
+* **events:** Change CreateEventRequest to include service statuses ([#49](https://github.com/bissquit/incident-garden/issues/49)) ([ab9a5c2](https://github.com/bissquit/incident-garden/commit/ab9a5c2518b2cc005a99a2ed449f275ddfb5461e))
+* **events:** Extend event updates with service status management ([#51](https://github.com/bissquit/incident-garden/issues/51)) ([0e410be](https://github.com/bissquit/incident-garden/commit/0e410be0b8072decf8fd629063625855fdb359a7))
+* **events:** Restrict deletion to resolved events only ([#56](https://github.com/bissquit/incident-garden/issues/56)) ([711786b](https://github.com/bissquit/incident-garden/commit/711786bb6101560fd1569a95adee5954f06e6ed6))
+
+
+### Bug Fixes
+
+* remove default message in event update ([#59](https://github.com/bissquit/incident-garden/issues/59)) ([a97c806](https://github.com/bissquit/incident-garden/commit/a97c806fb39b96262b81a5d0280f8a9fcdf03430))
+
 ## [1.6.2](https://github.com/bissquit/incident-garden/compare/v1.6.1...v1.6.2) (2026-02-06)
 
 
