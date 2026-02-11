@@ -87,6 +87,11 @@ func (s *Service) CreateEvent(ctx context.Context, input CreateEventInput, creat
 		}
 	}
 
+	// Validate affected entities exist before starting transaction
+	if err := s.validateAffectedEntities(ctx, input.AffectedServices, input.AffectedGroups); err != nil {
+		return nil, err
+	}
+
 	// Collect all services with their statuses.
 	// Explicit services override group-derived statuses.
 	serviceStatuses := make(map[string]domain.ServiceStatus)
@@ -213,6 +218,11 @@ func (s *Service) AddUpdate(ctx context.Context, input CreateEventUpdateInput, c
 	// Check if event is already resolved
 	if event.Status.IsResolved() {
 		return nil, ErrEventAlreadyResolved
+	}
+
+	// Validate new affected entities exist before starting transaction
+	if err := s.validateAffectedEntities(ctx, input.AddServices, input.AddGroups); err != nil {
+		return nil, err
 	}
 
 	// Begin transaction
@@ -596,6 +606,45 @@ func (s *Service) PreviewTemplate(ctx context.Context, templateSlug string, data
 // DeleteTemplate deletes a template by ID.
 func (s *Service) DeleteTemplate(ctx context.Context, id string) error {
 	return s.repo.DeleteTemplate(ctx, id)
+}
+
+// validateAffectedEntities checks that all referenced services and groups exist and are not archived.
+func (s *Service) validateAffectedEntities(ctx context.Context, services []domain.AffectedService, groups []domain.AffectedGroup) error {
+	// Collect service IDs
+	serviceIDs := make([]string, 0, len(services))
+	for _, as := range services {
+		serviceIDs = append(serviceIDs, as.ServiceID)
+	}
+
+	// Validate services exist
+	if len(serviceIDs) > 0 {
+		missing, err := s.catalogService.ValidateServicesExist(ctx, serviceIDs)
+		if err != nil {
+			return fmt.Errorf("validate services: %w", err)
+		}
+		if len(missing) > 0 {
+			return fmt.Errorf("%w: %s", ErrAffectedServiceNotFound, missing[0])
+		}
+	}
+
+	// Collect group IDs
+	groupIDs := make([]string, 0, len(groups))
+	for _, ag := range groups {
+		groupIDs = append(groupIDs, ag.GroupID)
+	}
+
+	// Validate groups exist
+	if len(groupIDs) > 0 {
+		missing, err := s.resolver.ValidateGroupsExist(ctx, groupIDs)
+		if err != nil {
+			return fmt.Errorf("validate groups: %w", err)
+		}
+		if len(missing) > 0 {
+			return fmt.Errorf("%w: %s", ErrAffectedGroupNotFound, missing[0])
+		}
+	}
+
+	return nil
 }
 
 // recordInitialChangesTx records initial event composition in change history.

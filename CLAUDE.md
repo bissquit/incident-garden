@@ -79,18 +79,19 @@ maintenance: scheduled → in_progress → completed
 
 ### Quick Navigation
 
-| I need to...                 | Go to                                      |
-|------------------------------|--------------------------------------------|
-| Add/modify API endpoint      | `internal/<module>/handler.go`             |
-| Add business rule/validation | `internal/<module>/service.go`             |
-| Change database query        | `internal/<module>/postgres/repository.go` |
-| Add new entity               | `internal/domain/<entity>.go`              |
-| Add database migration       | `migrations/NNNNNN_name.up.sql`            |
-| Add shared utility           | `internal/pkg/<package>/`                  |
-| Add integration test         | `tests/integration/<module>_test.go`       |
-| Change app wiring/DI         | `internal/app/app.go`                      |
-| Modify configuration         | `internal/config/config.go`                |
-| Update API contract          | `api/openapi/openapi.yaml`                 |
+| I need to...                 | Go to                                              |
+|------------------------------|---------------------------------------------------|
+| Add/modify API endpoint      | `internal/<module>/handler.go`                     |
+| Add business rule/validation | `internal/<module>/service.go`                     |
+| Change database query        | `internal/<module>/postgres/repository.go`         |
+| Add new entity               | `internal/domain/<entity>.go`                      |
+| Add database migration       | `migrations/NNNNNN_name.up.sql`                    |
+| Add shared utility           | `internal/pkg/<package>/`                          |
+| Add integration test         | `tests/integration/<module>_<domain>_test.go`      |
+| Add test helper              | `tests/integration/helpers_test.go`                |
+| Change app wiring/DI         | `internal/app/app.go`                              |
+| Modify configuration         | `internal/config/config.go`                        |
+| Update API contract          | `api/openapi/openapi.yaml`                         |
 
 ### Database Schema (Key Tables)
 
@@ -184,6 +185,10 @@ Key interfaces:
 - GetServiceStatus(ctx, serviceID) → ServiceStatus
 - CreateStatusLogEntry(ctx, entry) / CreateStatusLogEntryTx(ctx, tx, entry)
 - ListStatusLog(ctx, serviceID, limit, offset) → []ServiceStatusLogEntry
+- FindMissingServiceIDs(ctx, ids) → []string (validation)
+- FindMissingGroupIDs(ctx, ids) → []string (validation)
+- ValidateServicesExist(ctx, ids) → (missingIDs, error)
+- ValidateGroupsExist(ctx, ids) → (missingIDs, error)
 
 Handler interfaces:
 - EventsServiceReader (for /services/{slug}/events endpoint)
@@ -201,7 +206,7 @@ internal/events/
 ├── repository.go          → Interface with groups + audit methods + transaction methods
 ├── resolver.go            → Interface: GroupServiceResolver, CatalogServiceUpdater (implemented by catalog.Service)
 ├── template_renderer.go   → Go template execution
-├── errors.go              → ErrEventNotFound, ErrInvalidTransition, ErrEventAlreadyResolved...
+├── errors.go              → ErrEventNotFound, ErrInvalidTransition, ErrEventAlreadyResolved, ErrAffectedServiceNotFound, ErrAffectedGroupNotFound...
 └── postgres/repository.go → SQL for events, groups, changes
 
 Key interfaces:
@@ -224,6 +229,11 @@ Key interfaces:
 
 Service methods:
 - ListEventsByServiceID(ctx, serviceID, filter) → ([]*Event, total, error)
+- validateAffectedEntities(ctx, services, groups) → error (validates services/groups exist before transaction)
+
+Resolver interfaces:
+- GroupServiceResolver.ValidateGroupsExist(ctx, ids) → (missingIDs, error)
+- CatalogServiceUpdater.ValidateServicesExist(ctx, ids) → (missingIDs, error)
 
 Dependencies: domain.Event, domain.EventService, domain.AffectedService, domain.AffectedGroup, catalog.Service (as GroupServiceResolver + CatalogServiceUpdater), pkg/postgres
 ```
@@ -452,6 +462,201 @@ docker compose -f deployments/docker/docker-compose-postgres.yml down
 docker volume rm docker_postgres_data
 ```
 
+### Integration Tests Structure
+
+```
+tests/integration/
+├── main_test.go                  # TestMain, testcontainers setup
+├── helpers_test.go               # Shared helper functions
+├── auth_test.go                  # Authentication flows
+├── rbac_test.go                  # Role-based access control
+├── catalog_service_test.go       # Service CRUD
+├── catalog_group_test.go         # Group CRUD and membership
+├── catalog_archive_test.go       # Soft delete, restore
+├── catalog_status_test.go        # Effective status, status log
+├── catalog_service_events_test.go # GET /services/{slug}/events
+├── events_lifecycle_test.go      # Event creation, status transitions
+├── events_composition_test.go    # Add/remove services, updates
+├── events_maintenance_test.go    # Maintenance lifecycle
+├── events_delete_test.go         # Event deletion, cascade
+└── events_public_test.go         # Public endpoints, auth checks
+```
+
+When adding new tests, place them in the appropriate domain file. If a new domain emerges, create a new file following the pattern `<module>_<domain>_test.go`.
+
+### Integration Test Style
+
+**File header (required):**
+```go
+//go:build integration
+
+package integration
+```
+
+**Test structure (Arrange-Act-Assert):**
+```go
+func TestFeature_Scenario_ExpectedBehavior(t *testing.T) {
+    // Arrange: setup test data
+    client := newTestClient(t)
+    client.LoginAsAdmin(t)
+
+    serviceID, serviceSlug := createTestService(t, client, "test-svc")
+    t.Cleanup(func() { deleteService(t, client, serviceSlug) })
+
+    // Act: perform the action being tested
+    resp, err := client.POST("/api/v1/events", payload)
+
+    // Assert: verify results
+    require.NoError(t, err)
+    require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+    var result struct {
+        Data struct {
+            ID     string `json:"id"`
+            Status string `json:"status"`
+        } `json:"data"`
+    }
+    testutil.DecodeJSON(t, resp, &result)
+    assert.NotEmpty(t, result.Data.ID)
+    assert.Equal(t, "investigating", result.Data.Status)
+}
+```
+
+**Naming convention:**
+```
+Test<Module>_<Entity>_<Action>_<Scenario>
+TestCatalog_Service_Create_WithValidData
+TestEvents_Incident_Resolve_RecalculatesStatus
+TestDeleteEvent_ActiveEvent_Forbidden
+```
+
+**require vs assert:**
+- `require` — test cannot continue without this (setup, prerequisites)
+- `assert` — verification of results (test continues on failure to show all problems)
+
+```go
+// Setup — use require (test is meaningless if this fails)
+require.NoError(t, err)
+require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+// Verification — use assert (show all failures)
+assert.NotEmpty(t, result.Data.ID)
+assert.Equal(t, "investigating", result.Data.Status)
+```
+
+### Helper Functions (helpers_test.go)
+
+Use existing helpers. Do not duplicate entity creation code.
+
+```go
+// Entity creation — returns ID and slug for cleanup
+serviceID, serviceSlug := createTestService(t, client, "name")
+groupID, groupSlug := createTestGroup(t, client, "name")
+eventID := createTestIncident(t, client, "title", services, groups)
+
+// With options
+serviceID, slug := createTestService(t, client, "name",
+    withGroupIDs([]string{groupID}),
+    withStatus("degraded"))
+
+// Cleanup — use t.Cleanup for automatic resource cleanup
+t.Cleanup(func() { deleteService(t, client, serviceSlug) })
+
+// Or explicit cleanup if order matters
+defer deleteService(t, client, serviceSlug)
+
+// Status checks
+status := getServiceEffectiveStatus(t, client, serviceSlug)
+
+// Event lifecycle
+resolveEvent(t, client, eventID)
+```
+
+If a pattern repeats 3+ times, extract it to helpers_test.go.
+
+### Mandatory Assertions
+
+Never check only HTTP status code. Always decode and verify key fields.
+
+```go
+// BAD — only checks HTTP code
+resp, err := client.POST("/api/v1/services", payload)
+require.NoError(t, err)
+assert.Equal(t, http.StatusCreated, resp.StatusCode)
+resp.Body.Close()  // Data not verified!
+
+// GOOD — verifies response data
+resp, err := client.POST("/api/v1/services", payload)
+require.NoError(t, err)
+require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+var result struct {
+    Data struct {
+        ID   string `json:"id"`
+        Slug string `json:"slug"`
+    } `json:"data"`
+}
+testutil.DecodeJSON(t, resp, &result)
+assert.NotEmpty(t, result.Data.ID)
+assert.Equal(t, expectedSlug, result.Data.Slug)
+```
+
+**Minimum assertions by operation:**
+
+| Operation | Required assertions |
+|-----------|---------------------|
+| POST | ID not empty, key fields match request |
+| GET | ID matches, requested entity returned |
+| GET list | Data is array, count if expected |
+| PATCH | Changed fields updated |
+| DELETE | 204 status |
+| Error | Status code, error message contains key info |
+
+### Resource Cleanup
+
+Always clean up created resources. Use t.Cleanup for automatic cleanup.
+
+```go
+// GOOD — automatic cleanup
+serviceID, slug := createTestService(t, client, "test")
+t.Cleanup(func() { deleteService(t, client, slug) })
+
+// GOOD — explicit cleanup with error handling
+func deleteService(t *testing.T, client *testutil.Client, slug string) {
+    t.Helper()
+    resp, err := client.DELETE("/api/v1/services/" + slug)
+    if err != nil {
+        t.Logf("cleanup warning: %v", err)
+        return
+    }
+    resp.Body.Close()
+}
+
+// BAD — ignored error
+client.DELETE("/api/v1/services/" + slug)
+```
+
+### Test Scenarios Coverage
+
+When adding tests for a feature, cover these scenarios:
+
+1. **Happy path** — normal successful operation
+2. **Validation errors** — invalid input (empty, wrong format)
+3. **Not found** — entity doesn't exist (404)
+4. **Conflict** — business rule violation (409)
+5. **Auth/RBAC** — unauthorized (401), forbidden (403)
+6. **Edge cases** — empty lists, boundary values
+
+Example for event deletion:
+```go
+TestDeleteEvent_ResolvedEvent_Success      // happy path
+TestDeleteEvent_ActiveEvent_Forbidden      // conflict (409)
+TestDeleteEvent_NotFound                   // not found (404)
+TestDeleteEvent_RequiresAdmin              // forbidden (403)
+TestDeleteEvent_CascadeDeletesUpdates      // edge case
+TestDeleteEvent_ServiceStatusUnchanged     // side effect verification
+```
+
 ---
 
 ## 7. REFERENCE
@@ -517,6 +722,12 @@ docker volume rm docker_postgres_data
 - Both `group_ids` and expanded `service_ids` stored
 - Duplicate services (in multiple groups or explicit) deduplicated
 
+**Affected Entities Validation:**
+- Before creating event or adding services/groups via update, system validates all IDs exist
+- Non-existent service_id returns 400 with message: "affected service not found: <id>"
+- Non-existent group_id returns 400 with message: "affected group not found: <id>"
+- Archived services/groups are treated as non-existent (cannot be used in new events)
+
 **Event Composition Changes (via AddUpdate):**
 - All service management is done through `POST /events/{id}/updates`
 - Adding services/groups records to `event_service_changes`
@@ -533,9 +744,16 @@ docker volume rm docker_postgres_data
 - When creating events, operator specifies status for each service/group via `affected_services` and `affected_groups`
 - Each `affected_service` contains `{service_id, status}`, each `affected_group` contains `{group_id, status}`
 - Explicit service status overrides group-derived status (priority: service > group)
-- Service's effective status = worst active event status (priority: `major_outage` > `partial_outage` > `degraded` > `maintenance` > `operational`)
+- Service's effective status = worst-case from ACTIVE events (not resolved, completed, or scheduled)
+- **Scheduled maintenance does NOT affect effective_status until it transitions to in_progress**
+- Priority: `major_outage` > `partial_outage` > `degraded` > `maintenance` > `operational`
 - Computed via `v_service_effective_status` view, accessible via `GetEffectiveStatus()` and `ListServicesWithEffectiveStatus()`
 - If no active events, effective status = stored service status
+
+**Status After Event Resolution:**
+- When event is resolved/completed and service has no other active events, stored_status is set to `operational`
+- Manual status changes during active events are overwritten by this behavior
+- To maintain a non-operational status after resolution, set it manually after the event is closed
 
 **Service Status Audit Log:**
 - Every service status change is recorded in `service_status_log`
@@ -611,7 +829,7 @@ make docker-build
 - Service status tracking within events (affected_services/affected_groups with explicit statuses)
 - Effective status computation (v_service_effective_status view)
 - Service status audit log (manual changes, event-driven changes, with full history)
-- Integration tests (30+)
+- Integration tests (100+, organized by domain)
 
 ⚠️ **Partial:** Notifications (structure ready, senders are stubs)
 

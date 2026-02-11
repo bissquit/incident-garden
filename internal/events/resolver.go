@@ -10,6 +10,7 @@ import (
 // GroupServiceResolver resolves group IDs to service IDs.
 type GroupServiceResolver interface {
 	GetGroupServices(ctx context.Context, groupID string) ([]string, error)
+	ValidateGroupsExist(ctx context.Context, ids []string) (missingIDs []string, err error)
 }
 
 // CatalogServiceUpdater updates service status within a transaction.
@@ -18,4 +19,5 @@ type CatalogServiceUpdater interface {
 	CreateStatusLogEntryTx(ctx context.Context, tx pgx.Tx, entry *domain.ServiceStatusLogEntry) error
 	DeleteStatusLogByEventIDTx(ctx context.Context, tx pgx.Tx, eventID string) error
 	GetServiceStatus(ctx context.Context, serviceID string) (domain.ServiceStatus, error)
+	ValidateServicesExist(ctx context.Context, ids []string) (missingIDs []string, err error)
 }

@@ -405,6 +405,10 @@ func (h *Handler) handleServiceError(w http.ResponseWriter, err error) {
 		h.respondError(w, http.StatusConflict, "cannot delete active event: resolve it first")
 	case errors.Is(err, ErrServiceNotInEvent):
 		h.respondError(w, http.StatusBadRequest, "service is not in this event")
+	case errors.Is(err, ErrAffectedServiceNotFound):
+		h.respondError(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, ErrAffectedGroupNotFound):
+		h.respondError(w, http.StatusBadRequest, err.Error())
 	default:
 		slog.Error("service error", "error", err)
 		h.respondError(w, http.StatusInternalServerError, "internal server error")

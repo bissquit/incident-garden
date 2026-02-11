@@ -348,6 +348,16 @@ func (s *Service) DeleteStatusLogByEventIDTx(ctx context.Context, tx pgx.Tx, eve
 	return s.repo.DeleteStatusLogByEventIDTx(ctx, tx, eventID)
 }
 
+// ValidateServicesExist returns IDs that don't exist or are archived.
+func (s *Service) ValidateServicesExist(ctx context.Context, ids []string) ([]string, error) {
+	return s.repo.FindMissingServiceIDs(ctx, ids)
+}
+
+// ValidateGroupsExist returns IDs that don't exist or are archived.
+func (s *Service) ValidateGroupsExist(ctx context.Context, ids []string) ([]string, error) {
+	return s.repo.FindMissingGroupIDs(ctx, ids)
+}
+
 func validateSlug(slug string) error {
 	slug = strings.TrimSpace(slug)
 	if slug == "" {

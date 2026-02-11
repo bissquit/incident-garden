@@ -720,14 +720,16 @@ func (r *Repository) RestoreGroup(ctx context.Context, id string) error {
 	return nil
 }
 
-// GetActiveEventCountForService returns count of active (non-resolved/completed) events for a service.
+// GetActiveEventCountForService returns count of active events for a service.
+// Active events are those that affect service effective_status: NOT resolved, completed, or scheduled.
+// Scheduled maintenance is not considered active until it transitions to in_progress.
 func (r *Repository) GetActiveEventCountForService(ctx context.Context, serviceID string) (int, error) {
 	query := `
 		SELECT COUNT(DISTINCT e.id)
 		FROM events e
 		JOIN event_services es ON e.id = es.event_id
 		WHERE es.service_id = $1
-		  AND e.status NOT IN ('resolved', 'completed')
+		  AND e.status NOT IN ('resolved', 'completed', 'scheduled')
 	`
 	var count int
 	err := r.db.QueryRow(ctx, query, serviceID).Scan(&count)
@@ -738,6 +740,8 @@ func (r *Repository) GetActiveEventCountForService(ctx context.Context, serviceI
 }
 
 // GetActiveEventCountForGroup returns count of active events for any service in the group.
+// Active events are those that affect service effective_status: NOT resolved, completed, or scheduled.
+// Scheduled maintenance is not considered active until it transitions to in_progress.
 func (r *Repository) GetActiveEventCountForGroup(ctx context.Context, groupID string) (int, error) {
 	query := `
 		SELECT COUNT(DISTINCT e.id)
@@ -745,7 +749,7 @@ func (r *Repository) GetActiveEventCountForGroup(ctx context.Context, groupID st
 		JOIN event_services es ON e.id = es.event_id
 		JOIN service_group_members sgm ON es.service_id = sgm.service_id
 		WHERE sgm.group_id = $1
-		  AND e.status NOT IN ('resolved', 'completed')
+		  AND e.status NOT IN ('resolved', 'completed', 'scheduled')
 	`
 	var count int
 	err := r.db.QueryRow(ctx, query, groupID).Scan(&count)
@@ -1046,5 +1050,61 @@ func (r *Repository) DeleteStatusLogByEventIDTx(ctx context.Context, tx pgx.Tx, 
 	query := `DELETE FROM service_status_log WHERE event_id = $1`
 	_, err := tx.Exec(ctx, query, eventID)
 	return err
+}
+
+// FindMissingServiceIDs returns IDs that don't exist or are archived.
+func (r *Repository) FindMissingServiceIDs(ctx context.Context, ids []string) ([]string, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+
+	query := `
+		SELECT unnest($1::uuid[]) AS id
+		EXCEPT
+		SELECT id FROM services WHERE id = ANY($1) AND archived_at IS NULL
+	`
+	rows, err := r.db.Query(ctx, query, ids)
+	if err != nil {
+		return nil, fmt.Errorf("find missing services: %w", err)
+	}
+	defer rows.Close()
+
+	var missing []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		missing = append(missing, id)
+	}
+	return missing, rows.Err()
+}
+
+// FindMissingGroupIDs returns IDs that don't exist or are archived.
+func (r *Repository) FindMissingGroupIDs(ctx context.Context, ids []string) ([]string, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+
+	query := `
+		SELECT unnest($1::uuid[]) AS id
+		EXCEPT
+		SELECT id FROM service_groups WHERE id = ANY($1) AND archived_at IS NULL
+	`
+	rows, err := r.db.Query(ctx, query, ids)
+	if err != nil {
+		return nil, fmt.Errorf("find missing groups: %w", err)
+	}
+	defer rows.Close()
+
+	var missing []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		missing = append(missing, id)
+	}
+	return missing, rows.Err()
 }
 
