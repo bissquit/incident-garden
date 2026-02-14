@@ -1,0 +1,42 @@
+groups:
+  - name: incidentgarden
+    rules:
+      # Service is down
+      - alert: IncidentGardenDown
+        expr: up{job="incidentgarden"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "IncidentGarden is down"
+          description: "Cannot scrape metrics for 2 minutes."
+
+      # High error rate
+      - alert: IncidentGardenHighErrorRate
+        expr: |
+          (
+            sum(rate(incidentgarden_http_request_duration_seconds_count{status_code=~"5.."}[5m]))
+            /
+            (sum(rate(incidentgarden_http_request_duration_seconds_count[5m])) > 0)
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Error rate > 5%"
+          description: "{{ $value | humanizePercentage }} of requests are failing."
+
+      # Database pool exhaustion
+      - alert: IncidentGardenDBPoolExhaustion
+        expr: |
+          (
+            incidentgarden_db_pool_connections{state="in_use"}
+            /
+            incidentgarden_db_pool_connections{state="max"}
+          ) > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "DB pool > 80% utilized"
+          description: "Pool utilization: {{ $value | humanizePercentage }}."

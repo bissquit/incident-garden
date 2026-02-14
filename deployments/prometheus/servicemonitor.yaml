@@ -1,0 +1,18 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: incidentgarden
+  labels:
+    release: prometheus  # must match your Prometheus label selector
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: incidentgarden
+  namespaceSelector:
+    matchNames:
+      - default  # adjust to your namespace
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 15s
+      scrapeTimeout: 10s

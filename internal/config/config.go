@@ -38,6 +38,7 @@ type CookieConfig struct {
 type ServerConfig struct {
 	Host              string
 	Port              string
+	MetricsPort       string
 	ReadTimeout       time.Duration
 	ReadHeaderTimeout time.Duration
 	WriteTimeout      time.Duration
@@ -85,6 +86,7 @@ func Load() (*Config, error) {
 		Server: ServerConfig{
 			Host:              k.String("SERVER_HOST"),
 			Port:              k.String("SERVER_PORT"),
+			MetricsPort:       k.String("SERVER_METRICS_PORT"),
 			ReadTimeout:       k.Duration("SERVER_READ_TIMEOUT"),
 			ReadHeaderTimeout: k.Duration("SERVER_READ_HEADER_TIMEOUT"),
 			WriteTimeout:      k.Duration("SERVER_WRITE_TIMEOUT"),
@@ -118,6 +120,10 @@ func Load() (*Config, error) {
 
 	setDefaults(cfg)
 
+	if err := validate(cfg); err != nil {
+		return nil, err
+	}
+
 	return cfg, nil
 }
 
@@ -127,6 +133,9 @@ func setDefaults(cfg *Config) {
 	}
 	if cfg.Server.Port == "" {
 		cfg.Server.Port = "8080"
+	}
+	if cfg.Server.MetricsPort == "" {
+		cfg.Server.MetricsPort = "9090"
 	}
 	if cfg.Server.ReadTimeout == 0 {
 		cfg.Server.ReadTimeout = 15 * time.Second
@@ -180,6 +189,13 @@ func setDefaults(cfg *Config) {
 	if len(cfg.CORS.AllowedOrigins) == 0 {
 		cfg.CORS.AllowedOrigins = []string{"http://localhost:3000"}
 	}
+}
+
+func validate(cfg *Config) error {
+	if cfg.Server.Port == cfg.Server.MetricsPort {
+		return fmt.Errorf("SERVER_PORT and SERVER_METRICS_PORT must be different (both set to %s)", cfg.Server.Port)
+	}
+	return nil
 }
 
 func parseOrigins(origins string) []string {
