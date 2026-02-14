@@ -2,8 +2,6 @@ package events
 
 import (
 	"encoding/json"
-	"errors"
-	"log/slog"
 	"net/http"
 	"time"
 
@@ -12,6 +10,18 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-playground/validator/v10"
 )
+
+var errorMappings = []httputil.ErrorMapping{
+	{Error: ErrEventNotFound, Status: http.StatusNotFound, Message: "event not found"},
+	{Error: ErrTemplateNotFound, Status: http.StatusNotFound, Message: "template not found"},
+	{Error: ErrInvalidStatus, Status: http.StatusBadRequest, Message: "invalid status for event type"},
+	{Error: ErrInvalidSeverity, Status: http.StatusBadRequest, Message: "severity is required for incidents"},
+	{Error: ErrEventAlreadyResolved, Status: http.StatusConflict, Message: "cannot update resolved event"},
+	{Error: ErrEventNotResolved, Status: http.StatusConflict, Message: "cannot delete active event: resolve it first"},
+	{Error: ErrServiceNotInEvent, Status: http.StatusBadRequest, Message: "service is not in this event"},
+	{Error: ErrAffectedServiceNotFound, Status: http.StatusBadRequest},
+	{Error: ErrAffectedGroupNotFound, Status: http.StatusBadRequest},
+}
 
 // Handler handles HTTP requests for events and templates.
 type Handler struct {
@@ -81,12 +91,12 @@ type CreateEventRequest struct {
 func (h *Handler) CreateEvent(w http.ResponseWriter, r *http.Request) {
 	var req CreateEventRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.respondError(w, http.StatusBadRequest, "invalid json")
+		httputil.Error(w, http.StatusBadRequest, "invalid json")
 		return
 	}
 
 	if err := h.validator.Struct(req); err != nil {
-		h.respondValidationError(w, err)
+		httputil.ValidationError(w, err)
 		return
 	}
 
@@ -94,11 +104,11 @@ func (h *Handler) CreateEvent(w http.ResponseWriter, r *http.Request) {
 	event, err := h.service.CreateEvent(r.Context(), CreateEventInput(req), userID)
 
 	if err != nil {
-		h.handleServiceError(w, err)
+		httputil.HandleError(w, err, errorMappings)
 		return
 	}
 
-	h.respondJSON(w, http.StatusCreated, event)
+	httputil.Success(w, http.StatusCreated, event)
 }
 
 // GetEvent handles GET /events/{id}.
@@ -106,11 +116,11 @@ func (h *Handler) GetEvent(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	event, err := h.service.GetEvent(r.Context(), id)
 	if err != nil {
-		h.handleServiceError(w, err)
+		httputil.HandleError(w, err, errorMappings)
 		return
 	}
 
-	h.respondJSON(w, http.StatusOK, event)
+	httputil.Success(w, http.StatusOK, event)
 }
 
 // ListEvents handles GET /events.
@@ -129,11 +139,11 @@ func (h *Handler) ListEvents(w http.ResponseWriter, r *http.Request) {
 
 	events, err := h.service.ListEvents(r.Context(), filters)
 	if err != nil {
-		h.handleServiceError(w, err)
+		httputil.HandleError(w, err, errorMappings)
 		return
 	}
 
-	h.respondJSON(w, http.StatusOK, events)
+	httputil.Success(w, http.StatusOK, events)
 }
 
 // AddUpdateRequest represents the request body for adding an event update.
@@ -154,12 +164,12 @@ func (h *Handler) AddUpdate(w http.ResponseWriter, r *http.Request) {
 
 	var req AddUpdateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.respondError(w, http.StatusBadRequest, "invalid json")
+		httputil.Error(w, http.StatusBadRequest, "invalid json")
 		return
 	}
 
 	if err := h.validator.Struct(req); err != nil {
-		h.respondValidationError(w, err)
+		httputil.ValidationError(w, err)
 		return
 	}
 
@@ -177,11 +187,11 @@ func (h *Handler) AddUpdate(w http.ResponseWriter, r *http.Request) {
 	}, userID)
 
 	if err != nil {
-		h.handleServiceError(w, err)
+		httputil.HandleError(w, err, errorMappings)
 		return
 	}
 
-	h.respondJSON(w, http.StatusCreated, update)
+	httputil.Success(w, http.StatusCreated, update)
 }
 
 // GetEventUpdates handles GET /events/{id}/updates.
@@ -189,11 +199,11 @@ func (h *Handler) GetEventUpdates(w http.ResponseWriter, r *http.Request) {
 	eventID := chi.URLParam(r, "id")
 	updates, err := h.service.GetEventUpdates(r.Context(), eventID)
 	if err != nil {
-		h.handleServiceError(w, err)
+		httputil.HandleError(w, err, errorMappings)
 		return
 	}
 
-	h.respondJSON(w, http.StatusOK, updates)
+	httputil.Success(w, http.StatusOK, updates)
 }
 
 // DeleteEvent handles DELETE /events/{id}.
@@ -201,7 +211,7 @@ func (h *Handler) DeleteEvent(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
 	if err := h.service.DeleteEvent(r.Context(), id); err != nil {
-		h.handleServiceError(w, err)
+		httputil.HandleError(w, err, errorMappings)
 		return
 	}
 
@@ -220,23 +230,23 @@ type CreateTemplateRequest struct {
 func (h *Handler) CreateTemplate(w http.ResponseWriter, r *http.Request) {
 	var req CreateTemplateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.respondError(w, http.StatusBadRequest, "invalid json")
+		httputil.Error(w, http.StatusBadRequest, "invalid json")
 		return
 	}
 
 	if err := h.validator.Struct(req); err != nil {
-		h.respondValidationError(w, err)
+		httputil.ValidationError(w, err)
 		return
 	}
 
 	template, err := h.service.CreateTemplate(r.Context(), CreateTemplateInput(req))
 
 	if err != nil {
-		h.handleServiceError(w, err)
+		httputil.HandleError(w, err, errorMappings)
 		return
 	}
 
-	h.respondJSON(w, http.StatusCreated, template)
+	httputil.Success(w, http.StatusCreated, template)
 }
 
 // GetTemplate handles GET /templates/{slug}.
@@ -244,22 +254,22 @@ func (h *Handler) GetTemplate(w http.ResponseWriter, r *http.Request) {
 	slug := chi.URLParam(r, "slug")
 	template, err := h.service.GetTemplateBySlug(r.Context(), slug)
 	if err != nil {
-		h.handleServiceError(w, err)
+		httputil.HandleError(w, err, errorMappings)
 		return
 	}
 
-	h.respondJSON(w, http.StatusOK, template)
+	httputil.Success(w, http.StatusOK, template)
 }
 
 // ListTemplates handles GET /templates.
 func (h *Handler) ListTemplates(w http.ResponseWriter, r *http.Request) {
 	templates, err := h.service.ListTemplates(r.Context())
 	if err != nil {
-		h.handleServiceError(w, err)
+		httputil.HandleError(w, err, errorMappings)
 		return
 	}
 
-	h.respondJSON(w, http.StatusOK, templates)
+	httputil.Success(w, http.StatusOK, templates)
 }
 
 // PreviewTemplateRequest represents the request body for previewing a template.
@@ -284,7 +294,7 @@ func (h *Handler) PreviewTemplate(w http.ResponseWriter, r *http.Request) {
 
 	var req PreviewTemplateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.respondError(w, http.StatusBadRequest, "invalid json")
+		httputil.Error(w, http.StatusBadRequest, "invalid json")
 		return
 	}
 
@@ -298,11 +308,11 @@ func (h *Handler) PreviewTemplate(w http.ResponseWriter, r *http.Request) {
 	})
 
 	if err != nil {
-		h.handleServiceError(w, err)
+		httputil.HandleError(w, err, errorMappings)
 		return
 	}
 
-	h.respondJSON(w, http.StatusOK, PreviewTemplateResponse{
+	httputil.Success(w, http.StatusOK, PreviewTemplateResponse{
 		Title: title,
 		Body:  body,
 	})
@@ -312,7 +322,7 @@ func (h *Handler) PreviewTemplate(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) DeleteTemplate(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if err := h.service.DeleteTemplate(r.Context(), id); err != nil {
-		h.handleServiceError(w, err)
+		httputil.HandleError(w, err, errorMappings)
 		return
 	}
 
@@ -323,11 +333,11 @@ func (h *Handler) DeleteTemplate(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetPublicStatus(w http.ResponseWriter, r *http.Request) {
 	events, err := h.service.ListEvents(r.Context(), EventFilters{Limit: 10})
 	if err != nil {
-		h.handleServiceError(w, err)
+		httputil.HandleError(w, err, errorMappings)
 		return
 	}
 
-	h.respondJSON(w, http.StatusOK, map[string]interface{}{
+	httputil.Success(w, http.StatusOK, map[string]interface{}{
 		"events": events,
 	})
 }
@@ -336,11 +346,11 @@ func (h *Handler) GetPublicStatus(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetStatusHistory(w http.ResponseWriter, r *http.Request) {
 	events, err := h.service.ListEvents(r.Context(), EventFilters{Limit: 50})
 	if err != nil {
-		h.handleServiceError(w, err)
+		httputil.HandleError(w, err, errorMappings)
 		return
 	}
 
-	h.respondJSON(w, http.StatusOK, map[string]interface{}{
+	httputil.Success(w, http.StatusOK, map[string]interface{}{
 		"events": events,
 	})
 }
@@ -351,66 +361,10 @@ func (h *Handler) GetServiceChanges(w http.ResponseWriter, r *http.Request) {
 
 	changes, err := h.service.GetServiceChanges(r.Context(), eventID)
 	if err != nil {
-		h.handleServiceError(w, err)
+		httputil.HandleError(w, err, errorMappings)
 		return
 	}
 
-	h.respondJSON(w, http.StatusOK, changes)
+	httputil.Success(w, http.StatusOK, changes)
 }
 
-func (h *Handler) respondJSON(w http.ResponseWriter, status int, data interface{}) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(map[string]interface{}{"data": data}); err != nil {
-		slog.Error("failed to encode response", "error", err)
-	}
-}
-
-func (h *Handler) respondError(w http.ResponseWriter, status int, message string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(map[string]interface{}{
-		"error": map[string]string{"message": message},
-	}); err != nil {
-		slog.Error("failed to encode error response", "error", err)
-	}
-}
-
-func (h *Handler) respondValidationError(w http.ResponseWriter, err error) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusBadRequest)
-	if err := json.NewEncoder(w).Encode(map[string]interface{}{
-		"error": map[string]interface{}{
-			"message": "validation error",
-			"details": err.Error(),
-		},
-	}); err != nil {
-		slog.Error("failed to encode validation error response", "error", err)
-	}
-}
-
-func (h *Handler) handleServiceError(w http.ResponseWriter, err error) {
-	switch {
-	case errors.Is(err, ErrEventNotFound):
-		h.respondError(w, http.StatusNotFound, "event not found")
-	case errors.Is(err, ErrTemplateNotFound):
-		h.respondError(w, http.StatusNotFound, "template not found")
-	case errors.Is(err, ErrInvalidStatus):
-		h.respondError(w, http.StatusBadRequest, "invalid status for event type")
-	case errors.Is(err, ErrInvalidSeverity):
-		h.respondError(w, http.StatusBadRequest, "severity is required for incidents")
-	case errors.Is(err, ErrEventAlreadyResolved):
-		h.respondError(w, http.StatusConflict, "cannot update resolved event")
-	case errors.Is(err, ErrEventNotResolved):
-		h.respondError(w, http.StatusConflict, "cannot delete active event: resolve it first")
-	case errors.Is(err, ErrServiceNotInEvent):
-		h.respondError(w, http.StatusBadRequest, "service is not in this event")
-	case errors.Is(err, ErrAffectedServiceNotFound):
-		h.respondError(w, http.StatusBadRequest, err.Error())
-	case errors.Is(err, ErrAffectedGroupNotFound):
-		h.respondError(w, http.StatusBadRequest, err.Error())
-	default:
-		slog.Error("service error", "error", err)
-		h.respondError(w, http.StatusInternalServerError, "internal server error")
-	}
-}

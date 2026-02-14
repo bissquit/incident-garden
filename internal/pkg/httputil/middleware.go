@@ -2,8 +2,6 @@ package httputil
 
 import (
 	"context"
-	"encoding/json"
-	"log/slog"
 	"net/http"
 	"strings"
 
@@ -90,21 +88,21 @@ func AuthMiddleware(validator TokenValidator) func(http.Handler) http.Handler {
 			}
 
 			if token == "" {
-				respondError(w, http.StatusUnauthorized, "missing authentication")
+				Error(w, http.StatusUnauthorized, "missing authentication")
 				return
 			}
 
 			// CSRF check for cookie-based auth on state-changing methods
 			if fromCookie && isStateChangingMethod(r.Method) {
 				if !validateCSRF(r) {
-					respondError(w, http.StatusForbidden, "invalid csrf token")
+					Error(w, http.StatusForbidden, "invalid csrf token")
 					return
 				}
 			}
 
 			userID, role, err := validator.ValidateToken(r.Context(), token)
 			if err != nil {
-				respondError(w, http.StatusUnauthorized, "invalid or expired token")
+				Error(w, http.StatusUnauthorized, "invalid or expired token")
 				return
 			}
 
@@ -146,12 +144,12 @@ func RequireRole(minRole domain.Role) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			role, ok := r.Context().Value(RoleKey).(domain.Role)
 			if !ok {
-				respondError(w, http.StatusUnauthorized, "unauthorized")
+				Error(w, http.StatusUnauthorized, "unauthorized")
 				return
 			}
 
 			if !role.HasPermission(minRole) {
-				respondError(w, http.StatusForbidden, "insufficient permissions")
+				Error(w, http.StatusForbidden, "insufficient permissions")
 				return
 			}
 
@@ -174,14 +172,4 @@ func GetRole(ctx context.Context) domain.Role {
 		return role
 	}
 	return ""
-}
-
-func respondError(w http.ResponseWriter, status int, message string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(map[string]interface{}{
-		"error": map[string]string{"message": message},
-	}); err != nil {
-		slog.Error("failed to encode error response", "error", err)
-	}
 }

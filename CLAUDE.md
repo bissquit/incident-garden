@@ -201,13 +201,22 @@ Dependencies: domain.Service, domain.ServiceGroup, domain.ServiceWithEffectiveSt
 ```
 internal/events/
 ├── handler.go             → CRUD /events + /changes endpoints
-├── service.go             → CreateEvent (with group expansion), AddUpdate (with service management)
+├── service.go             → CreateEvent, AddUpdate (decomposed into helper methods)
 ├── service_test.go        → Unit tests
 ├── repository.go          → Interface with groups + audit methods + transaction methods
 ├── resolver.go            → Interface: GroupServiceResolver, CatalogServiceUpdater (implemented by catalog.Service)
 ├── template_renderer.go   → Go template execution
 ├── errors.go              → ErrEventNotFound, ErrInvalidTransition, ErrEventAlreadyResolved, ErrAffectedServiceNotFound, ErrAffectedGroupNotFound...
 └── postgres/repository.go → SQL for events, groups, changes
+
+AddUpdate decomposition:
+├── processServiceChanges      → orchestrates all service modifications
+│   ├── updateExistingServiceStatuses → updates statuses of services already in event
+│   ├── addServicesToEvent     → adds new services with audit trail
+│   ├── addGroupsToEvent       → adds groups (expands to services) with audit trail
+│   │   └── associateServiceIfNotExists → shared helper for service association + logging
+│   └── removeServicesFromEvent → removes services with audit trail
+└── handleResolution           → recalculates service statuses on event resolution
 
 Key interfaces:
 - AssociateGroups(ctx, eventID, groupIDs)
@@ -262,7 +271,7 @@ internal/domain/           → User, Service, ServiceGroup, Event, EventUpdate, 
                              ServiceWithEffectiveStatus, ServiceTag, EventService,
                              AffectedService, AffectedGroup (API input types),
                              ServiceStatusLogEntry, StatusLogSourceType
-internal/pkg/httputil/     → response.go (Success/Error), middleware.go
+internal/pkg/httputil/     → response.go (Success/Error), middleware.go, errors.go (AppError, error mapping)
 internal/pkg/postgres/     → Connect(cfg) → *pgxpool.Pool
 internal/testutil/         → HTTP test client, testcontainers setup, fixtures, OpenAPI validator
 internal/version/          → Build version info (injected at compile time)
