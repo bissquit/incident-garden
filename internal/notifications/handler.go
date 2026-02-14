@@ -2,8 +2,6 @@ package notifications
 
 import (
 	"encoding/json"
-	"errors"
-	"log/slog"
 	"net/http"
 
 	"github.com/bissquit/incident-garden/internal/domain"
@@ -11,6 +9,12 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-playground/validator/v10"
 )
+
+var errorMappings = []httputil.ErrorMapping{
+	{Error: ErrChannelNotFound, Status: http.StatusNotFound, Message: "notification channel not found"},
+	{Error: ErrSubscriptionNotFound, Status: http.StatusNotFound, Message: "subscription not found"},
+	{Error: ErrChannelNotOwned, Status: http.StatusForbidden, Message: "channel does not belong to user"},
+}
 
 // Handler handles HTTP requests for the notifications module.
 type Handler struct {
@@ -65,7 +69,7 @@ func (h *Handler) ListChannels(w http.ResponseWriter, r *http.Request) {
 
 	channels, err := h.service.ListUserChannels(r.Context(), userID)
 	if err != nil {
-		h.handleServiceError(w, err)
+		httputil.HandleError(w, err, errorMappings)
 		return
 	}
 
@@ -89,7 +93,7 @@ func (h *Handler) CreateChannel(w http.ResponseWriter, r *http.Request) {
 
 	channel, err := h.service.CreateChannel(r.Context(), userID, domain.ChannelType(req.Type), req.Target)
 	if err != nil {
-		h.handleServiceError(w, err)
+		httputil.HandleError(w, err, errorMappings)
 		return
 	}
 
@@ -109,7 +113,7 @@ func (h *Handler) UpdateChannel(w http.ResponseWriter, r *http.Request) {
 
 	channel, err := h.service.UpdateChannel(r.Context(), userID, channelID, req.IsEnabled)
 	if err != nil {
-		h.handleServiceError(w, err)
+		httputil.HandleError(w, err, errorMappings)
 		return
 	}
 
@@ -122,7 +126,7 @@ func (h *Handler) DeleteChannel(w http.ResponseWriter, r *http.Request) {
 	channelID := chi.URLParam(r, "id")
 
 	if err := h.service.DeleteChannel(r.Context(), userID, channelID); err != nil {
-		h.handleServiceError(w, err)
+		httputil.HandleError(w, err, errorMappings)
 		return
 	}
 
@@ -136,7 +140,7 @@ func (h *Handler) VerifyChannel(w http.ResponseWriter, r *http.Request) {
 
 	channel, err := h.service.VerifyChannel(r.Context(), userID, channelID)
 	if err != nil {
-		h.handleServiceError(w, err)
+		httputil.HandleError(w, err, errorMappings)
 		return
 	}
 
@@ -149,7 +153,7 @@ func (h *Handler) GetSubscription(w http.ResponseWriter, r *http.Request) {
 
 	sub, err := h.service.GetOrCreateSubscription(r.Context(), userID)
 	if err != nil {
-		h.handleServiceError(w, err)
+		httputil.HandleError(w, err, errorMappings)
 		return
 	}
 
@@ -168,7 +172,7 @@ func (h *Handler) CreateOrUpdateSubscription(w http.ResponseWriter, r *http.Requ
 
 	sub, err := h.service.UpdateSubscriptionServices(r.Context(), userID, req.ServiceIDs)
 	if err != nil {
-		h.handleServiceError(w, err)
+		httputil.HandleError(w, err, errorMappings)
 		return
 	}
 
@@ -180,23 +184,10 @@ func (h *Handler) DeleteSubscription(w http.ResponseWriter, r *http.Request) {
 	userID := httputil.GetUserID(r.Context())
 
 	if err := h.service.DeleteSubscription(r.Context(), userID); err != nil {
-		h.handleServiceError(w, err)
+		httputil.HandleError(w, err, errorMappings)
 		return
 	}
 
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (h *Handler) handleServiceError(w http.ResponseWriter, err error) {
-	switch {
-	case errors.Is(err, ErrChannelNotFound):
-		httputil.Error(w, http.StatusNotFound, "notification channel not found")
-	case errors.Is(err, ErrSubscriptionNotFound):
-		httputil.Error(w, http.StatusNotFound, "subscription not found")
-	case errors.Is(err, ErrChannelNotOwned):
-		httputil.Error(w, http.StatusForbidden, "channel does not belong to user")
-	default:
-		slog.Error("service error", "error", err)
-		httputil.Error(w, http.StatusInternalServerError, "internal server error")
-	}
-}

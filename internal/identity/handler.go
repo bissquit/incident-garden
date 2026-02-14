@@ -4,7 +4,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"log/slog"
 	"net/http"
 	"time"
@@ -14,6 +13,13 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-playground/validator/v10"
 )
+
+var errorMappings = []httputil.ErrorMapping{
+	{Error: ErrUserNotFound, Status: http.StatusNotFound},
+	{Error: ErrEmailExists, Status: http.StatusConflict},
+	{Error: ErrInvalidCredentials, Status: http.StatusUnauthorized},
+	{Error: ErrInvalidToken, Status: http.StatusUnauthorized},
+}
 
 // CookieSettings contains settings for authentication cookies.
 type CookieSettings struct {
@@ -77,7 +83,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 
 	user, err := h.service.Register(r.Context(), RegisterInput(req))
 	if err != nil {
-		h.handleServiceError(w, err)
+		httputil.HandleError(w, err, errorMappings)
 		return
 	}
 
@@ -110,7 +116,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 
 	user, tokens, err := h.service.Login(r.Context(), LoginInput(req))
 	if err != nil {
-		h.handleServiceError(w, err)
+		httputil.HandleError(w, err, errorMappings)
 		return
 	}
 
@@ -132,7 +138,7 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 
 	tokens, err := h.service.RefreshTokens(r.Context(), refreshToken)
 	if err != nil {
-		h.handleServiceError(w, err)
+		httputil.HandleError(w, err, errorMappings)
 		return
 	}
 
@@ -166,7 +172,7 @@ func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 
 	user, err := h.service.GetUserByID(r.Context(), userID)
 	if err != nil {
-		h.handleServiceError(w, err)
+		httputil.HandleError(w, err, errorMappings)
 		return
 	}
 
@@ -277,18 +283,3 @@ func generateCSRFToken() string {
 	return hex.EncodeToString(b)
 }
 
-func (h *Handler) handleServiceError(w http.ResponseWriter, err error) {
-	switch {
-	case errors.Is(err, ErrUserNotFound):
-		httputil.Error(w, http.StatusNotFound, err.Error())
-	case errors.Is(err, ErrEmailExists):
-		httputil.Error(w, http.StatusConflict, err.Error())
-	case errors.Is(err, ErrInvalidCredentials):
-		httputil.Error(w, http.StatusUnauthorized, err.Error())
-	case errors.Is(err, ErrInvalidToken):
-		httputil.Error(w, http.StatusUnauthorized, err.Error())
-	default:
-		slog.Error("internal error", "error", err)
-		httputil.Error(w, http.StatusInternalServerError, "internal error")
-	}
-}
