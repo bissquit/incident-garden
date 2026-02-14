@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0](https://github.com/bissquit/incident-garden/compare/v2.0.0...v2.1.0) (2026-02-14)
+
+
+### Features
+
+* add Prometheus metrics ([cd8428a](https://github.com/bissquit/incident-garden/commit/cd8428a389a6f8a53c8970d31ff8a4d97753118e))
+* implement HTTP Server Timeouts ([508d6bb](https://github.com/bissquit/incident-garden/commit/508d6bb63deaec0641de4fea09ede727a6090935))
+* implement Request ID in logs ([6ad41c8](https://github.com/bissquit/incident-garden/commit/6ad41c8c640323353df14a56d3ca6c97bd8bd1dc))
+
+
+### Bug Fixes
+
+* add database connection retry with exponential backoff ([913332e](https://github.com/bissquit/incident-garden/commit/913332e292aff70b03aa8580f4bd3446fd896683))
+* add missing database connection config in integration tests ([4078950](https://github.com/bissquit/incident-garden/commit/4078950867b66f9c862a86a91d7405433a56d9b9))
+
 ## [2.0.0](https://github.com/bissquit/incident-garden/compare/v1.6.2...v2.0.0) (2026-02-11)
 
 
