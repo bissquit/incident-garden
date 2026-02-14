@@ -70,6 +70,7 @@ func TestMain(m *testing.M) {
 		Server: config.ServerConfig{
 			Host:         "127.0.0.1",
 			Port:         "0",
+			MetricsPort:  "0",
 			ReadTimeout:  15 * time.Second,
 			WriteTimeout: 15 * time.Second,
 		},
@@ -78,6 +79,8 @@ func TestMain(m *testing.M) {
 			MaxOpenConns:    5,
 			MaxIdleConns:    2,
 			ConnMaxLifetime: 5 * time.Minute,
+			ConnectTimeout:  30 * time.Second,
+			ConnectAttempts: 3,
 		},
 		Log: config.LogConfig{
 			Level:  "error",
