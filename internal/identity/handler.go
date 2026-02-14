@@ -66,12 +66,12 @@ type RegisterRequest struct {
 func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	var req RegisterRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.respondError(w, http.StatusBadRequest, "invalid json")
+		httputil.Error(w, http.StatusBadRequest, "invalid json")
 		return
 	}
 
 	if err := h.validator.Struct(req); err != nil {
-		h.respondValidationError(w, err)
+		httputil.ValidationError(w, err)
 		return
 	}
 
@@ -81,7 +81,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.respondJSON(w, http.StatusCreated, user)
+	httputil.Success(w, http.StatusCreated, user)
 }
 
 // LoginRequest represents login request body.
@@ -99,12 +99,12 @@ type LoginResponse struct {
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	var req LoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.respondError(w, http.StatusBadRequest, "invalid json")
+		httputil.Error(w, http.StatusBadRequest, "invalid json")
 		return
 	}
 
 	if err := h.validator.Struct(req); err != nil {
-		h.respondValidationError(w, err)
+		httputil.ValidationError(w, err)
 		return
 	}
 
@@ -116,7 +116,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 
 	h.setAuthCookies(w, tokens)
 
-	h.respondJSON(w, http.StatusOK, LoginResponse{
+	httputil.Success(w, http.StatusOK, LoginResponse{
 		User: user,
 	})
 }
@@ -126,7 +126,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 	refreshToken := h.getRefreshTokenFromRequest(r)
 	if refreshToken == "" {
-		h.respondError(w, http.StatusBadRequest, "missing refresh token")
+		httputil.Error(w, http.StatusBadRequest, "missing refresh token")
 		return
 	}
 
@@ -160,7 +160,7 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 	userID := httputil.GetUserID(r.Context())
 	if userID == "" {
-		h.respondError(w, http.StatusUnauthorized, "unauthorized")
+		httputil.Error(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 
@@ -170,48 +170,7 @@ func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.respondJSON(w, http.StatusOK, user)
-}
-
-func (h *Handler) respondJSON(w http.ResponseWriter, status int, data interface{}) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(map[string]interface{}{"data": data}); err != nil {
-		slog.Error("failed to encode response", "error", err)
-	}
-}
-
-func (h *Handler) respondError(w http.ResponseWriter, status int, message string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(map[string]interface{}{
-		"error": map[string]string{"message": message},
-	}); err != nil {
-		slog.Error("failed to encode error response", "error", err)
-	}
-}
-
-func (h *Handler) respondValidationError(w http.ResponseWriter, err error) {
-	var details []map[string]string
-	if validationErrors, ok := err.(validator.ValidationErrors); ok {
-		for _, e := range validationErrors {
-			details = append(details, map[string]string{
-				"field":   e.Field(),
-				"message": e.Tag(),
-			})
-		}
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusBadRequest)
-	if err := json.NewEncoder(w).Encode(map[string]interface{}{
-		"error": map[string]interface{}{
-			"message": "validation error",
-			"details": details,
-		},
-	}); err != nil {
-		slog.Error("failed to encode validation error response", "error", err)
-	}
+	httputil.Success(w, http.StatusOK, user)
 }
 
 // setAuthCookies sets access_token, refresh_token, and csrf_token cookies.
@@ -321,15 +280,15 @@ func generateCSRFToken() string {
 func (h *Handler) handleServiceError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, ErrUserNotFound):
-		h.respondError(w, http.StatusNotFound, err.Error())
+		httputil.Error(w, http.StatusNotFound, err.Error())
 	case errors.Is(err, ErrEmailExists):
-		h.respondError(w, http.StatusConflict, err.Error())
+		httputil.Error(w, http.StatusConflict, err.Error())
 	case errors.Is(err, ErrInvalidCredentials):
-		h.respondError(w, http.StatusUnauthorized, err.Error())
+		httputil.Error(w, http.StatusUnauthorized, err.Error())
 	case errors.Is(err, ErrInvalidToken):
-		h.respondError(w, http.StatusUnauthorized, err.Error())
+		httputil.Error(w, http.StatusUnauthorized, err.Error())
 	default:
 		slog.Error("internal error", "error", err)
-		h.respondError(w, http.StatusInternalServerError, "internal error")
+		httputil.Error(w, http.StatusInternalServerError, "internal error")
 	}
 }

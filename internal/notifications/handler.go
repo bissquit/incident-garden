@@ -69,7 +69,7 @@ func (h *Handler) ListChannels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.respondJSON(w, http.StatusOK, channels)
+	httputil.Success(w, http.StatusOK, channels)
 }
 
 // CreateChannel handles POST /me/channels.
@@ -78,12 +78,12 @@ func (h *Handler) CreateChannel(w http.ResponseWriter, r *http.Request) {
 
 	var req CreateChannelRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.respondError(w, http.StatusBadRequest, "invalid json")
+		httputil.Error(w, http.StatusBadRequest, "invalid json")
 		return
 	}
 
 	if err := h.validator.Struct(req); err != nil {
-		h.respondValidationError(w, err)
+		httputil.ValidationError(w, err)
 		return
 	}
 
@@ -93,7 +93,7 @@ func (h *Handler) CreateChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.respondJSON(w, http.StatusCreated, channel)
+	httputil.Success(w, http.StatusCreated, channel)
 }
 
 // UpdateChannel handles PATCH /me/channels/{id}.
@@ -103,7 +103,7 @@ func (h *Handler) UpdateChannel(w http.ResponseWriter, r *http.Request) {
 
 	var req UpdateChannelRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.respondError(w, http.StatusBadRequest, "invalid json")
+		httputil.Error(w, http.StatusBadRequest, "invalid json")
 		return
 	}
 
@@ -113,7 +113,7 @@ func (h *Handler) UpdateChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.respondJSON(w, http.StatusOK, channel)
+	httputil.Success(w, http.StatusOK, channel)
 }
 
 // DeleteChannel handles DELETE /me/channels/{id}.
@@ -140,7 +140,7 @@ func (h *Handler) VerifyChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.respondJSON(w, http.StatusOK, channel)
+	httputil.Success(w, http.StatusOK, channel)
 }
 
 // GetSubscription handles GET /me/subscriptions.
@@ -153,7 +153,7 @@ func (h *Handler) GetSubscription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.respondJSON(w, http.StatusOK, sub)
+	httputil.Success(w, http.StatusOK, sub)
 }
 
 // CreateOrUpdateSubscription handles POST /me/subscriptions.
@@ -162,7 +162,7 @@ func (h *Handler) CreateOrUpdateSubscription(w http.ResponseWriter, r *http.Requ
 
 	var req UpdateSubscriptionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.respondError(w, http.StatusBadRequest, "invalid json")
+		httputil.Error(w, http.StatusBadRequest, "invalid json")
 		return
 	}
 
@@ -172,7 +172,7 @@ func (h *Handler) CreateOrUpdateSubscription(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	h.respondJSON(w, http.StatusOK, sub)
+	httputil.Success(w, http.StatusOK, sub)
 }
 
 // DeleteSubscription handles DELETE /me/subscriptions.
@@ -187,47 +187,16 @@ func (h *Handler) DeleteSubscription(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (h *Handler) respondJSON(w http.ResponseWriter, status int, data interface{}) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(map[string]interface{}{"data": data}); err != nil {
-		slog.Error("failed to encode response", "error", err)
-	}
-}
-
-func (h *Handler) respondError(w http.ResponseWriter, status int, message string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(map[string]interface{}{
-		"error": map[string]string{"message": message},
-	}); err != nil {
-		slog.Error("failed to encode error response", "error", err)
-	}
-}
-
-func (h *Handler) respondValidationError(w http.ResponseWriter, err error) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusBadRequest)
-	if err := json.NewEncoder(w).Encode(map[string]interface{}{
-		"error": map[string]interface{}{
-			"message": "validation error",
-			"details": err.Error(),
-		},
-	}); err != nil {
-		slog.Error("failed to encode validation error response", "error", err)
-	}
-}
-
 func (h *Handler) handleServiceError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, ErrChannelNotFound):
-		h.respondError(w, http.StatusNotFound, "notification channel not found")
+		httputil.Error(w, http.StatusNotFound, "notification channel not found")
 	case errors.Is(err, ErrSubscriptionNotFound):
-		h.respondError(w, http.StatusNotFound, "subscription not found")
+		httputil.Error(w, http.StatusNotFound, "subscription not found")
 	case errors.Is(err, ErrChannelNotOwned):
-		h.respondError(w, http.StatusForbidden, "channel does not belong to user")
+		httputil.Error(w, http.StatusForbidden, "channel does not belong to user")
 	default:
 		slog.Error("service error", "error", err)
-		h.respondError(w, http.StatusInternalServerError, "internal server error")
+		httputil.Error(w, http.StatusInternalServerError, "internal server error")
 	}
 }

@@ -159,12 +159,12 @@ type UpdateServiceTagsRequest struct {
 func (h *Handler) CreateGroup(w http.ResponseWriter, r *http.Request) {
 	var req CreateGroupRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.respondError(w, http.StatusBadRequest, "invalid json")
+		httputil.Error(w, http.StatusBadRequest, "invalid json")
 		return
 	}
 
 	if err := h.validator.Struct(req); err != nil {
-		h.respondValidationError(w, err)
+		httputil.ValidationError(w, err)
 		return
 	}
 
@@ -174,7 +174,7 @@ func (h *Handler) CreateGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.respondJSON(w, http.StatusCreated, group)
+	httputil.Success(w, http.StatusCreated, group)
 }
 
 // GetGroup handles GET /groups/{slug} request.
@@ -187,7 +187,7 @@ func (h *Handler) GetGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.respondJSON(w, http.StatusOK, group)
+	httputil.Success(w, http.StatusOK, group)
 }
 
 // ListGroups handles GET /groups request.
@@ -204,7 +204,7 @@ func (h *Handler) ListGroups(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.respondJSON(w, http.StatusOK, groups)
+	httputil.Success(w, http.StatusOK, groups)
 }
 
 // UpdateGroup handles PATCH /groups/{slug} request.
@@ -219,12 +219,12 @@ func (h *Handler) UpdateGroup(w http.ResponseWriter, r *http.Request) {
 
 	var req UpdateGroupRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.respondError(w, http.StatusBadRequest, "invalid json")
+		httputil.Error(w, http.StatusBadRequest, "invalid json")
 		return
 	}
 
 	if err := h.validator.Struct(req); err != nil {
-		h.respondValidationError(w, err)
+		httputil.ValidationError(w, err)
 		return
 	}
 
@@ -247,7 +247,7 @@ func (h *Handler) UpdateGroup(w http.ResponseWriter, r *http.Request) {
 		existing.ServiceIDs = *req.ServiceIDs
 	}
 
-	h.respondJSON(w, http.StatusOK, existing)
+	httputil.Success(w, http.StatusOK, existing)
 }
 
 // DeleteGroup handles DELETE /groups/{slug} request.
@@ -290,19 +290,19 @@ func (h *Handler) RestoreGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.respondJSON(w, http.StatusOK, group)
+	httputil.Success(w, http.StatusOK, group)
 }
 
 // CreateService handles POST /services request.
 func (h *Handler) CreateService(w http.ResponseWriter, r *http.Request) {
 	var req CreateServiceRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.respondError(w, http.StatusBadRequest, "invalid json")
+		httputil.Error(w, http.StatusBadRequest, "invalid json")
 		return
 	}
 
 	if err := h.validator.Struct(req); err != nil {
-		h.respondValidationError(w, err)
+		httputil.ValidationError(w, err)
 		return
 	}
 
@@ -326,7 +326,7 @@ func (h *Handler) CreateService(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.respondJSON(w, http.StatusCreated, result)
+	httputil.Success(w, http.StatusCreated, result)
 }
 
 // GetService handles GET /services/{slug} request.
@@ -339,7 +339,7 @@ func (h *Handler) GetService(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.respondJSON(w, http.StatusOK, service)
+	httputil.Success(w, http.StatusOK, service)
 }
 
 // ListServices handles GET /services request.
@@ -365,7 +365,7 @@ func (h *Handler) ListServices(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.respondJSON(w, http.StatusOK, services)
+	httputil.Success(w, http.StatusOK, services)
 }
 
 // UpdateService handles PATCH /services/{slug} request.
@@ -380,12 +380,12 @@ func (h *Handler) UpdateService(w http.ResponseWriter, r *http.Request) {
 
 	var req UpdateServiceRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.respondError(w, http.StatusBadRequest, "invalid json")
+		httputil.Error(w, http.StatusBadRequest, "invalid json")
 		return
 	}
 
 	if err := h.validator.Struct(req); err != nil {
-		h.respondValidationError(w, err)
+		httputil.ValidationError(w, err)
 		return
 	}
 
@@ -418,7 +418,7 @@ func (h *Handler) UpdateService(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.respondJSON(w, http.StatusOK, result)
+	httputil.Success(w, http.StatusOK, result)
 }
 
 // DeleteService handles DELETE /services/{slug} request.
@@ -461,7 +461,7 @@ func (h *Handler) RestoreService(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.respondJSON(w, http.StatusOK, result)
+	httputil.Success(w, http.StatusOK, result)
 }
 
 // GetServiceStatusLog handles GET /services/{slug}/status-log request.
@@ -481,7 +481,7 @@ func (h *Handler) GetServiceStatusLog(w http.ResponseWriter, r *http.Request) {
 	if l := r.URL.Query().Get("limit"); l != "" {
 		parsed, err := strconv.Atoi(l)
 		if err != nil || parsed < 1 {
-			h.respondError(w, http.StatusBadRequest, "limit must be a positive integer")
+			httputil.Error(w, http.StatusBadRequest, "limit must be a positive integer")
 			return
 		}
 		if parsed > MaxStatusLogLimit {
@@ -493,7 +493,7 @@ func (h *Handler) GetServiceStatusLog(w http.ResponseWriter, r *http.Request) {
 	if o := r.URL.Query().Get("offset"); o != "" {
 		parsed, err := strconv.Atoi(o)
 		if err != nil || parsed < 0 {
-			h.respondError(w, http.StatusBadRequest, "offset must be a non-negative integer")
+			httputil.Error(w, http.StatusBadRequest, "offset must be a non-negative integer")
 			return
 		}
 		offset = parsed
@@ -512,7 +512,7 @@ func (h *Handler) GetServiceStatusLog(w http.ResponseWriter, r *http.Request) {
 		"offset":  offset,
 	}
 
-	h.respondJSON(w, http.StatusOK, response)
+	httputil.Success(w, http.StatusOK, response)
 }
 
 // GetServiceEvents handles GET /services/{slug}/events request.
@@ -528,7 +528,7 @@ func (h *Handler) GetServiceEvents(w http.ResponseWriter, r *http.Request) {
 	// Parse status filter
 	statusFilter := r.URL.Query().Get("status")
 	if statusFilter != "" && statusFilter != "active" && statusFilter != "resolved" {
-		h.respondError(w, http.StatusBadRequest, "invalid status filter, must be 'active', 'resolved', or empty")
+		httputil.Error(w, http.StatusBadRequest, "invalid status filter, must be 'active', 'resolved', or empty")
 		return
 	}
 
@@ -539,7 +539,7 @@ func (h *Handler) GetServiceEvents(w http.ResponseWriter, r *http.Request) {
 	if l := r.URL.Query().Get("limit"); l != "" {
 		parsed, err := strconv.Atoi(l)
 		if err != nil || parsed < 1 {
-			h.respondError(w, http.StatusBadRequest, "limit must be a positive integer")
+			httputil.Error(w, http.StatusBadRequest, "limit must be a positive integer")
 			return
 		}
 		if parsed > MaxEventsLimit {
@@ -551,7 +551,7 @@ func (h *Handler) GetServiceEvents(w http.ResponseWriter, r *http.Request) {
 	if o := r.URL.Query().Get("offset"); o != "" {
 		parsed, err := strconv.Atoi(o)
 		if err != nil || parsed < 0 {
-			h.respondError(w, http.StatusBadRequest, "offset must be a non-negative integer")
+			httputil.Error(w, http.StatusBadRequest, "offset must be a non-negative integer")
 			return
 		}
 		offset = parsed
@@ -566,7 +566,7 @@ func (h *Handler) GetServiceEvents(w http.ResponseWriter, r *http.Request) {
 	eventsList, total, err := h.eventsService.ListEventsByServiceID(r.Context(), service.ID, filter)
 	if err != nil {
 		slog.Error("failed to list events for service", "service_id", service.ID, "error", err)
-		h.respondError(w, http.StatusInternalServerError, "internal error")
+		httputil.Error(w, http.StatusInternalServerError, "internal error")
 		return
 	}
 
@@ -577,7 +577,7 @@ func (h *Handler) GetServiceEvents(w http.ResponseWriter, r *http.Request) {
 		"offset": offset,
 	}
 
-	h.respondJSON(w, http.StatusOK, response)
+	httputil.Success(w, http.StatusOK, response)
 }
 
 // GetServiceTags handles GET /services/{slug}/tags request.
@@ -601,7 +601,7 @@ func (h *Handler) GetServiceTags(w http.ResponseWriter, r *http.Request) {
 		tagsMap[tag.Key] = tag.Value
 	}
 
-	h.respondJSON(w, http.StatusOK, map[string]interface{}{"tags": tagsMap})
+	httputil.Success(w, http.StatusOK, map[string]interface{}{"tags": tagsMap})
 }
 
 // UpdateServiceTags handles PUT /services/{slug}/tags request.
@@ -616,12 +616,12 @@ func (h *Handler) UpdateServiceTags(w http.ResponseWriter, r *http.Request) {
 
 	var req UpdateServiceTagsRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.respondError(w, http.StatusBadRequest, "invalid json")
+		httputil.Error(w, http.StatusBadRequest, "invalid json")
 		return
 	}
 
 	if err := h.validator.Struct(req); err != nil {
-		h.respondValidationError(w, err)
+		httputil.ValidationError(w, err)
 		return
 	}
 
@@ -630,70 +630,29 @@ func (h *Handler) UpdateServiceTags(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.respondJSON(w, http.StatusOK, map[string]interface{}{"tags": req.Tags})
-}
-
-func (h *Handler) respondJSON(w http.ResponseWriter, status int, data interface{}) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(map[string]interface{}{"data": data}); err != nil {
-		slog.Error("failed to encode response", "error", err)
-	}
-}
-
-func (h *Handler) respondError(w http.ResponseWriter, status int, message string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(map[string]interface{}{
-		"error": map[string]string{"message": message},
-	}); err != nil {
-		slog.Error("failed to encode error response", "error", err)
-	}
-}
-
-func (h *Handler) respondValidationError(w http.ResponseWriter, err error) {
-	var details []map[string]string
-	if validationErrors, ok := err.(validator.ValidationErrors); ok {
-		for _, e := range validationErrors {
-			details = append(details, map[string]string{
-				"field":   e.Field(),
-				"message": e.Tag(),
-			})
-		}
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusBadRequest)
-	if err := json.NewEncoder(w).Encode(map[string]interface{}{
-		"error": map[string]interface{}{
-			"message": "validation error",
-			"details": details,
-		},
-	}); err != nil {
-		slog.Error("failed to encode validation error response", "error", err)
-	}
+	httputil.Success(w, http.StatusOK, map[string]interface{}{"tags": req.Tags})
 }
 
 func (h *Handler) handleServiceError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, ErrServiceNotFound), errors.Is(err, ErrGroupNotFound):
-		h.respondError(w, http.StatusNotFound, err.Error())
+		httputil.Error(w, http.StatusNotFound, err.Error())
 	case errors.Is(err, ErrSlugExists):
-		h.respondError(w, http.StatusConflict, err.Error())
+		httputil.Error(w, http.StatusConflict, err.Error())
 	case errors.Is(err, ErrInvalidSlug):
-		h.respondError(w, http.StatusBadRequest, err.Error())
+		httputil.Error(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, ErrServiceHasActiveEvents):
-		h.respondError(w, http.StatusConflict, err.Error())
+		httputil.Error(w, http.StatusConflict, err.Error())
 	case errors.Is(err, ErrGroupHasActiveEvents):
-		h.respondError(w, http.StatusConflict, err.Error())
+		httputil.Error(w, http.StatusConflict, err.Error())
 	case errors.Is(err, ErrGroupHasServices):
-		h.respondError(w, http.StatusConflict, err.Error())
+		httputil.Error(w, http.StatusConflict, err.Error())
 	case errors.Is(err, ErrAlreadyArchived):
-		h.respondError(w, http.StatusConflict, err.Error())
+		httputil.Error(w, http.StatusConflict, err.Error())
 	case errors.Is(err, ErrNotArchived):
-		h.respondError(w, http.StatusConflict, err.Error())
+		httputil.Error(w, http.StatusConflict, err.Error())
 	default:
 		slog.Error("internal error", "error", err)
-		h.respondError(w, http.StatusInternalServerError, "internal error")
+		httputil.Error(w, http.StatusInternalServerError, "internal error")
 	}
 }
