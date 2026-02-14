@@ -4,12 +4,12 @@ package catalog
 import (
 	"context"
 	"encoding/json"
-	"log/slog"
 	"net/http"
 	"strconv"
 
 	"github.com/bissquit/incident-garden/internal/domain"
 	"github.com/bissquit/incident-garden/internal/events"
+	"github.com/bissquit/incident-garden/internal/pkg/ctxlog"
 	"github.com/bissquit/incident-garden/internal/pkg/httputil"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-playground/validator/v10"
@@ -181,7 +181,7 @@ func (h *Handler) CreateGroup(w http.ResponseWriter, r *http.Request) {
 
 	group := req.ToDomain()
 	if err := h.service.CreateGroup(r.Context(), group); err != nil {
-		httputil.HandleError(w, err, errorMappings)
+		httputil.HandleError(r.Context(), w, err, errorMappings)
 		return
 	}
 
@@ -194,7 +194,7 @@ func (h *Handler) GetGroup(w http.ResponseWriter, r *http.Request) {
 
 	group, err := h.service.GetGroupBySlug(r.Context(), slug)
 	if err != nil {
-		httputil.HandleError(w, err, errorMappings)
+		httputil.HandleError(r.Context(), w, err, errorMappings)
 		return
 	}
 
@@ -211,7 +211,7 @@ func (h *Handler) ListGroups(w http.ResponseWriter, r *http.Request) {
 
 	groups, err := h.service.ListGroups(r.Context(), filter)
 	if err != nil {
-		httputil.HandleError(w, err, errorMappings)
+		httputil.HandleError(r.Context(), w, err, errorMappings)
 		return
 	}
 
@@ -224,7 +224,7 @@ func (h *Handler) UpdateGroup(w http.ResponseWriter, r *http.Request) {
 
 	existing, err := h.service.GetGroupBySlug(r.Context(), slug)
 	if err != nil {
-		httputil.HandleError(w, err, errorMappings)
+		httputil.HandleError(r.Context(), w, err, errorMappings)
 		return
 	}
 
@@ -245,14 +245,14 @@ func (h *Handler) UpdateGroup(w http.ResponseWriter, r *http.Request) {
 	existing.Order = req.Order
 
 	if err := h.service.UpdateGroup(r.Context(), existing); err != nil {
-		httputil.HandleError(w, err, errorMappings)
+		httputil.HandleError(r.Context(), w, err, errorMappings)
 		return
 	}
 
 	// Update service memberships if provided
 	if req.ServiceIDs != nil {
 		if err := h.service.UpdateGroupServices(r.Context(), existing.ID, *req.ServiceIDs); err != nil {
-			httputil.HandleError(w, err, errorMappings)
+			httputil.HandleError(r.Context(), w, err, errorMappings)
 			return
 		}
 		existing.ServiceIDs = *req.ServiceIDs
@@ -267,12 +267,12 @@ func (h *Handler) DeleteGroup(w http.ResponseWriter, r *http.Request) {
 
 	group, err := h.service.GetGroupBySlug(r.Context(), slug)
 	if err != nil {
-		httputil.HandleError(w, err, errorMappings)
+		httputil.HandleError(r.Context(), w, err, errorMappings)
 		return
 	}
 
 	if err := h.service.DeleteGroup(r.Context(), group.ID); err != nil {
-		httputil.HandleError(w, err, errorMappings)
+		httputil.HandleError(r.Context(), w, err, errorMappings)
 		return
 	}
 
@@ -285,19 +285,19 @@ func (h *Handler) RestoreGroup(w http.ResponseWriter, r *http.Request) {
 
 	group, err := h.service.GetGroupBySlug(r.Context(), slug)
 	if err != nil {
-		httputil.HandleError(w, err, errorMappings)
+		httputil.HandleError(r.Context(), w, err, errorMappings)
 		return
 	}
 
 	if err := h.service.RestoreGroup(r.Context(), group.ID); err != nil {
-		httputil.HandleError(w, err, errorMappings)
+		httputil.HandleError(r.Context(), w, err, errorMappings)
 		return
 	}
 
 	// Return the restored group
 	group, err = h.service.GetGroupBySlug(r.Context(), slug)
 	if err != nil {
-		httputil.HandleError(w, err, errorMappings)
+		httputil.HandleError(r.Context(), w, err, errorMappings)
 		return
 	}
 
@@ -319,13 +319,13 @@ func (h *Handler) CreateService(w http.ResponseWriter, r *http.Request) {
 
 	service := req.ToDomain()
 	if err := h.service.CreateService(r.Context(), service); err != nil {
-		httputil.HandleError(w, err, errorMappings)
+		httputil.HandleError(r.Context(), w, err, errorMappings)
 		return
 	}
 
 	if len(req.Tags) > 0 {
 		if err := h.service.UpdateServiceTags(r.Context(), service.ID, req.Tags); err != nil {
-			httputil.HandleError(w, err, errorMappings)
+			httputil.HandleError(r.Context(), w, err, errorMappings)
 			return
 		}
 	}
@@ -333,7 +333,7 @@ func (h *Handler) CreateService(w http.ResponseWriter, r *http.Request) {
 	// Return with effective status
 	result, err := h.service.GetServiceByIDWithEffectiveStatus(r.Context(), service.ID)
 	if err != nil {
-		httputil.HandleError(w, err, errorMappings)
+		httputil.HandleError(r.Context(), w, err, errorMappings)
 		return
 	}
 
@@ -346,7 +346,7 @@ func (h *Handler) GetService(w http.ResponseWriter, r *http.Request) {
 
 	service, err := h.service.GetServiceBySlugWithEffectiveStatus(r.Context(), slug)
 	if err != nil {
-		httputil.HandleError(w, err, errorMappings)
+		httputil.HandleError(r.Context(), w, err, errorMappings)
 		return
 	}
 
@@ -372,7 +372,7 @@ func (h *Handler) ListServices(w http.ResponseWriter, r *http.Request) {
 
 	services, err := h.service.ListServicesWithEffectiveStatus(r.Context(), filter)
 	if err != nil {
-		httputil.HandleError(w, err, errorMappings)
+		httputil.HandleError(r.Context(), w, err, errorMappings)
 		return
 	}
 
@@ -385,7 +385,7 @@ func (h *Handler) UpdateService(w http.ResponseWriter, r *http.Request) {
 
 	existing, err := h.service.GetServiceBySlug(r.Context(), slug)
 	if err != nil {
-		httputil.HandleError(w, err, errorMappings)
+		httputil.HandleError(r.Context(), w, err, errorMappings)
 		return
 	}
 
@@ -418,14 +418,14 @@ func (h *Handler) UpdateService(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.service.UpdateService(r.Context(), input); err != nil {
-		httputil.HandleError(w, err, errorMappings)
+		httputil.HandleError(r.Context(), w, err, errorMappings)
 		return
 	}
 
 	// Return with effective status
 	result, err := h.service.GetServiceBySlugWithEffectiveStatus(r.Context(), existing.Slug)
 	if err != nil {
-		httputil.HandleError(w, err, errorMappings)
+		httputil.HandleError(r.Context(), w, err, errorMappings)
 		return
 	}
 
@@ -438,12 +438,12 @@ func (h *Handler) DeleteService(w http.ResponseWriter, r *http.Request) {
 
 	service, err := h.service.GetServiceBySlug(r.Context(), slug)
 	if err != nil {
-		httputil.HandleError(w, err, errorMappings)
+		httputil.HandleError(r.Context(), w, err, errorMappings)
 		return
 	}
 
 	if err := h.service.DeleteService(r.Context(), service.ID); err != nil {
-		httputil.HandleError(w, err, errorMappings)
+		httputil.HandleError(r.Context(), w, err, errorMappings)
 		return
 	}
 
@@ -456,19 +456,19 @@ func (h *Handler) RestoreService(w http.ResponseWriter, r *http.Request) {
 
 	service, err := h.service.GetServiceBySlug(r.Context(), slug)
 	if err != nil {
-		httputil.HandleError(w, err, errorMappings)
+		httputil.HandleError(r.Context(), w, err, errorMappings)
 		return
 	}
 
 	if err := h.service.RestoreService(r.Context(), service.ID); err != nil {
-		httputil.HandleError(w, err, errorMappings)
+		httputil.HandleError(r.Context(), w, err, errorMappings)
 		return
 	}
 
 	// Return the restored service with effective status
 	result, err := h.service.GetServiceBySlugWithEffectiveStatus(r.Context(), slug)
 	if err != nil {
-		httputil.HandleError(w, err, errorMappings)
+		httputil.HandleError(r.Context(), w, err, errorMappings)
 		return
 	}
 
@@ -481,7 +481,7 @@ func (h *Handler) GetServiceStatusLog(w http.ResponseWriter, r *http.Request) {
 
 	service, err := h.service.GetServiceBySlug(r.Context(), slug)
 	if err != nil {
-		httputil.HandleError(w, err, errorMappings)
+		httputil.HandleError(r.Context(), w, err, errorMappings)
 		return
 	}
 
@@ -512,7 +512,7 @@ func (h *Handler) GetServiceStatusLog(w http.ResponseWriter, r *http.Request) {
 
 	entries, total, err := h.service.ListStatusLog(r.Context(), service.ID, limit, offset)
 	if err != nil {
-		httputil.HandleError(w, err, errorMappings)
+		httputil.HandleError(r.Context(), w, err, errorMappings)
 		return
 	}
 
@@ -532,7 +532,7 @@ func (h *Handler) GetServiceEvents(w http.ResponseWriter, r *http.Request) {
 
 	service, err := h.service.GetServiceBySlug(r.Context(), slug)
 	if err != nil {
-		httputil.HandleError(w, err, errorMappings)
+		httputil.HandleError(r.Context(), w, err, errorMappings)
 		return
 	}
 
@@ -576,7 +576,7 @@ func (h *Handler) GetServiceEvents(w http.ResponseWriter, r *http.Request) {
 
 	eventsList, total, err := h.eventsService.ListEventsByServiceID(r.Context(), service.ID, filter)
 	if err != nil {
-		slog.Error("failed to list events for service", "service_id", service.ID, "error", err)
+		ctxlog.FromContext(r.Context()).Error("failed to list events for service", "service_id", service.ID, "error", err)
 		httputil.Error(w, http.StatusInternalServerError, "internal error")
 		return
 	}
@@ -597,13 +597,13 @@ func (h *Handler) GetServiceTags(w http.ResponseWriter, r *http.Request) {
 
 	service, err := h.service.GetServiceBySlug(r.Context(), slug)
 	if err != nil {
-		httputil.HandleError(w, err, errorMappings)
+		httputil.HandleError(r.Context(), w, err, errorMappings)
 		return
 	}
 
 	tags, err := h.service.GetServiceTags(r.Context(), service.ID)
 	if err != nil {
-		httputil.HandleError(w, err, errorMappings)
+		httputil.HandleError(r.Context(), w, err, errorMappings)
 		return
 	}
 
@@ -621,7 +621,7 @@ func (h *Handler) UpdateServiceTags(w http.ResponseWriter, r *http.Request) {
 
 	service, err := h.service.GetServiceBySlug(r.Context(), slug)
 	if err != nil {
-		httputil.HandleError(w, err, errorMappings)
+		httputil.HandleError(r.Context(), w, err, errorMappings)
 		return
 	}
 
@@ -637,7 +637,7 @@ func (h *Handler) UpdateServiceTags(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.service.UpdateServiceTags(r.Context(), service.ID, req.Tags); err != nil {
-		httputil.HandleError(w, err, errorMappings)
+		httputil.HandleError(r.Context(), w, err, errorMappings)
 		return
 	}
 

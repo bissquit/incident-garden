@@ -69,7 +69,7 @@ func (h *Handler) ListChannels(w http.ResponseWriter, r *http.Request) {
 
 	channels, err := h.service.ListUserChannels(r.Context(), userID)
 	if err != nil {
-		httputil.HandleError(w, err, errorMappings)
+		httputil.HandleError(r.Context(), w, err, errorMappings)
 		return
 	}
 
@@ -93,7 +93,7 @@ func (h *Handler) CreateChannel(w http.ResponseWriter, r *http.Request) {
 
 	channel, err := h.service.CreateChannel(r.Context(), userID, domain.ChannelType(req.Type), req.Target)
 	if err != nil {
-		httputil.HandleError(w, err, errorMappings)
+		httputil.HandleError(r.Context(), w, err, errorMappings)
 		return
 	}
 
@@ -113,7 +113,7 @@ func (h *Handler) UpdateChannel(w http.ResponseWriter, r *http.Request) {
 
 	channel, err := h.service.UpdateChannel(r.Context(), userID, channelID, req.IsEnabled)
 	if err != nil {
-		httputil.HandleError(w, err, errorMappings)
+		httputil.HandleError(r.Context(), w, err, errorMappings)
 		return
 	}
 
@@ -126,7 +126,7 @@ func (h *Handler) DeleteChannel(w http.ResponseWriter, r *http.Request) {
 	channelID := chi.URLParam(r, "id")
 
 	if err := h.service.DeleteChannel(r.Context(), userID, channelID); err != nil {
-		httputil.HandleError(w, err, errorMappings)
+		httputil.HandleError(r.Context(), w, err, errorMappings)
 		return
 	}
 
@@ -140,7 +140,7 @@ func (h *Handler) VerifyChannel(w http.ResponseWriter, r *http.Request) {
 
 	channel, err := h.service.VerifyChannel(r.Context(), userID, channelID)
 	if err != nil {
-		httputil.HandleError(w, err, errorMappings)
+		httputil.HandleError(r.Context(), w, err, errorMappings)
 		return
 	}
 
@@ -153,7 +153,7 @@ func (h *Handler) GetSubscription(w http.ResponseWriter, r *http.Request) {
 
 	sub, err := h.service.GetOrCreateSubscription(r.Context(), userID)
 	if err != nil {
-		httputil.HandleError(w, err, errorMappings)
+		httputil.HandleError(r.Context(), w, err, errorMappings)
 		return
 	}
 
@@ -172,7 +172,7 @@ func (h *Handler) CreateOrUpdateSubscription(w http.ResponseWriter, r *http.Requ
 
 	sub, err := h.service.UpdateSubscriptionServices(r.Context(), userID, req.ServiceIDs)
 	if err != nil {
-		httputil.HandleError(w, err, errorMappings)
+		httputil.HandleError(r.Context(), w, err, errorMappings)
 		return
 	}
 
@@ -184,7 +184,7 @@ func (h *Handler) DeleteSubscription(w http.ResponseWriter, r *http.Request) {
 	userID := httputil.GetUserID(r.Context())
 
 	if err := h.service.DeleteSubscription(r.Context(), userID); err != nil {
-		httputil.HandleError(w, err, errorMappings)
+		httputil.HandleError(r.Context(), w, err, errorMappings)
 		return
 	}
 

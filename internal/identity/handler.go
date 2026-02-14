@@ -4,11 +4,11 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
-	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/bissquit/incident-garden/internal/domain"
+	"github.com/bissquit/incident-garden/internal/pkg/ctxlog"
 	"github.com/bissquit/incident-garden/internal/pkg/httputil"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-playground/validator/v10"
@@ -83,7 +83,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 
 	user, err := h.service.Register(r.Context(), RegisterInput(req))
 	if err != nil {
-		httputil.HandleError(w, err, errorMappings)
+		httputil.HandleError(r.Context(), w, err, errorMappings)
 		return
 	}
 
@@ -116,7 +116,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 
 	user, tokens, err := h.service.Login(r.Context(), LoginInput(req))
 	if err != nil {
-		httputil.HandleError(w, err, errorMappings)
+		httputil.HandleError(r.Context(), w, err, errorMappings)
 		return
 	}
 
@@ -138,7 +138,7 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 
 	tokens, err := h.service.RefreshTokens(r.Context(), refreshToken)
 	if err != nil {
-		httputil.HandleError(w, err, errorMappings)
+		httputil.HandleError(r.Context(), w, err, errorMappings)
 		return
 	}
 
@@ -153,7 +153,7 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 	refreshToken := h.getRefreshTokenFromRequest(r)
 	if refreshToken != "" {
 		if err := h.service.Logout(r.Context(), refreshToken); err != nil {
-			slog.Warn("logout error", "error", err)
+			ctxlog.FromContext(r.Context()).Warn("logout error", "error", err)
 		}
 	}
 
@@ -172,7 +172,7 @@ func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 
 	user, err := h.service.GetUserByID(r.Context(), userID)
 	if err != nil {
-		httputil.HandleError(w, err, errorMappings)
+		httputil.HandleError(r.Context(), w, err, errorMappings)
 		return
 	}
 

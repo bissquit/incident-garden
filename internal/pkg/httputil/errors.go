@@ -1,9 +1,11 @@
 package httputil
 
 import (
+	"context"
 	"errors"
-	"log/slog"
 	"net/http"
+
+	"github.com/bissquit/incident-garden/internal/pkg/ctxlog"
 )
 
 // ErrorMapping defines how a domain error maps to an HTTP response.
@@ -15,7 +17,7 @@ type ErrorMapping struct {
 
 // HandleError maps a domain error to an HTTP response using provided mappings.
 // If no mapping matches, logs the error and returns 500 Internal Server Error.
-func HandleError(w http.ResponseWriter, err error, mappings []ErrorMapping) {
+func HandleError(ctx context.Context, w http.ResponseWriter, err error, mappings []ErrorMapping) {
 	for _, m := range mappings {
 		if errors.Is(err, m.Error) {
 			msg := m.Message
@@ -26,6 +28,6 @@ func HandleError(w http.ResponseWriter, err error, mappings []ErrorMapping) {
 			return
 		}
 	}
-	slog.Error("internal error", "error", err)
+	ctxlog.FromContext(ctx).Error("internal error", "error", err)
 	Error(w, http.StatusInternalServerError, "internal error")
 }

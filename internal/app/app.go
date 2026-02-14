@@ -22,6 +22,7 @@ import (
 	"github.com/bissquit/incident-garden/internal/notifications/email"
 	notificationspostgres "github.com/bissquit/incident-garden/internal/notifications/postgres"
 	"github.com/bissquit/incident-garden/internal/notifications/telegram"
+	"github.com/bissquit/incident-garden/internal/pkg/ctxlog"
 	"github.com/bissquit/incident-garden/internal/pkg/httputil"
 	"github.com/bissquit/incident-garden/internal/pkg/postgres"
 	"github.com/bissquit/incident-garden/internal/version"
@@ -108,8 +109,8 @@ func (a *App) setupRouter() *chi.Mux {
 	// CORS must be first to handle preflight requests before other middleware
 	r.Use(httputil.CORSMiddleware(a.config.CORS.AllowedOrigins))
 	r.Use(middleware.RequestID)
+	r.Use(httputil.RequestLoggerMiddleware(a.logger))
 	r.Use(middleware.RealIP)
-	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(60 * time.Second))
 
@@ -220,7 +221,7 @@ func (a *App) readyzHandler(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	if err := a.db.Ping(ctx); err != nil {
-		a.logger.Error("readiness check failed", "error", err)
+		ctxlog.FromContext(r.Context()).Error("readiness check failed", "error", err)
 		httputil.Text(w, http.StatusServiceUnavailable, "Database unavailable")
 		return
 	}
