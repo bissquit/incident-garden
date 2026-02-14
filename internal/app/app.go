@@ -62,10 +62,12 @@ func New(cfg *config.Config) (*App, error) {
 	router := app.setupRouter()
 
 	app.server = &http.Server{
-		Addr:         fmt.Sprintf("%s:%s", cfg.Server.Host, cfg.Server.Port),
-		Handler:      router,
-		ReadTimeout:  cfg.Server.ReadTimeout,
-		WriteTimeout: cfg.Server.WriteTimeout,
+		Addr:              fmt.Sprintf("%s:%s", cfg.Server.Host, cfg.Server.Port),
+		Handler:           router,
+		ReadTimeout:       cfg.Server.ReadTimeout,
+		ReadHeaderTimeout: cfg.Server.ReadHeaderTimeout,
+		WriteTimeout:      cfg.Server.WriteTimeout,
+		IdleTimeout:       cfg.Server.IdleTimeout,
 	}
 
 	return app, nil
