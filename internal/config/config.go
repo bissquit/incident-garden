@@ -36,10 +36,12 @@ type CookieConfig struct {
 
 // ServerConfig contains HTTP server settings.
 type ServerConfig struct {
-	Host         string
-	Port         string
-	ReadTimeout  time.Duration
-	WriteTimeout time.Duration
+	Host              string
+	Port              string
+	ReadTimeout       time.Duration
+	ReadHeaderTimeout time.Duration
+	WriteTimeout      time.Duration
+	IdleTimeout       time.Duration
 }
 
 // DatabaseConfig contains database connection settings.
@@ -79,10 +81,12 @@ func Load() (*Config, error) {
 
 	cfg := &Config{
 		Server: ServerConfig{
-			Host:         k.String("SERVER_HOST"),
-			Port:         k.String("SERVER_PORT"),
-			ReadTimeout:  k.Duration("SERVER_READ_TIMEOUT"),
-			WriteTimeout: k.Duration("SERVER_WRITE_TIMEOUT"),
+			Host:              k.String("SERVER_HOST"),
+			Port:              k.String("SERVER_PORT"),
+			ReadTimeout:       k.Duration("SERVER_READ_TIMEOUT"),
+			ReadHeaderTimeout: k.Duration("SERVER_READ_HEADER_TIMEOUT"),
+			WriteTimeout:      k.Duration("SERVER_WRITE_TIMEOUT"),
+			IdleTimeout:       k.Duration("SERVER_IDLE_TIMEOUT"),
 		},
 		Database: DatabaseConfig{
 			URL:             k.String("DATABASE_URL"),
@@ -125,6 +129,12 @@ func setDefaults(cfg *Config) {
 	}
 	if cfg.Server.WriteTimeout == 0 {
 		cfg.Server.WriteTimeout = 15 * time.Second
+	}
+	if cfg.Server.ReadHeaderTimeout == 0 {
+		cfg.Server.ReadHeaderTimeout = 5 * time.Second
+	}
+	if cfg.Server.IdleTimeout == 0 {
+		cfg.Server.IdleTimeout = 60 * time.Second
 	}
 
 	if cfg.Database.URL == "" {
