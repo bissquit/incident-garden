@@ -3,10 +3,12 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/bissquit/incident-garden/internal/catalog"
@@ -24,19 +26,23 @@ import (
 	"github.com/bissquit/incident-garden/internal/notifications/telegram"
 	"github.com/bissquit/incident-garden/internal/pkg/ctxlog"
 	"github.com/bissquit/incident-garden/internal/pkg/httputil"
+	"github.com/bissquit/incident-garden/internal/pkg/metrics"
 	"github.com/bissquit/incident-garden/internal/pkg/postgres"
 	"github.com/bissquit/incident-garden/internal/version"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 // App represents the application instance.
 type App struct {
-	config *config.Config
-	logger *slog.Logger
-	db     *pgxpool.Pool
-	server *http.Server
+	config        *config.Config
+	logger        *slog.Logger
+	db            *pgxpool.Pool
+	server        *http.Server
+	metricsServer *http.Server
+	metricsCancel context.CancelFunc
 }
 
 // New creates a new application instance.
@@ -57,11 +63,18 @@ func New(cfg *config.Config) (*App, error) {
 		return nil, fmt.Errorf("connect to database: %w", err)
 	}
 
+	var metricsCtx context.Context
+	var metricsCancel context.CancelFunc
+	metricsCtx, metricsCancel = context.WithCancel(context.Background())
+
 	app := &App{
-		config: cfg,
-		logger: logger,
-		db:     db,
+		config:        cfg,
+		logger:        logger,
+		db:            db,
+		metricsCancel: metricsCancel,
 	}
+
+	go app.collectDBMetrics(metricsCtx)
 
 	router := app.setupRouter()
 
@@ -74,11 +87,36 @@ func New(cfg *config.Config) (*App, error) {
 		IdleTimeout:       cfg.Server.IdleTimeout,
 	}
 
+	// Metrics server on separate port
+	metricsRouter := chi.NewRouter()
+	metricsRouter.Handle("/metrics", promhttp.Handler())
+
+	app.metricsServer = &http.Server{
+		Addr:              fmt.Sprintf("%s:%s", cfg.Server.Host, cfg.Server.MetricsPort),
+		Handler:           metricsRouter,
+		ReadTimeout:       5 * time.Second,
+		ReadHeaderTimeout: 2 * time.Second,
+		WriteTimeout:      10 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+
 	return app, nil
 }
 
-// Run starts the HTTP server.
+// Run starts the HTTP servers.
 func (a *App) Run() error {
+	// Start metrics server in background
+	go func() {
+		a.logger.Info("starting metrics server",
+			"host", a.config.Server.Host,
+			"port", a.config.Server.MetricsPort,
+		)
+		if err := a.metricsServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			a.logger.Error("metrics server error", "error", err)
+		}
+	}()
+
+	// Start main server
 	a.logger.Info("starting server",
 		"host", a.config.Server.Host,
 		"port", a.config.Server.Port,
@@ -93,15 +131,57 @@ func (a *App) Run() error {
 
 // Shutdown gracefully shuts down the application.
 func (a *App) Shutdown(ctx context.Context) error {
-	a.logger.Info("shutting down server")
+	a.logger.Info("shutting down servers")
 
-	if err := a.server.Shutdown(ctx); err != nil {
-		return fmt.Errorf("shutdown server: %w", err)
-	}
+	a.metricsCancel()
+
+	// Shutdown both servers in parallel
+	var wg sync.WaitGroup
+	var errs []error
+	var mu sync.Mutex
+
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		if err := a.server.Shutdown(ctx); err != nil {
+			mu.Lock()
+			errs = append(errs, fmt.Errorf("shutdown server: %w", err))
+			mu.Unlock()
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		if err := a.metricsServer.Shutdown(ctx); err != nil {
+			mu.Lock()
+			errs = append(errs, fmt.Errorf("shutdown metrics server: %w", err))
+			mu.Unlock()
+		}
+	}()
+
+	wg.Wait()
 
 	a.db.Close()
 
-	return nil
+	return errors.Join(errs...)
+}
+
+func (a *App) collectDBMetrics(ctx context.Context) {
+	// Collect immediately on start
+	metrics.RecordDBPoolMetrics(a.db)
+
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			metrics.RecordDBPoolMetrics(a.db)
+		case <-ctx.Done():
+			return
+		}
+	}
 }
 
 // Router returns the HTTP handler for testing.
@@ -112,7 +192,10 @@ func (a *App) Router() http.Handler {
 func (a *App) setupRouter() *chi.Mux {
 	r := chi.NewRouter()
 
-	// CORS must be first to handle preflight requests before other middleware
+	// Metrics middleware must be first to measure full request time
+	r.Use(httputil.MetricsMiddleware)
+
+	// CORS must be early to handle preflight requests before other middleware
 	r.Use(httputil.CORSMiddleware(a.config.CORS.AllowedOrigins))
 	r.Use(middleware.RequestID)
 	r.Use(httputil.RequestLoggerMiddleware(a.logger))

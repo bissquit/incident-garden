@@ -1,0 +1,17 @@
+# Example Service with two ports (for reference)
+apiVersion: v1
+kind: Service
+metadata:
+  name: incidentgarden
+  labels:
+    app.kubernetes.io/name: incidentgarden
+spec:
+  selector:
+    app.kubernetes.io/name: incidentgarden
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+    - name: metrics
+      port: 9090
+      targetPort: 9090

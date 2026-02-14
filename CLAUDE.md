@@ -34,6 +34,7 @@
 
 ### Tech Stack
 - **Go 1.25**, chi (router), pgx (PostgreSQL 16), koanf (config), slog (logging)
+- **Metrics:** prometheus/client_golang
 - **Infra:** Docker, testcontainers-go, GitHub Actions
 - **Validation:** go-playground/validator
 - **Migrations:** golang-migrate
@@ -92,6 +93,8 @@ maintenance: scheduled → in_progress → completed
 | Change app wiring/DI         | `internal/app/app.go`                              |
 | Modify configuration         | `internal/config/config.go`                        |
 | Update API contract          | `api/openapi/openapi.yaml`                         |
+| Check deployment/K8s config  | `docs/deployment.md`                               |
+| Modify Prometheus alerts     | `deployments/prometheus/alerts.yaml`               |
 
 ### Database Schema (Key Tables)
 
@@ -271,8 +274,10 @@ internal/domain/           → User, Service, ServiceGroup, Event, EventUpdate, 
                              ServiceWithEffectiveStatus, ServiceTag, EventService,
                              AffectedService, AffectedGroup (API input types),
                              ServiceStatusLogEntry, StatusLogSourceType
-internal/pkg/httputil/     → response.go (Success/Error), middleware.go, errors.go (AppError, error mapping)
-internal/pkg/postgres/     → Connect(cfg) → *pgxpool.Pool
+internal/pkg/httputil/     → response.go, middleware.go, errors.go, metrics.go (Prometheus middleware)
+internal/pkg/postgres/     → Connect with retry (exponential backoff, ConnectAttempts config)
+internal/pkg/metrics/      → Prometheus metrics (HTTPRequestDuration, DBPoolConnections)
+internal/pkg/ctxlog/       → Context-aware logging (request_id propagation)
 internal/testutil/         → HTTP test client, testcontainers setup, fixtures, OpenAPI validator
 internal/version/          → Build version info (injected at compile time)
 ```
@@ -281,7 +286,7 @@ internal/version/          → Build version info (injected at compile time)
 
 ```
 main.go → app.NewApp(cfg)
-            ├── postgres.Connect()
+            ├── postgres.Connect() (with retry + exponential backoff)
             ├── identity:     Repository → Service → Handler + Middleware
             ├── catalog:      Repository → Service → Handler
             │                              ↓
@@ -289,7 +294,8 @@ main.go → app.NewApp(cfg)
             └── notifications: Repository → Service → Dispatcher → Handler
                                                         ├── email.Sender
                                                         └── telegram.Sender
-            All Handlers → chi.Router → HTTP Server
+            All Handlers → chi.Router → HTTP Server (:8080)
+            Prometheus metrics → Metrics Server (:9090)
 ```
 
 ---
@@ -672,8 +678,15 @@ TestDeleteEvent_ServiceStatusUnchanged     // side effect verification
 
 ### API Endpoints
 
+**Ports:**
+- `:8080` — API, health checks
+- `:9090` — Prometheus metrics
+
+**Infrastructure:**
+- `GET /healthz`, `/readyz` — health checks (port 8080)
+- `GET /metrics` — Prometheus metrics (port 9090)
+
 **Public:**
-- `GET /healthz`, `/readyz` — health checks
 - `GET /api/v1/status`, `/status/history` — public status
 - `GET /api/v1/services?include_archived=bool`, `/services/{slug}` — services
 - `GET /api/v1/groups?include_archived=bool`, `/groups/{slug}` — groups
@@ -839,6 +852,14 @@ make docker-build
 - Effective status computation (v_service_effective_status view)
 - Service status audit log (manual changes, event-driven changes, with full history)
 - Integration tests (100+, organized by domain)
+- **Cloud-native:**
+  - Prometheus metrics (HTTP latency, DB pool, Go runtime) on separate port :9090
+  - Structured logging with request_id propagation (ctxlog)
+  - DB connection retry with exponential backoff
+  - HTTP server timeouts (ReadHeaderTimeout, IdleTimeout)
+  - Graceful shutdown for both API and metrics servers
+  - Prometheus alerts (`deployments/prometheus/alerts.yaml`)
+  - Deployment guide (`docs/deployment.md`)
 
 ⚠️ **Partial:** Notifications (structure ready, senders are stubs)
 
@@ -850,14 +871,22 @@ make docker-build
 - No channel verification
 
 **Missing:**
-- Helm chart
-- Prometheus metrics
+- Helm chart (templates empty, see `docs/deployment.md` for K8s examples)
 - Pagination
 - Bulk operations
 
 **Tech Debt:**
 - No graceful degradation for senders
 - No rate limiting
+- No transient DB error retry (startup retry only)
+
+### Deployment & Configuration
+
+See [docs/deployment.md](./docs/deployment.md) for:
+- Environment variables (full list with defaults)
+- Kubernetes configuration (probes, resources, secrets)
+- Prometheus ServiceMonitor (`deployments/prometheus/servicemonitor.yaml`)
+- Prometheus alerts (`deployments/prometheus/alerts.yaml`)
 
 ### Next Up
 
