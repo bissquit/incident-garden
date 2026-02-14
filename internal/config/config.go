@@ -50,6 +50,8 @@ type DatabaseConfig struct {
 	MaxOpenConns    int
 	MaxIdleConns    int
 	ConnMaxLifetime time.Duration
+	ConnectTimeout  time.Duration
+	ConnectAttempts int
 }
 
 // LogConfig contains logging settings.
@@ -93,6 +95,8 @@ func Load() (*Config, error) {
 			MaxOpenConns:    k.Int("DATABASE_MAX_OPEN_CONNS"),
 			MaxIdleConns:    k.Int("DATABASE_MAX_IDLE_CONNS"),
 			ConnMaxLifetime: k.Duration("DATABASE_CONN_MAX_LIFETIME"),
+			ConnectTimeout:  k.Duration("DATABASE_CONNECT_TIMEOUT"),
+			ConnectAttempts: k.Int("DATABASE_CONNECT_ATTEMPTS"),
 		},
 		Log: LogConfig{
 			Level:  k.String("LOG_LEVEL"),
@@ -148,6 +152,12 @@ func setDefaults(cfg *Config) {
 	}
 	if cfg.Database.ConnMaxLifetime == 0 {
 		cfg.Database.ConnMaxLifetime = 5 * time.Minute
+	}
+	if cfg.Database.ConnectTimeout == 0 {
+		cfg.Database.ConnectTimeout = 30 * time.Second
+	}
+	if cfg.Database.ConnectAttempts == 0 {
+		cfg.Database.ConnectAttempts = 5
 	}
 
 	if cfg.Log.Level == "" {

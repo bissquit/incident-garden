@@ -2,6 +2,7 @@ package events
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -138,7 +139,11 @@ func (s *Service) CreateEvent(ctx context.Context, input CreateEventInput, creat
 	if err != nil {
 		return nil, fmt.Errorf("begin transaction: %w", err)
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	defer func() {
+		if err := tx.Rollback(ctx); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
+			slog.Error("failed to rollback transaction", "error", err)
+		}
+	}()
 
 	if err := s.repo.CreateEventTx(ctx, tx, event); err != nil {
 		return nil, fmt.Errorf("create event: %w", err)
@@ -227,7 +232,11 @@ func (s *Service) AddUpdate(ctx context.Context, input CreateEventUpdateInput, c
 	if err != nil {
 		return nil, fmt.Errorf("begin transaction: %w", err)
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	defer func() {
+		if err := tx.Rollback(ctx); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
+			slog.Error("failed to rollback transaction", "error", err)
+		}
+	}()
 
 	update := &domain.EventUpdate{
 		EventID:           input.EventID,
@@ -537,7 +546,11 @@ func (s *Service) DeleteEvent(ctx context.Context, id string) error {
 	if err != nil {
 		return fmt.Errorf("begin transaction: %w", err)
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	defer func() {
+		if err := tx.Rollback(ctx); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
+			slog.Error("failed to rollback transaction", "error", err)
+		}
+	}()
 
 	// Delete status log entries referencing this event
 	if err := s.catalogService.DeleteStatusLogByEventIDTx(ctx, tx, id); err != nil {

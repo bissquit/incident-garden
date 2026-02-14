@@ -43,11 +43,15 @@ type App struct {
 func New(cfg *config.Config) (*App, error) {
 	logger := initLogger(cfg.Log)
 
-	db, err := postgres.Connect(context.Background(), postgres.Config{
+	connectCtx, connectCancel := context.WithTimeout(context.Background(), cfg.Database.ConnectTimeout)
+	defer connectCancel()
+
+	db, err := postgres.Connect(connectCtx, postgres.Config{
 		URL:             cfg.Database.URL,
 		MaxOpenConns:    cfg.Database.MaxOpenConns,
 		MaxIdleConns:    cfg.Database.MaxIdleConns,
 		ConnMaxLifetime: cfg.Database.ConnMaxLifetime,
+		ConnectAttempts: cfg.Database.ConnectAttempts,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("connect to database: %w", err)
