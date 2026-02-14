@@ -159,6 +159,11 @@ Environment variables in `.env`:
 
 ## Documentation
 
+### Deployment
+
+Production deployment guide with environment variables, Kubernetes probes, and configuration:
+- [Deployment Guide](./docs/deployment.md)
+
 ### API Documentation
 
 Full REST API documentation is available in [docs/api/](./docs/api/):
