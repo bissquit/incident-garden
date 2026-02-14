@@ -104,7 +104,7 @@ func (h *Handler) CreateEvent(w http.ResponseWriter, r *http.Request) {
 	event, err := h.service.CreateEvent(r.Context(), CreateEventInput(req), userID)
 
 	if err != nil {
-		httputil.HandleError(w, err, errorMappings)
+		httputil.HandleError(r.Context(), w, err, errorMappings)
 		return
 	}
 
@@ -116,7 +116,7 @@ func (h *Handler) GetEvent(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	event, err := h.service.GetEvent(r.Context(), id)
 	if err != nil {
-		httputil.HandleError(w, err, errorMappings)
+		httputil.HandleError(r.Context(), w, err, errorMappings)
 		return
 	}
 
@@ -139,7 +139,7 @@ func (h *Handler) ListEvents(w http.ResponseWriter, r *http.Request) {
 
 	events, err := h.service.ListEvents(r.Context(), filters)
 	if err != nil {
-		httputil.HandleError(w, err, errorMappings)
+		httputil.HandleError(r.Context(), w, err, errorMappings)
 		return
 	}
 
@@ -187,7 +187,7 @@ func (h *Handler) AddUpdate(w http.ResponseWriter, r *http.Request) {
 	}, userID)
 
 	if err != nil {
-		httputil.HandleError(w, err, errorMappings)
+		httputil.HandleError(r.Context(), w, err, errorMappings)
 		return
 	}
 
@@ -199,7 +199,7 @@ func (h *Handler) GetEventUpdates(w http.ResponseWriter, r *http.Request) {
 	eventID := chi.URLParam(r, "id")
 	updates, err := h.service.GetEventUpdates(r.Context(), eventID)
 	if err != nil {
-		httputil.HandleError(w, err, errorMappings)
+		httputil.HandleError(r.Context(), w, err, errorMappings)
 		return
 	}
 
@@ -211,7 +211,7 @@ func (h *Handler) DeleteEvent(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
 	if err := h.service.DeleteEvent(r.Context(), id); err != nil {
-		httputil.HandleError(w, err, errorMappings)
+		httputil.HandleError(r.Context(), w, err, errorMappings)
 		return
 	}
 
@@ -242,7 +242,7 @@ func (h *Handler) CreateTemplate(w http.ResponseWriter, r *http.Request) {
 	template, err := h.service.CreateTemplate(r.Context(), CreateTemplateInput(req))
 
 	if err != nil {
-		httputil.HandleError(w, err, errorMappings)
+		httputil.HandleError(r.Context(), w, err, errorMappings)
 		return
 	}
 
@@ -254,7 +254,7 @@ func (h *Handler) GetTemplate(w http.ResponseWriter, r *http.Request) {
 	slug := chi.URLParam(r, "slug")
 	template, err := h.service.GetTemplateBySlug(r.Context(), slug)
 	if err != nil {
-		httputil.HandleError(w, err, errorMappings)
+		httputil.HandleError(r.Context(), w, err, errorMappings)
 		return
 	}
 
@@ -265,7 +265,7 @@ func (h *Handler) GetTemplate(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ListTemplates(w http.ResponseWriter, r *http.Request) {
 	templates, err := h.service.ListTemplates(r.Context())
 	if err != nil {
-		httputil.HandleError(w, err, errorMappings)
+		httputil.HandleError(r.Context(), w, err, errorMappings)
 		return
 	}
 
@@ -308,7 +308,7 @@ func (h *Handler) PreviewTemplate(w http.ResponseWriter, r *http.Request) {
 	})
 
 	if err != nil {
-		httputil.HandleError(w, err, errorMappings)
+		httputil.HandleError(r.Context(), w, err, errorMappings)
 		return
 	}
 
@@ -322,7 +322,7 @@ func (h *Handler) PreviewTemplate(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) DeleteTemplate(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if err := h.service.DeleteTemplate(r.Context(), id); err != nil {
-		httputil.HandleError(w, err, errorMappings)
+		httputil.HandleError(r.Context(), w, err, errorMappings)
 		return
 	}
 
@@ -333,7 +333,7 @@ func (h *Handler) DeleteTemplate(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetPublicStatus(w http.ResponseWriter, r *http.Request) {
 	events, err := h.service.ListEvents(r.Context(), EventFilters{Limit: 10})
 	if err != nil {
-		httputil.HandleError(w, err, errorMappings)
+		httputil.HandleError(r.Context(), w, err, errorMappings)
 		return
 	}
 
@@ -346,7 +346,7 @@ func (h *Handler) GetPublicStatus(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetStatusHistory(w http.ResponseWriter, r *http.Request) {
 	events, err := h.service.ListEvents(r.Context(), EventFilters{Limit: 50})
 	if err != nil {
-		httputil.HandleError(w, err, errorMappings)
+		httputil.HandleError(r.Context(), w, err, errorMappings)
 		return
 	}
 
@@ -361,7 +361,7 @@ func (h *Handler) GetServiceChanges(w http.ResponseWriter, r *http.Request) {
 
 	changes, err := h.service.GetServiceChanges(r.Context(), eventID)
 	if err != nil {
-		httputil.HandleError(w, err, errorMappings)
+		httputil.HandleError(r.Context(), w, err, errorMappings)
 		return
 	}
 
