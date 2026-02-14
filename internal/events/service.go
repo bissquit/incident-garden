@@ -215,24 +215,20 @@ func (s *Service) AddUpdate(ctx context.Context, input CreateEventUpdateInput, c
 		return nil, ErrInvalidStatus
 	}
 
-	// Check if event is already resolved
 	if event.Status.IsResolved() {
 		return nil, ErrEventAlreadyResolved
 	}
 
-	// Validate new affected entities exist before starting transaction
 	if err := s.validateAffectedEntities(ctx, input.AddServices, input.AddGroups); err != nil {
 		return nil, err
 	}
 
-	// Begin transaction
 	tx, err := s.repo.BeginTx(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("begin transaction: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	// Create EventUpdate
 	update := &domain.EventUpdate{
 		EventID:           input.EventID,
 		Status:            input.Status,
@@ -244,7 +240,6 @@ func (s *Service) AddUpdate(ctx context.Context, input CreateEventUpdateInput, c
 		return nil, fmt.Errorf("create update: %w", err)
 	}
 
-	// Update event status
 	event.Status = input.Status
 	if input.Status.IsResolved() && event.ResolvedAt == nil {
 		now := time.Now()
@@ -254,178 +249,12 @@ func (s *Service) AddUpdate(ctx context.Context, input CreateEventUpdateInput, c
 		return nil, fmt.Errorf("update event: %w", err)
 	}
 
-	// Process service changes
-	hasServiceChanges := len(input.ServiceUpdates) > 0 || len(input.AddServices) > 0 ||
-		len(input.AddGroups) > 0 || len(input.RemoveServiceIDs) > 0
-
-	if hasServiceChanges {
-		batchID := uuid.New().String()
-		reason := input.Reason
-
-		// Update statuses of existing services
-		for _, su := range input.ServiceUpdates {
-			// Get current status from event_services
-			currentEventStatus, err := s.repo.GetEventServiceStatusTx(ctx, tx, input.EventID, su.ServiceID)
-			if err != nil {
-				return nil, fmt.Errorf("get current event service status: %w", err)
-			}
-
-			if currentEventStatus != su.Status {
-				if err := s.repo.UpdateEventServiceStatusTx(ctx, tx, input.EventID, su.ServiceID, su.Status); err != nil {
-					return nil, fmt.Errorf("update service %s status: %w", su.ServiceID, err)
-				}
-
-				// Log status change
-				logEntry := &domain.ServiceStatusLogEntry{
-					ServiceID:  su.ServiceID,
-					OldStatus:  &currentEventStatus,
-					NewStatus:  su.Status,
-					SourceType: domain.StatusLogSourceEvent,
-					EventID:    &input.EventID,
-					Reason:     reason,
-					CreatedBy:  createdBy,
-				}
-				if err := s.catalogService.CreateStatusLogEntryTx(ctx, tx, logEntry); err != nil {
-					return nil, fmt.Errorf("create status log: %w", err)
-				}
-			}
-		}
-
-		// Add new services
-		for _, as := range input.AddServices {
-			exists, err := s.repo.IsServiceInEventTx(ctx, tx, input.EventID, as.ServiceID)
-			if err != nil {
-				return nil, fmt.Errorf("check service in event: %w", err)
-			}
-			if exists {
-				continue
-			}
-
-			// Get current service status for audit log
-			currentStatus, _ := s.catalogService.GetServiceStatus(ctx, as.ServiceID)
-
-			if err := s.repo.AssociateServiceWithStatusTx(ctx, tx, input.EventID, as.ServiceID, as.Status); err != nil {
-				return nil, fmt.Errorf("add service: %w", err)
-			}
-
-			// Log status change
-			logEntry := &domain.ServiceStatusLogEntry{
-				ServiceID:  as.ServiceID,
-				OldStatus:  &currentStatus,
-				NewStatus:  as.Status,
-				SourceType: domain.StatusLogSourceEvent,
-				EventID:    &input.EventID,
-				Reason:     reason,
-				CreatedBy:  createdBy,
-			}
-			if err := s.catalogService.CreateStatusLogEntryTx(ctx, tx, logEntry); err != nil {
-				return nil, fmt.Errorf("create status log: %w", err)
-			}
-
-			sid := as.ServiceID
-			change := &domain.EventServiceChange{
-				EventID:   input.EventID,
-				BatchID:   &batchID,
-				Action:    domain.ChangeActionAdded,
-				ServiceID: &sid,
-				Reason:    reason,
-				CreatedBy: createdBy,
-			}
-			if err := s.repo.CreateServiceChangeTx(ctx, tx, change); err != nil {
-				return nil, fmt.Errorf("record change: %w", err)
-			}
-		}
-
-		// Add groups
-		for _, ag := range input.AddGroups {
-			groupServiceIDs, err := s.resolver.GetGroupServices(ctx, ag.GroupID)
-			if err != nil {
-				return nil, fmt.Errorf("resolve group %s: %w", ag.GroupID, err)
-			}
-
-			for _, sid := range groupServiceIDs {
-				exists, err := s.repo.IsServiceInEventTx(ctx, tx, input.EventID, sid)
-				if err != nil {
-					return nil, err
-				}
-				if exists {
-					continue
-				}
-
-				// Get current service status for audit log
-				currentStatus, _ := s.catalogService.GetServiceStatus(ctx, sid)
-
-				if err := s.repo.AssociateServiceWithStatusTx(ctx, tx, input.EventID, sid, ag.Status); err != nil {
-					return nil, err
-				}
-
-				// Log status change
-				logEntry := &domain.ServiceStatusLogEntry{
-					ServiceID:  sid,
-					OldStatus:  &currentStatus,
-					NewStatus:  ag.Status,
-					SourceType: domain.StatusLogSourceEvent,
-					EventID:    &input.EventID,
-					Reason:     reason,
-					CreatedBy:  createdBy,
-				}
-				if err := s.catalogService.CreateStatusLogEntryTx(ctx, tx, logEntry); err != nil {
-					return nil, fmt.Errorf("create status log: %w", err)
-				}
-			}
-
-			if err := s.repo.AddGroupToEventTx(ctx, tx, input.EventID, ag.GroupID); err != nil {
-				return nil, fmt.Errorf("add group to event: %w", err)
-			}
-
-			gid := ag.GroupID
-			change := &domain.EventServiceChange{
-				EventID:   input.EventID,
-				BatchID:   &batchID,
-				Action:    domain.ChangeActionAdded,
-				GroupID:   &gid,
-				Reason:    reason,
-				CreatedBy: createdBy,
-			}
-			if err := s.repo.CreateServiceChangeTx(ctx, tx, change); err != nil {
-				return nil, err
-			}
-		}
-
-		// Remove services
-		for _, sid := range input.RemoveServiceIDs {
-			if err := s.repo.RemoveServiceFromEventTx(ctx, tx, input.EventID, sid); err != nil {
-				if err == ErrServiceNotInEvent {
-					continue
-				}
-				return nil, fmt.Errorf("remove service: %w", err)
-			}
-
-			sidCopy := sid
-			change := &domain.EventServiceChange{
-				EventID:   input.EventID,
-				BatchID:   &batchID,
-				Action:    domain.ChangeActionRemoved,
-				ServiceID: &sidCopy,
-				Reason:    reason,
-				CreatedBy: createdBy,
-			}
-			if err := s.repo.CreateServiceChangeTx(ctx, tx, change); err != nil {
-				return nil, err
-			}
-		}
+	if err := s.processServiceChanges(ctx, tx, input, createdBy); err != nil {
+		return nil, err
 	}
 
-	// If event is being resolved, recalculate stored status for affected services
-	if input.Status.IsResolved() {
-		affectedServiceIDs, err := s.repo.GetEventServiceIDsTx(ctx, tx, input.EventID)
-		if err != nil {
-			return nil, fmt.Errorf("get event services: %w", err)
-		}
-
-		if err := s.recalculateServicesStoredStatus(ctx, tx, affectedServiceIDs, input.EventID, createdBy); err != nil {
-			return nil, fmt.Errorf("recalculate statuses: %w", err)
-		}
+	if err := s.handleResolution(ctx, tx, input, createdBy); err != nil {
+		return nil, err
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -433,6 +262,196 @@ func (s *Service) AddUpdate(ctx context.Context, input CreateEventUpdateInput, c
 	}
 
 	return update, nil
+}
+
+// processServiceChanges handles all service modifications in a single batch.
+func (s *Service) processServiceChanges(ctx context.Context, tx pgx.Tx, input CreateEventUpdateInput, createdBy string) error {
+	if !s.hasServiceChanges(input) {
+		return nil
+	}
+
+	batchID := uuid.New().String()
+	if err := s.updateExistingServiceStatuses(ctx, tx, input.EventID, input.ServiceUpdates, input.Reason, createdBy); err != nil {
+		return err
+	}
+	if err := s.addServicesToEvent(ctx, tx, input.EventID, batchID, input.AddServices, input.Reason, createdBy); err != nil {
+		return err
+	}
+	if err := s.addGroupsToEvent(ctx, tx, input.EventID, batchID, input.AddGroups, input.Reason, createdBy); err != nil {
+		return err
+	}
+	return s.removeServicesFromEvent(ctx, tx, input.EventID, batchID, input.RemoveServiceIDs, input.Reason, createdBy)
+}
+
+// handleResolution recalculates service statuses when event is resolved.
+func (s *Service) handleResolution(ctx context.Context, tx pgx.Tx, input CreateEventUpdateInput, createdBy string) error {
+	if !input.Status.IsResolved() {
+		return nil
+	}
+
+	affectedServiceIDs, err := s.repo.GetEventServiceIDsTx(ctx, tx, input.EventID)
+	if err != nil {
+		return fmt.Errorf("get event services: %w", err)
+	}
+	return s.recalculateServicesStoredStatus(ctx, tx, affectedServiceIDs, input.EventID, createdBy)
+}
+
+// hasServiceChanges returns true if input contains any service modifications.
+func (s *Service) hasServiceChanges(input CreateEventUpdateInput) bool {
+	return len(input.ServiceUpdates) > 0 || len(input.AddServices) > 0 ||
+		len(input.AddGroups) > 0 || len(input.RemoveServiceIDs) > 0
+}
+
+// updateExistingServiceStatuses updates statuses of services already in event.
+func (s *Service) updateExistingServiceStatuses(ctx context.Context, tx pgx.Tx, eventID string, updates []domain.AffectedService, reason, createdBy string) error {
+	for _, su := range updates {
+		currentEventStatus, err := s.repo.GetEventServiceStatusTx(ctx, tx, eventID, su.ServiceID)
+		if err != nil {
+			return fmt.Errorf("get current event service status: %w", err)
+		}
+
+		if currentEventStatus == su.Status {
+			continue
+		}
+
+		if err := s.repo.UpdateEventServiceStatusTx(ctx, tx, eventID, su.ServiceID, su.Status); err != nil {
+			return fmt.Errorf("update service %s status: %w", su.ServiceID, err)
+		}
+
+		logEntry := &domain.ServiceStatusLogEntry{
+			ServiceID:  su.ServiceID,
+			OldStatus:  &currentEventStatus,
+			NewStatus:  su.Status,
+			SourceType: domain.StatusLogSourceEvent,
+			EventID:    &eventID,
+			Reason:     reason,
+			CreatedBy:  createdBy,
+		}
+		if err := s.catalogService.CreateStatusLogEntryTx(ctx, tx, logEntry); err != nil {
+			return fmt.Errorf("create status log: %w", err)
+		}
+	}
+	return nil
+}
+
+// addServicesToEvent adds new services to event with audit trail.
+func (s *Service) addServicesToEvent(ctx context.Context, tx pgx.Tx, eventID, batchID string, services []domain.AffectedService, reason, createdBy string) error {
+	for _, as := range services {
+		added, err := s.associateServiceIfNotExists(ctx, tx, eventID, as.ServiceID, as.Status, reason, createdBy)
+		if err != nil {
+			return err
+		}
+		if !added {
+			continue
+		}
+
+		sid := as.ServiceID
+		change := &domain.EventServiceChange{
+			EventID:   eventID,
+			BatchID:   &batchID,
+			Action:    domain.ChangeActionAdded,
+			ServiceID: &sid,
+			Reason:    reason,
+			CreatedBy: createdBy,
+		}
+		if err := s.repo.CreateServiceChangeTx(ctx, tx, change); err != nil {
+			return fmt.Errorf("record change: %w", err)
+		}
+	}
+	return nil
+}
+
+// addGroupsToEvent adds groups (expanding to services) with audit trail.
+func (s *Service) addGroupsToEvent(ctx context.Context, tx pgx.Tx, eventID, batchID string, groups []domain.AffectedGroup, reason, createdBy string) error {
+	for _, ag := range groups {
+		groupServiceIDs, err := s.resolver.GetGroupServices(ctx, ag.GroupID)
+		if err != nil {
+			return fmt.Errorf("resolve group %s: %w", ag.GroupID, err)
+		}
+
+		for _, sid := range groupServiceIDs {
+			if _, err := s.associateServiceIfNotExists(ctx, tx, eventID, sid, ag.Status, reason, createdBy); err != nil {
+				return err
+			}
+		}
+
+		if err := s.repo.AddGroupToEventTx(ctx, tx, eventID, ag.GroupID); err != nil {
+			return fmt.Errorf("add group to event: %w", err)
+		}
+
+		gid := ag.GroupID
+		change := &domain.EventServiceChange{
+			EventID:   eventID,
+			BatchID:   &batchID,
+			Action:    domain.ChangeActionAdded,
+			GroupID:   &gid,
+			Reason:    reason,
+			CreatedBy: createdBy,
+		}
+		if err := s.repo.CreateServiceChangeTx(ctx, tx, change); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// associateServiceIfNotExists adds service to event if not already present.
+// Returns true if service was added, false if it already existed.
+func (s *Service) associateServiceIfNotExists(ctx context.Context, tx pgx.Tx, eventID, serviceID string, status domain.ServiceStatus, reason, createdBy string) (bool, error) {
+	exists, err := s.repo.IsServiceInEventTx(ctx, tx, eventID, serviceID)
+	if err != nil {
+		return false, fmt.Errorf("check service in event: %w", err)
+	}
+	if exists {
+		return false, nil
+	}
+
+	currentStatus, _ := s.catalogService.GetServiceStatus(ctx, serviceID)
+
+	if err := s.repo.AssociateServiceWithStatusTx(ctx, tx, eventID, serviceID, status); err != nil {
+		return false, fmt.Errorf("add service: %w", err)
+	}
+
+	logEntry := &domain.ServiceStatusLogEntry{
+		ServiceID:  serviceID,
+		OldStatus:  &currentStatus,
+		NewStatus:  status,
+		SourceType: domain.StatusLogSourceEvent,
+		EventID:    &eventID,
+		Reason:     reason,
+		CreatedBy:  createdBy,
+	}
+	if err := s.catalogService.CreateStatusLogEntryTx(ctx, tx, logEntry); err != nil {
+		return false, fmt.Errorf("create status log: %w", err)
+	}
+
+	return true, nil
+}
+
+// removeServicesFromEvent removes services from event with audit trail.
+func (s *Service) removeServicesFromEvent(ctx context.Context, tx pgx.Tx, eventID, batchID string, serviceIDs []string, reason, createdBy string) error {
+	for _, sid := range serviceIDs {
+		if err := s.repo.RemoveServiceFromEventTx(ctx, tx, eventID, sid); err != nil {
+			if err == ErrServiceNotInEvent {
+				continue
+			}
+			return fmt.Errorf("remove service: %w", err)
+		}
+
+		sidCopy := sid
+		change := &domain.EventServiceChange{
+			EventID:   eventID,
+			BatchID:   &batchID,
+			Action:    domain.ChangeActionRemoved,
+			ServiceID: &sidCopy,
+			Reason:    reason,
+			CreatedBy: createdBy,
+		}
+		if err := s.repo.CreateServiceChangeTx(ctx, tx, change); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // recalculateServicesStoredStatus recalculates stored status for services after event resolution.
