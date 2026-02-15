@@ -2,15 +2,20 @@ package notifications
 
 import (
 	"context"
-	"errors"
 
 	"github.com/bissquit/incident-garden/internal/domain"
 )
 
 // Service errors.
 var (
-	ErrChannelNotOwned = errors.New("channel does not belong to user")
+	ErrChannelNotOwned = errChannelNotOwned
 )
+
+var errChannelNotOwned = errorString("channel does not belong to user")
+
+type errorString string
+
+func (e errorString) Error() string { return string(e) }
 
 // Service provides notifications business logic.
 type Service struct {
@@ -29,11 +34,12 @@ func NewService(repo Repository, dispatcher *Dispatcher) *Service {
 // CreateChannel creates a new notification channel for user.
 func (s *Service) CreateChannel(ctx context.Context, userID string, channelType domain.ChannelType, target string) (*domain.NotificationChannel, error) {
 	channel := &domain.NotificationChannel{
-		UserID:     userID,
-		Type:       channelType,
-		Target:     target,
-		IsEnabled:  true,
-		IsVerified: false,
+		UserID:                 userID,
+		Type:                   channelType,
+		Target:                 target,
+		IsEnabled:              true,
+		IsVerified:             false,
+		SubscribeToAllServices: false,
 	}
 
 	if err := s.repo.CreateChannel(ctx, channel); err != nil {
@@ -100,54 +106,6 @@ func (s *Service) VerifyChannel(ctx context.Context, userID, channelID string) (
 	}
 
 	return channel, nil
-}
-
-// GetOrCreateSubscription gets or creates a subscription for user.
-func (s *Service) GetOrCreateSubscription(ctx context.Context, userID string) (*domain.Subscription, error) {
-	sub, err := s.repo.GetUserSubscription(ctx, userID)
-	if err == nil {
-		return sub, nil
-	}
-
-	if !errors.Is(err, ErrSubscriptionNotFound) {
-		return nil, err
-	}
-
-	sub = &domain.Subscription{
-		UserID:     userID,
-		ServiceIDs: []string{},
-	}
-
-	if err := s.repo.CreateSubscription(ctx, sub); err != nil {
-		return nil, err
-	}
-
-	return sub, nil
-}
-
-// UpdateSubscriptionServices updates the services a user is subscribed to.
-func (s *Service) UpdateSubscriptionServices(ctx context.Context, userID string, serviceIDs []string) (*domain.Subscription, error) {
-	sub, err := s.GetOrCreateSubscription(ctx, userID)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := s.repo.SetSubscriptionServices(ctx, sub.ID, serviceIDs); err != nil {
-		return nil, err
-	}
-
-	sub.ServiceIDs = serviceIDs
-	return sub, nil
-}
-
-// DeleteSubscription removes user's subscription.
-func (s *Service) DeleteSubscription(ctx context.Context, userID string) error {
-	sub, err := s.repo.GetUserSubscription(ctx, userID)
-	if err != nil {
-		return err
-	}
-
-	return s.repo.DeleteSubscription(ctx, sub.ID)
 }
 
 // NotifySubscribers sends notifications about an event.
