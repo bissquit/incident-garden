@@ -22,6 +22,7 @@ import (
 	identitypostgres "github.com/bissquit/incident-garden/internal/identity/postgres"
 	"github.com/bissquit/incident-garden/internal/notifications"
 	"github.com/bissquit/incident-garden/internal/notifications/email"
+	"github.com/bissquit/incident-garden/internal/notifications/mattermost"
 	notificationspostgres "github.com/bissquit/incident-garden/internal/notifications/postgres"
 	"github.com/bissquit/incident-garden/internal/notifications/telegram"
 	"github.com/bissquit/incident-garden/internal/pkg/ctxlog"
@@ -296,7 +297,11 @@ func (a *App) setupRouter() (*chi.Mux, error) {
 			return nil, fmt.Errorf("create telegram sender: %w", err)
 		}
 
-		dispatcher := notifications.NewDispatcher(notificationsRepo, emailSender, telegramSender)
+		// Mattermost is always available (webhook URL is set per-channel by user)
+		// No Enabled flag needed - availability is per-channel (each channel has its own webhook URL)
+		mattermostSender := mattermost.NewSender(mattermost.Config{})
+
+		dispatcher := notifications.NewDispatcher(notificationsRepo, emailSender, telegramSender, mattermostSender)
 		notificationsService = notifications.NewService(notificationsRepo, dispatcher)
 	} else {
 		// Notifications disabled - create service with nil dispatcher
