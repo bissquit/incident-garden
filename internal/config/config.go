@@ -76,6 +76,7 @@ type NotificationsConfig struct {
 	Email    EmailConfig
 	Telegram TelegramConfig
 	Retry    RetryConfig
+	Worker   WorkerConfig
 }
 
 // EmailConfig contains email sender settings.
@@ -102,6 +103,13 @@ type RetryConfig struct {
 	InitialBackoff    time.Duration
 	MaxBackoff        time.Duration
 	BackoffMultiplier float64
+}
+
+// WorkerConfig contains notification worker settings.
+type WorkerConfig struct {
+	NumWorkers   int
+	BatchSize    int
+	PollInterval time.Duration
 }
 
 // Load loads configuration from config.yaml and environment variables.
@@ -174,6 +182,11 @@ func Load() (*Config, error) {
 				InitialBackoff:    k.Duration("NOTIFICATIONS_RETRY_INITIAL_BACKOFF"),
 				MaxBackoff:        k.Duration("NOTIFICATIONS_RETRY_MAX_BACKOFF"),
 				BackoffMultiplier: k.Float64("NOTIFICATIONS_RETRY_BACKOFF_MULTIPLIER"),
+			},
+			Worker: WorkerConfig{
+				NumWorkers:   k.Int("NOTIFICATIONS_WORKER_NUM_WORKERS"),
+				BatchSize:    k.Int("NOTIFICATIONS_WORKER_BATCH_SIZE"),
+				PollInterval: k.Duration("NOTIFICATIONS_WORKER_POLL_INTERVAL"),
 			},
 		},
 	}
@@ -271,6 +284,16 @@ func setDefaults(cfg *Config) {
 	}
 	if cfg.Notifications.Retry.BackoffMultiplier == 0 {
 		cfg.Notifications.Retry.BackoffMultiplier = 2.0
+	}
+
+	if cfg.Notifications.Worker.NumWorkers == 0 {
+		cfg.Notifications.Worker.NumWorkers = 5
+	}
+	if cfg.Notifications.Worker.BatchSize == 0 {
+		cfg.Notifications.Worker.BatchSize = 100
+	}
+	if cfg.Notifications.Worker.PollInterval == 0 {
+		cfg.Notifications.Worker.PollInterval = 5 * time.Second
 	}
 }
 

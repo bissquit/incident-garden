@@ -39,6 +39,22 @@ type Repository interface {
 	IncrementCodeAttempts(ctx context.Context, channelID string) error
 	DeleteVerificationCode(ctx context.Context, channelID string) error
 	DeleteExpiredCodes(ctx context.Context) (int64, error)
+
+	// Queue operations
+	EnqueueNotification(ctx context.Context, item *QueueItem) error
+	EnqueueBatch(ctx context.Context, items []*QueueItem) error
+	FetchPendingNotifications(ctx context.Context, limit int) ([]*QueueItem, error)
+	MarkAsProcessing(ctx context.Context, id string) error
+	MarkAsSent(ctx context.Context, id string) error
+	MarkAsFailed(ctx context.Context, id string, err error) error
+	MarkForRetry(ctx context.Context, id string, err error, nextAttempt time.Time) error
+
+	// Queue management and recovery
+	GetFailedItems(ctx context.Context, limit int) ([]*QueueItem, error)
+	RetryFailedItem(ctx context.Context, id string) error
+	RecoverStuckProcessing(ctx context.Context, stuckFor time.Duration) (int64, error)
+	DeleteOldSentItems(ctx context.Context, olderThan time.Duration) (int64, error)
+	GetQueueStats(ctx context.Context) (*QueueStats, error)
 }
 
 // ChannelInfo contains notification channel info for dispatcher.
@@ -65,4 +81,12 @@ type VerificationCode struct {
 	ExpiresAt time.Time
 	Attempts  int
 	CreatedAt time.Time
+}
+
+// QueueStats contains queue statistics.
+type QueueStats struct {
+	Pending    int64
+	Processing int64
+	Sent       int64
+	Failed     int64
 }

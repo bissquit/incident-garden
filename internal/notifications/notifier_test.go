@@ -63,6 +63,54 @@ func (m *mockRepository) DeleteExpiredCodes(_ context.Context) (int64, error) {
 	return 0, nil
 }
 
+func (m *mockRepository) EnqueueNotification(_ context.Context, _ *QueueItem) error {
+	return nil
+}
+
+func (m *mockRepository) EnqueueBatch(_ context.Context, _ []*QueueItem) error {
+	return nil
+}
+
+func (m *mockRepository) FetchPendingNotifications(_ context.Context, _ int) ([]*QueueItem, error) {
+	return nil, nil
+}
+
+func (m *mockRepository) MarkAsSent(_ context.Context, _ string) error {
+	return nil
+}
+
+func (m *mockRepository) MarkAsProcessing(_ context.Context, _ string) error {
+	return nil
+}
+
+func (m *mockRepository) MarkAsFailed(_ context.Context, _ string, _ error) error {
+	return nil
+}
+
+func (m *mockRepository) MarkForRetry(_ context.Context, _ string, _ error, _ time.Time) error {
+	return nil
+}
+
+func (m *mockRepository) GetFailedItems(_ context.Context, _ int) ([]*QueueItem, error) {
+	return nil, nil
+}
+
+func (m *mockRepository) RetryFailedItem(_ context.Context, _ string) error {
+	return nil
+}
+
+func (m *mockRepository) RecoverStuckProcessing(_ context.Context, _ time.Duration) (int64, error) {
+	return 0, nil
+}
+
+func (m *mockRepository) DeleteOldSentItems(_ context.Context, _ time.Duration) (int64, error) {
+	return 0, nil
+}
+
+func (m *mockRepository) GetQueueStats(_ context.Context) (*QueueStats, error) {
+	return &QueueStats{}, nil
+}
+
 func (m *mockRepository) CreateEventSubscribers(_ context.Context, eventID string, channelIDs []string) error {
 	m.eventSubscribers[eventID] = channelIDs
 	return nil

@@ -38,12 +38,13 @@ import (
 
 // App represents the application instance.
 type App struct {
-	config        *config.Config
-	logger        *slog.Logger
-	db            *pgxpool.Pool
-	server        *http.Server
-	metricsServer *http.Server
-	metricsCancel context.CancelFunc
+	config             *config.Config
+	logger             *slog.Logger
+	db                 *pgxpool.Pool
+	server             *http.Server
+	metricsServer      *http.Server
+	metricsCancel      context.CancelFunc
+	notificationWorker *notifications.Worker
 }
 
 // New creates a new application instance.
@@ -64,9 +65,7 @@ func New(cfg *config.Config) (*App, error) {
 		return nil, fmt.Errorf("connect to database: %w", err)
 	}
 
-	var metricsCtx context.Context
-	var metricsCancel context.CancelFunc
-	metricsCtx, metricsCancel = context.WithCancel(context.Background())
+	metricsCtx, metricsCancel := context.WithCancel(context.Background())
 
 	app := &App{
 		config:        cfg,
@@ -77,12 +76,14 @@ func New(cfg *config.Config) (*App, error) {
 
 	go app.collectDBMetrics(metricsCtx)
 
-	router, err := app.setupRouter()
+	router, notificationWorker, err := app.setupRouter(metricsCtx)
 	if err != nil {
 		db.Close()
 		metricsCancel()
 		return nil, fmt.Errorf("setup router: %w", err)
 	}
+
+	app.notificationWorker = notificationWorker
 
 	app.server = &http.Server{
 		Addr:              fmt.Sprintf("%s:%s", cfg.Server.Host, cfg.Server.Port),
@@ -141,6 +142,11 @@ func (a *App) Shutdown(ctx context.Context) error {
 
 	a.metricsCancel()
 
+	// Stop notification worker first
+	if a.notificationWorker != nil {
+		a.notificationWorker.Stop()
+	}
+
 	// Shutdown both servers in parallel
 	var wg sync.WaitGroup
 	var errs []error
@@ -190,12 +196,31 @@ func (a *App) collectDBMetrics(ctx context.Context) {
 	}
 }
 
+func (a *App) collectQueueMetrics(ctx context.Context, repo notifications.Repository) {
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			stats, err := repo.GetQueueStats(ctx)
+			if err != nil {
+				slog.Error("failed to get queue stats", "error", err)
+				continue
+			}
+			notifications.RecordQueueStats(stats)
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
 // Router returns the HTTP handler for testing.
 func (a *App) Router() http.Handler {
 	return a.server.Handler
 }
 
-func (a *App) setupRouter() (*chi.Mux, error) {
+func (a *App) setupRouter(ctx context.Context) (*chi.Mux, *notifications.Worker, error) {
 	r := chi.NewRouter()
 
 	// Metrics middleware must be first to measure full request time
@@ -263,6 +288,7 @@ func (a *App) setupRouter() (*chi.Mux, error) {
 	var notificationsService *notifications.Service
 	var notificationsHandler *notifications.Handler
 	var notifier events.EventNotifier
+	var notificationWorker *notifications.Worker
 
 	slog.Info("notifications configured",
 		"enabled", a.config.Notifications.Enabled,
@@ -281,7 +307,7 @@ func (a *App) setupRouter() (*chi.Mux, error) {
 			BatchSize:    a.config.Notifications.Email.BatchSize,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("create email sender: %w", err)
+			return nil, nil, fmt.Errorf("create email sender: %w", err)
 		}
 
 		telegramSender, err := telegram.NewSender(telegram.Config{
@@ -290,7 +316,7 @@ func (a *App) setupRouter() (*chi.Mux, error) {
 			RateLimit: a.config.Notifications.Telegram.RateLimit,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("create telegram sender: %w", err)
+			return nil, nil, fmt.Errorf("create telegram sender: %w", err)
 		}
 
 		// Mattermost is always available (webhook URL is set per-channel by user)
@@ -300,16 +326,38 @@ func (a *App) setupRouter() (*chi.Mux, error) {
 
 		renderer, err := notifications.NewRenderer()
 		if err != nil {
-			return nil, fmt.Errorf("create notification renderer: %w", err)
+			return nil, nil, fmt.Errorf("create notification renderer: %w", err)
 		}
 
-		notifier = notifications.NewNotifier(
+		notifierConfig := notifications.NotifierConfig{
+			MaxAttempts: a.config.Notifications.Retry.MaxAttempts,
+		}
+
+		notifier = notifications.NewNotifierWithConfig(
 			notificationsRepo,
 			renderer,
 			dispatcher,
 			catalogService, // implements ServiceNameResolver
 			a.config.Notifications.BaseURL,
+			notifierConfig,
 		)
+
+		// Create and start notification worker
+		workerConfig := notifications.WorkerConfig{
+			BatchSize:         a.config.Notifications.Worker.BatchSize,
+			PollInterval:      a.config.Notifications.Worker.PollInterval,
+			MaxAttempts:       a.config.Notifications.Retry.MaxAttempts,
+			InitialBackoff:    a.config.Notifications.Retry.InitialBackoff,
+			MaxBackoff:        a.config.Notifications.Retry.MaxBackoff,
+			BackoffMultiplier: a.config.Notifications.Retry.BackoffMultiplier,
+			NumWorkers:        a.config.Notifications.Worker.NumWorkers,
+		}
+
+		notificationWorker = notifications.NewWorker(workerConfig, notificationsRepo, dispatcher, renderer)
+		notificationWorker.Start(ctx)
+
+		// Start queue metrics collection
+		go a.collectQueueMetrics(ctx, notificationsRepo)
 
 		notificationsService = notifications.NewService(notificationsRepo, dispatcher, catalogService)
 	} else {
@@ -358,7 +406,7 @@ func (a *App) setupRouter() (*chi.Mux, error) {
 		catalogHandler.RegisterPublicServiceRoutes(r)
 	})
 
-	return r, nil
+	return r, notificationWorker, nil
 }
 
 func (a *App) healthzHandler(w http.ResponseWriter, _ *http.Request) {
