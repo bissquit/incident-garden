@@ -33,6 +33,34 @@ Production deployment guide for IncidentGarden.
 | `COOKIE_SECURE` | `false` | Set true in production (HTTPS) |
 | `COOKIE_DOMAIN` | `` | Cookie domain |
 
+### Notification Configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `NOTIFICATIONS_ENABLED` | `true` | Global notifications toggle |
+| `NOTIFICATIONS_EMAIL_ENABLED` | `false` | Enable Email sender |
+| `NOTIFICATIONS_EMAIL_SMTP_HOST` | `` | SMTP server hostname |
+| `NOTIFICATIONS_EMAIL_SMTP_PORT` | `587` | SMTP server port |
+| `NOTIFICATIONS_EMAIL_SMTP_USER` | `` | SMTP auth username |
+| `NOTIFICATIONS_EMAIL_SMTP_PASSWORD` | `` | SMTP auth password |
+| `NOTIFICATIONS_EMAIL_FROM_ADDRESS` | `` | Email From address |
+| `NOTIFICATIONS_EMAIL_BATCH_SIZE` | `50` | Max recipients per batch |
+| `NOTIFICATIONS_TELEGRAM_ENABLED` | `false` | Enable Telegram sender |
+| `NOTIFICATIONS_TELEGRAM_BOT_TOKEN` | `` | Telegram Bot API token |
+| `NOTIFICATIONS_TELEGRAM_RATE_LIMIT` | `25` | Messages per second limit |
+| `NOTIFICATIONS_RETRY_MAX_ATTEMPTS` | `3` | Max retry attempts |
+| `NOTIFICATIONS_RETRY_INITIAL_BACKOFF` | `1s` | Initial retry delay |
+| `NOTIFICATIONS_RETRY_MAX_BACKOFF` | `5m` | Maximum retry delay |
+| `NOTIFICATIONS_RETRY_BACKOFF_MULTIPLIER` | `2.0` | Backoff multiplier |
+
+**Note:** When `NOTIFICATIONS_EMAIL_ENABLED=true`, the following are required:
+- `NOTIFICATIONS_EMAIL_SMTP_HOST`
+- `NOTIFICATIONS_EMAIL_SMTP_PORT`
+- `NOTIFICATIONS_EMAIL_FROM_ADDRESS`
+
+When `NOTIFICATIONS_TELEGRAM_ENABLED=true`, the following is required:
+- `NOTIFICATIONS_TELEGRAM_BOT_TOKEN`
+
 ## Health Endpoints
 
 | Endpoint | Purpose | Use as |
@@ -117,6 +145,16 @@ env:
     secretKeyRef:
       name: incident-garden-secrets
       key: database-url
+- name: NOTIFICATIONS_EMAIL_SMTP_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: notification-secrets
+      key: smtp-password
+- name: NOTIFICATIONS_TELEGRAM_BOT_TOKEN
+  valueFrom:
+    secretKeyRef:
+      name: notification-secrets
+      key: telegram-bot-token
 ```
 
 ### Example Deployment
