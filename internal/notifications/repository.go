@@ -3,6 +3,7 @@ package notifications
 
 import (
 	"context"
+	"time"
 
 	"github.com/bissquit/incident-garden/internal/domain"
 )
@@ -27,6 +28,13 @@ type Repository interface {
 
 	// Find subscribers for services (returns channels that are subscribed to any of the given services)
 	FindSubscribersForServices(ctx context.Context, serviceIDs []string) ([]ChannelInfo, error)
+
+	// Verification codes
+	CreateVerificationCode(ctx context.Context, channelID string, code string, expiresAt time.Time) error
+	GetVerificationCode(ctx context.Context, channelID string) (*VerificationCode, error)
+	IncrementCodeAttempts(ctx context.Context, channelID string) error
+	DeleteVerificationCode(ctx context.Context, channelID string) error
+	DeleteExpiredCodes(ctx context.Context) (int64, error)
 }
 
 // ChannelInfo contains notification channel info for dispatcher.
@@ -36,4 +44,14 @@ type ChannelInfo struct {
 	Type     domain.ChannelType
 	Target   string
 	Email    string // User's email (for context)
+}
+
+// VerificationCode represents a channel verification code.
+type VerificationCode struct {
+	ID        string
+	ChannelID string
+	Code      string
+	ExpiresAt time.Time
+	Attempts  int
+	CreatedAt time.Time
 }
