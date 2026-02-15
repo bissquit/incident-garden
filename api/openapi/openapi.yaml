@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: StatusPage API
   description: API for managing service statuses and incidents
-  version: 2.4.0
+  version: 2.5.0
   contact:
     name: API Support
 servers:
@@ -995,12 +995,25 @@ paths:
   /api/v1/me/channels/{id}/verify:
     post:
       tags: [channels]
-      summary: Verify a channel
+      summary: Verify a channel with code
+      description: |
+        Verifies a notification channel.
+
+        **For email channels:** Requires a 6-digit verification code sent to the email address.
+
+        **For Telegram/Mattermost:** Sends a test message to verify the channel is working.
+        No request body needed.
       operationId: verifyChannel
       security:
         - BearerAuth: []
       parameters:
         - $ref: '#/components/parameters/ChannelId'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyChannelRequest'
       responses:
         '200':
           description: Channel verified
@@ -1008,12 +1021,99 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ChannelResponse'
+        '400':
+          description: Invalid or expired code
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      message:
+                        type: string
+                        example: "verification code expired, request a new one"
         '401':
           $ref: '#/components/responses/UnauthorizedError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '429':
+          description: Too many verification attempts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      message:
+                        type: string
+                        example: "too many attempts, request a new code"
+  /api/v1/me/channels/{id}/resend-code:
+    post:
+      tags: [channels]
+      summary: Resend verification code
+      description: |
+        Resends a verification code for email channels.
+
+        **Rate limiting:** Cannot request a new code within 60 seconds of the previous request.
+
+        **Only for email channels:** Returns 400 for Telegram/Mattermost channels.
+      operationId: resendVerificationCode
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ChannelId'
+      responses:
+        '200':
+          description: Verification code sent
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      message:
+                        type: string
+                        example: "verification code sent"
+        '400':
+          description: Channel already verified or resend not supported
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      message:
+                        type: string
+                        example: "channel already verified"
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '429':
+          description: Please wait before requesting a new code
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      message:
+                        type: string
+                        example: "please wait before requesting a new code"
   /api/v1/me/subscriptions:
     get:
       tags: [subscriptions]
@@ -1802,6 +1902,16 @@ components:
         is_enabled:
           type: boolean
       required: [is_enabled]
+    VerifyChannelRequest:
+      type: object
+      description: Request body for email channel verification. Not required for Telegram/Mattermost.
+      properties:
+        code:
+          type: string
+          pattern: '^\d{6}$'
+          description: 6-digit verification code sent to the email address
+          example: "123456"
+      required: [code]
     UpdateSubscriptionRequest:
       type: object
       properties:

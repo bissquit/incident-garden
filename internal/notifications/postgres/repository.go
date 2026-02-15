@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/bissquit/incident-garden/internal/domain"
 	"github.com/bissquit/incident-garden/internal/notifications"
@@ -321,4 +322,73 @@ func (r *Repository) FindSubscribersForServices(ctx context.Context, serviceIDs 
 	}
 
 	return channels, nil
+}
+
+// CreateVerificationCode creates a new verification code, replacing any existing one.
+func (r *Repository) CreateVerificationCode(ctx context.Context, channelID, code string, expiresAt time.Time) error {
+	// Delete any existing code first
+	_, err := r.db.Exec(ctx, `DELETE FROM channel_verification_codes WHERE channel_id = $1`, channelID)
+	if err != nil {
+		return fmt.Errorf("delete old code: %w", err)
+	}
+
+	// Create new code
+	_, err = r.db.Exec(ctx, `
+		INSERT INTO channel_verification_codes (channel_id, code, expires_at)
+		VALUES ($1, $2, $3)
+	`, channelID, code, expiresAt)
+	if err != nil {
+		return fmt.Errorf("create code: %w", err)
+	}
+
+	return nil
+}
+
+// GetVerificationCode retrieves an active (non-expired) verification code for a channel.
+func (r *Repository) GetVerificationCode(ctx context.Context, channelID string) (*notifications.VerificationCode, error) {
+	var code notifications.VerificationCode
+	err := r.db.QueryRow(ctx, `
+		SELECT id, channel_id, code, expires_at, attempts, created_at
+		FROM channel_verification_codes
+		WHERE channel_id = $1 AND expires_at > NOW()
+	`, channelID).Scan(&code.ID, &code.ChannelID, &code.Code, &code.ExpiresAt, &code.Attempts, &code.CreatedAt)
+
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, notifications.ErrVerificationCodeNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get code: %w", err)
+	}
+	return &code, nil
+}
+
+// IncrementCodeAttempts increments the attempt counter for a verification code.
+func (r *Repository) IncrementCodeAttempts(ctx context.Context, channelID string) error {
+	_, err := r.db.Exec(ctx, `
+		UPDATE channel_verification_codes
+		SET attempts = attempts + 1
+		WHERE channel_id = $1 AND expires_at > NOW()
+	`, channelID)
+	if err != nil {
+		return fmt.Errorf("increment attempts: %w", err)
+	}
+	return nil
+}
+
+// DeleteVerificationCode deletes a verification code for a channel.
+func (r *Repository) DeleteVerificationCode(ctx context.Context, channelID string) error {
+	_, err := r.db.Exec(ctx, `DELETE FROM channel_verification_codes WHERE channel_id = $1`, channelID)
+	if err != nil {
+		return fmt.Errorf("delete code: %w", err)
+	}
+	return nil
+}
+
+// DeleteExpiredCodes removes all expired verification codes and returns the count.
+func (r *Repository) DeleteExpiredCodes(ctx context.Context) (int64, error) {
+	result, err := r.db.Exec(ctx, `DELETE FROM channel_verification_codes WHERE expires_at <= NOW()`)
+	if err != nil {
+		return 0, fmt.Errorf("delete expired codes: %w", err)
+	}
+	return result.RowsAffected(), nil
 }

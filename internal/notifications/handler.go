@@ -2,6 +2,7 @@ package notifications
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/bissquit/incident-garden/internal/domain"
@@ -13,6 +14,12 @@ import (
 var errorMappings = []httputil.ErrorMapping{
 	{Error: ErrChannelNotFound, Status: http.StatusNotFound, Message: "notification channel not found"},
 	{Error: ErrChannelNotOwned, Status: http.StatusForbidden, Message: "channel does not belong to user"},
+	{Error: ErrVerificationCodeNotFound, Status: http.StatusBadRequest, Message: "verification code expired, request a new one"},
+	{Error: ErrVerificationCodeInvalid, Status: http.StatusBadRequest, Message: "invalid verification code"},
+	{Error: ErrTooManyAttempts, Status: http.StatusTooManyRequests, Message: "too many attempts, request a new code"},
+	{Error: ErrResendTooSoon, Status: http.StatusTooManyRequests, Message: "please wait before requesting a new code"},
+	{Error: ErrChannelAlreadyVerified, Status: http.StatusBadRequest, Message: "channel already verified"},
+	{Error: ErrResendNotSupported, Status: http.StatusBadRequest, Message: "resend only available for email channels"},
 }
 
 // Handler handles HTTP requests for the notifications module.
@@ -37,6 +44,7 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 		r.Patch("/{id}", h.UpdateChannel)
 		r.Delete("/{id}", h.DeleteChannel)
 		r.Post("/{id}/verify", h.VerifyChannel)
+		r.Post("/{id}/resend-code", h.ResendVerificationCode)
 	})
 
 	// Subscription endpoints temporarily disabled - will be reimplemented in Phase 8
@@ -62,6 +70,11 @@ type CreateChannelRequest struct {
 // UpdateChannelRequest represents request body for updating a channel.
 type UpdateChannelRequest struct {
 	IsEnabled bool `json:"is_enabled"`
+}
+
+// VerifyChannelRequest represents request body for verifying a channel.
+type VerifyChannelRequest struct {
+	Code string `json:"code" validate:"required,len=6,numeric"`
 }
 
 // ListChannels handles GET /me/channels.
@@ -139,11 +152,41 @@ func (h *Handler) VerifyChannel(w http.ResponseWriter, r *http.Request) {
 	userID := httputil.GetUserID(r.Context())
 	channelID := chi.URLParam(r, "id")
 
-	channel, err := h.service.VerifyChannel(r.Context(), userID, channelID)
+	var req VerifyChannelRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		// For non-email channels, body might be empty
+		if !errors.Is(err, &json.SyntaxError{}) {
+			req.Code = "" // Allow empty code for test message verification
+		}
+	}
+
+	// Validate only for email channels (code required)
+	if req.Code != "" {
+		if err := h.validator.Struct(req); err != nil {
+			httputil.Error(w, http.StatusBadRequest, "code must be 6 digits")
+			return
+		}
+	}
+
+	channel, err := h.service.VerifyChannel(r.Context(), userID, channelID, req.Code)
 	if err != nil {
 		httputil.HandleError(r.Context(), w, err, errorMappings)
 		return
 	}
 
 	httputil.Success(w, http.StatusOK, channel)
+}
+
+// ResendVerificationCode handles POST /me/channels/{id}/resend-code.
+func (h *Handler) ResendVerificationCode(w http.ResponseWriter, r *http.Request) {
+	userID := httputil.GetUserID(r.Context())
+	channelID := chi.URLParam(r, "id")
+
+	err := h.service.ResendVerificationCode(r.Context(), userID, channelID)
+	if err != nil {
+		httputil.HandleError(r.Context(), w, err, errorMappings)
+		return
+	}
+
+	httputil.Success(w, http.StatusOK, map[string]string{"message": "verification code sent"})
 }
