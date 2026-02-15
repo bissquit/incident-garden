@@ -20,6 +20,7 @@ type Repository interface {
 	// Channel subscriptions
 	SetChannelSubscriptions(ctx context.Context, channelID string, subscribeAll bool, serviceIDs []string) error
 	GetChannelSubscriptions(ctx context.Context, channelID string) (subscribeAll bool, serviceIDs []string, err error)
+	GetUserChannelsWithSubscriptions(ctx context.Context, userID string) ([]ChannelWithSubscriptions, error)
 
 	// Event subscribers
 	CreateEventSubscribers(ctx context.Context, eventID string, channelIDs []string) error
@@ -44,6 +45,13 @@ type ChannelInfo struct {
 	Type     domain.ChannelType
 	Target   string
 	Email    string // User's email (for context)
+}
+
+// ChannelWithSubscriptions contains channel with its subscription settings.
+type ChannelWithSubscriptions struct {
+	Channel                domain.NotificationChannel `json:"channel"`
+	SubscribeToAllServices bool                       `json:"subscribe_to_all_services"`
+	SubscribedServiceIDs   []string                   `json:"subscribed_service_ids"`
 }
 
 // VerificationCode represents a channel verification code.

@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: StatusPage API
   description: API for managing service statuses and incidents
-  version: 2.5.0
+  version: 2.6.0
   contact:
     name: API Support
 servers:
@@ -1117,51 +1117,69 @@ paths:
   /api/v1/me/subscriptions:
     get:
       tags: [subscriptions]
-      summary: My subscription
-      operationId: getMySubscription
+      summary: Get subscriptions matrix
+      description: Returns all channels with their subscription settings
+      operationId: getSubscriptionsMatrix
       security:
         - BearerAuth: []
       responses:
         '200':
-          description: Subscription data
+          description: Subscriptions matrix
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SubscriptionResponse'
+                $ref: '#/components/schemas/SubscriptionsMatrixResponse'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
-    post:
+  /api/v1/me/channels/{id}/subscriptions:
+    put:
       tags: [subscriptions]
-      summary: Create or update a subscription
-      operationId: updateSubscription
+      summary: Set channel subscriptions
+      description: |
+        Set which services this channel is subscribed to.
+
+        **Requirements:**
+        - Channel must be verified before managing subscriptions
+        - If subscribe_to_all_services is true, service_ids must be empty
+
+        **Subscription modes:**
+        - `subscribe_to_all_services: true` - Subscribe to all services including future ones
+        - `subscribe_to_all_services: false` with `service_ids` - Subscribe to specific services only
+      operationId: setChannelSubscriptions
       security:
         - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ChannelId'
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/UpdateSubscriptionRequest'
+              $ref: '#/components/schemas/SetChannelSubscriptionsRequest'
       responses:
         '200':
-          description: Subscription updated
+          description: Subscriptions updated
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SubscriptionResponse'
+                $ref: '#/components/schemas/ChannelSubscriptionsResponse'
+        '400':
+          description: Invalid request or channel not verified
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      message:
+                        type: string
+                        example: "channel must be verified first"
         '401':
           $ref: '#/components/responses/UnauthorizedError'
-    delete:
-      tags: [subscriptions]
-      summary: Delete a subscription
-      operationId: deleteSubscription
-      security:
-        - BearerAuth: []
-      responses:
-        '204':
-          description: Subscription deleted
-        '401':
-          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
   /api/v1/status:
@@ -1592,24 +1610,21 @@ components:
           type: string
           format: date-time
       required: [id, user_id, type, target, is_enabled, is_verified, created_at, updated_at]
-    Subscription:
+    ChannelWithSubscriptions:
       type: object
       properties:
-        id:
-          type: string
-          format: uuid
-        user_id:
-          type: string
-          format: uuid
-        service_ids:
+        channel:
+          $ref: '#/components/schemas/NotificationChannel'
+        subscribe_to_all_services:
+          type: boolean
+          description: If true, channel is subscribed to all services including future ones
+        subscribed_service_ids:
           type: array
           items:
             type: string
             format: uuid
-        created_at:
-          type: string
-          format: date-time
-      required: [id, user_id, service_ids, created_at]
+          description: List of specific service IDs subscribed to (empty if subscribe_to_all_services is true)
+      required: [channel, subscribe_to_all_services, subscribed_service_ids]
     TokenPair:
       type: object
       properties:
@@ -1912,14 +1927,22 @@ components:
           description: 6-digit verification code sent to the email address
           example: "123456"
       required: [code]
-    UpdateSubscriptionRequest:
+    SetChannelSubscriptionsRequest:
       type: object
       properties:
+        subscribe_to_all_services:
+          type: boolean
+          description: If true, subscribe to all services including future ones
+          default: false
         service_ids:
           type: array
           items:
             type: string
             format: uuid
+          description: Specific services to subscribe to (must be empty if subscribe_to_all_services is true)
+      example:
+        subscribe_to_all_services: false
+        service_ids: ["550e8400-e29b-41d4-a716-446655440001", "550e8400-e29b-41d4-a716-446655440002"]
     UserResponse:
       type: object
       properties:
@@ -2022,11 +2045,32 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/NotificationChannel'
-    SubscriptionResponse:
+    SubscriptionsMatrixResponse:
       type: object
       properties:
         data:
-          $ref: '#/components/schemas/Subscription'
+          type: object
+          properties:
+            channels:
+              type: array
+              items:
+                $ref: '#/components/schemas/ChannelWithSubscriptions'
+    ChannelSubscriptionsResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            channel_id:
+              type: string
+              format: uuid
+            subscribe_to_all_services:
+              type: boolean
+            subscribed_service_ids:
+              type: array
+              items:
+                type: string
+                format: uuid
     TagsResponse:
       type: object
       properties:

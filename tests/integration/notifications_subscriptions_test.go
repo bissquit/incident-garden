@@ -1,0 +1,345 @@
+//go:build integration
+
+package integration
+
+import (
+	"context"
+	"fmt"
+	"math/rand"
+	"net/http"
+	"testing"
+
+	"github.com/bissquit/incident-garden/internal/testutil"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestSubscriptions_GetMatrix_Empty(t *testing.T) {
+	client := newTestClient(t)
+	client.LoginAsUser(t)
+
+	resp, err := client.GET("/api/v1/me/subscriptions")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var result struct {
+		Data struct {
+			Channels []interface{} `json:"channels"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &result)
+	assert.Empty(t, result.Data.Channels)
+}
+
+func TestSubscriptions_GetMatrix_WithChannel(t *testing.T) {
+	client := newTestClient(t)
+	client.LoginAsUser(t)
+
+	// Create and verify channel
+	channelID := createAndVerifyEmailChannel(t, client)
+	t.Cleanup(func() { deleteChannel(t, client, channelID) })
+
+	resp, err := client.GET("/api/v1/me/subscriptions")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var result struct {
+		Data struct {
+			Channels []struct {
+				Channel struct {
+					ID         string `json:"id"`
+					Type       string `json:"type"`
+					IsVerified bool   `json:"is_verified"`
+				} `json:"channel"`
+				SubscribeToAllServices bool     `json:"subscribe_to_all_services"`
+				SubscribedServiceIDs   []string `json:"subscribed_service_ids"`
+			} `json:"channels"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &result)
+	require.Len(t, result.Data.Channels, 1)
+	assert.Equal(t, channelID, result.Data.Channels[0].Channel.ID)
+	assert.Equal(t, "email", result.Data.Channels[0].Channel.Type)
+	assert.True(t, result.Data.Channels[0].Channel.IsVerified)
+	assert.False(t, result.Data.Channels[0].SubscribeToAllServices)
+	assert.Empty(t, result.Data.Channels[0].SubscribedServiceIDs)
+}
+
+func TestSubscriptions_SetChannelSubscriptions_AllServices(t *testing.T) {
+	client := newTestClient(t)
+	client.LoginAsUser(t)
+
+	channelID := createAndVerifyEmailChannel(t, client)
+	t.Cleanup(func() { deleteChannel(t, client, channelID) })
+
+	// Subscribe to all services
+	resp, err := client.PUT("/api/v1/me/channels/"+channelID+"/subscriptions", map[string]interface{}{
+		"subscribe_to_all_services": true,
+	})
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var result struct {
+		Data struct {
+			ChannelID              string   `json:"channel_id"`
+			SubscribeToAllServices bool     `json:"subscribe_to_all_services"`
+			SubscribedServiceIDs   []string `json:"subscribed_service_ids"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &result)
+	assert.Equal(t, channelID, result.Data.ChannelID)
+	assert.True(t, result.Data.SubscribeToAllServices)
+	assert.Empty(t, result.Data.SubscribedServiceIDs)
+}
+
+func TestSubscriptions_SetChannelSubscriptions_SpecificServices(t *testing.T) {
+	client := newTestClient(t)
+	client.LoginAsAdmin(t)
+
+	// Create services
+	serviceID1, slug1 := createTestService(t, client, "sub-svc-1")
+	t.Cleanup(func() { deleteService(t, client, slug1) })
+	serviceID2, slug2 := createTestService(t, client, "sub-svc-2")
+	t.Cleanup(func() { deleteService(t, client, slug2) })
+
+	// Create and verify channel
+	channelID := createAndVerifyEmailChannel(t, client)
+	t.Cleanup(func() { deleteChannel(t, client, channelID) })
+
+	// Subscribe to specific services
+	resp, err := client.PUT("/api/v1/me/channels/"+channelID+"/subscriptions", map[string]interface{}{
+		"subscribe_to_all_services": false,
+		"service_ids":               []string{serviceID1, serviceID2},
+	})
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var result struct {
+		Data struct {
+			ChannelID              string   `json:"channel_id"`
+			SubscribeToAllServices bool     `json:"subscribe_to_all_services"`
+			SubscribedServiceIDs   []string `json:"subscribed_service_ids"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &result)
+	assert.Equal(t, channelID, result.Data.ChannelID)
+	assert.False(t, result.Data.SubscribeToAllServices)
+	assert.Len(t, result.Data.SubscribedServiceIDs, 2)
+	assert.Contains(t, result.Data.SubscribedServiceIDs, serviceID1)
+	assert.Contains(t, result.Data.SubscribedServiceIDs, serviceID2)
+}
+
+func TestSubscriptions_SetChannelSubscriptions_UnverifiedChannel_Fails(t *testing.T) {
+	client := newTestClient(t)
+	client.LoginAsUser(t)
+
+	// Create channel (not verified)
+	channelID := createEmailChannel(t, client)
+	t.Cleanup(func() { deleteChannel(t, client, channelID) })
+
+	resp, err := client.PUT("/api/v1/me/channels/"+channelID+"/subscriptions", map[string]interface{}{
+		"subscribe_to_all_services": true,
+	})
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}
+
+func TestSubscriptions_SetChannelSubscriptions_AllWithServiceIDs_Fails(t *testing.T) {
+	client := newTestClient(t)
+	client.LoginAsAdmin(t)
+
+	serviceID, slug := createTestService(t, client, "sub-svc-conflict")
+	t.Cleanup(func() { deleteService(t, client, slug) })
+
+	channelID := createAndVerifyEmailChannel(t, client)
+	t.Cleanup(func() { deleteChannel(t, client, channelID) })
+
+	// Both subscribe_to_all_services and service_ids
+	resp, err := client.PUT("/api/v1/me/channels/"+channelID+"/subscriptions", map[string]interface{}{
+		"subscribe_to_all_services": true,
+		"service_ids":               []string{serviceID},
+	})
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}
+
+func TestSubscriptions_SetChannelSubscriptions_NonexistentService_Fails(t *testing.T) {
+	client := newTestClient(t)
+	client.LoginAsUser(t)
+
+	channelID := createAndVerifyEmailChannel(t, client)
+	t.Cleanup(func() { deleteChannel(t, client, channelID) })
+
+	resp, err := client.PUT("/api/v1/me/channels/"+channelID+"/subscriptions", map[string]interface{}{
+		"subscribe_to_all_services": false,
+		"service_ids":               []string{"00000000-0000-0000-0000-000000000000"},
+	})
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+}
+
+func TestSubscriptions_SetChannelSubscriptions_ChannelNotOwned_Fails(t *testing.T) {
+	client1 := newTestClient(t)
+	client1.LoginAsUser(t)
+
+	// User1 creates a channel
+	channelID := createAndVerifyEmailChannel(t, client1)
+	t.Cleanup(func() {
+		client1.LoginAsUser(t)
+		deleteChannel(t, client1, channelID)
+	})
+
+	// User2 tries to set subscriptions on User1's channel
+	client2 := newTestClient(t)
+	registerAndLoginUser(t, client2, "subscriptions-other")
+
+	resp, err := client2.PUT("/api/v1/me/channels/"+channelID+"/subscriptions", map[string]interface{}{
+		"subscribe_to_all_services": true,
+	})
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+}
+
+func TestSubscriptions_SetChannelSubscriptions_ChannelNotFound_Fails(t *testing.T) {
+	client := newTestClient(t)
+	client.LoginAsUser(t)
+
+	resp, err := client.PUT("/api/v1/me/channels/00000000-0000-0000-0000-000000000000/subscriptions", map[string]interface{}{
+		"subscribe_to_all_services": true,
+	})
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+}
+
+func TestSubscriptions_UpdateReplacesPrevious(t *testing.T) {
+	client := newTestClient(t)
+	client.LoginAsAdmin(t)
+
+	// Create services
+	serviceID1, slug1 := createTestService(t, client, "replace-svc-1")
+	t.Cleanup(func() { deleteService(t, client, slug1) })
+	serviceID2, slug2 := createTestService(t, client, "replace-svc-2")
+	t.Cleanup(func() { deleteService(t, client, slug2) })
+
+	channelID := createAndVerifyEmailChannel(t, client)
+	t.Cleanup(func() { deleteChannel(t, client, channelID) })
+
+	// First: subscribe to service 1
+	resp, err := client.PUT("/api/v1/me/channels/"+channelID+"/subscriptions", map[string]interface{}{
+		"subscribe_to_all_services": false,
+		"service_ids":               []string{serviceID1},
+	})
+	require.NoError(t, err)
+	resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	// Second: subscribe to service 2 only (replaces service 1)
+	resp, err = client.PUT("/api/v1/me/channels/"+channelID+"/subscriptions", map[string]interface{}{
+		"subscribe_to_all_services": false,
+		"service_ids":               []string{serviceID2},
+	})
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var result struct {
+		Data struct {
+			SubscribedServiceIDs []string `json:"subscribed_service_ids"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &result)
+	assert.Len(t, result.Data.SubscribedServiceIDs, 1)
+	assert.Equal(t, serviceID2, result.Data.SubscribedServiceIDs[0])
+}
+
+// Helper functions
+
+func randomSuffix() string {
+	return fmt.Sprintf("%d", rand.Intn(100000))
+}
+
+func createEmailChannel(t *testing.T, client *testutil.Client) string {
+	t.Helper()
+	resp, err := client.POST("/api/v1/me/channels", map[string]interface{}{
+		"type":   "email",
+		"target": "test-" + randomSuffix() + "@example.com",
+	})
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var result struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &result)
+	return result.Data.ID
+}
+
+func getVerificationCode(t *testing.T, channelID string) string {
+	t.Helper()
+	var code string
+	err := testDB.QueryRow(context.Background(), `
+		SELECT code FROM channel_verification_codes WHERE channel_id = $1
+	`, channelID).Scan(&code)
+	require.NoError(t, err, "verification code should exist in DB")
+	return code
+}
+
+func createAndVerifyEmailChannel(t *testing.T, client *testutil.Client) string {
+	t.Helper()
+	channelID := createEmailChannel(t, client)
+
+	// Get verification code from DB
+	code := getVerificationCode(t, channelID)
+
+	// Verify channel
+	resp, err := client.POST("/api/v1/me/channels/"+channelID+"/verify", map[string]interface{}{
+		"code": code,
+	})
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	return channelID
+}
+
+func registerAndLoginUser(t *testing.T, client *testutil.Client, suffix string) {
+	t.Helper()
+	email := fmt.Sprintf("testuser-%s-%s@example.com", suffix, randomSuffix())
+	resp, err := client.POST("/api/v1/auth/register", map[string]string{
+		"email":    email,
+		"password": "password123",
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	resp.Body.Close()
+
+	resp, err = client.POST("/api/v1/auth/login", map[string]string{
+		"email":    email,
+		"password": "password123",
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	resp.Body.Close()
+}
+
+func deleteChannel(t *testing.T, client *testutil.Client, channelID string) {
+	t.Helper()
+	resp, err := client.DELETE("/api/v1/me/channels/" + channelID)
+	if err != nil {
+		t.Logf("cleanup warning (channel %s): %v", channelID, err)
+		return
+	}
+	resp.Body.Close()
+}

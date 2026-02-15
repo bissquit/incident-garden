@@ -221,6 +221,30 @@ func (r *Repository) GetChannelSubscriptions(ctx context.Context, channelID stri
 	return subscribeAll, serviceIDs, nil
 }
 
+// GetUserChannelsWithSubscriptions returns all channels for a user with their subscription settings.
+func (r *Repository) GetUserChannelsWithSubscriptions(ctx context.Context, userID string) ([]notifications.ChannelWithSubscriptions, error) {
+	channels, err := r.ListUserChannels(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]notifications.ChannelWithSubscriptions, 0, len(channels))
+	for _, ch := range channels {
+		subscribeAll, serviceIDs, err := r.GetChannelSubscriptions(ctx, ch.ID)
+		if err != nil {
+			return nil, fmt.Errorf("get subscriptions for channel %s: %w", ch.ID, err)
+		}
+
+		result = append(result, notifications.ChannelWithSubscriptions{
+			Channel:                ch,
+			SubscribeToAllServices: subscribeAll,
+			SubscribedServiceIDs:   serviceIDs,
+		})
+	}
+
+	return result, nil
+}
+
 // CreateEventSubscribers creates event subscribers (replaces any existing).
 func (r *Repository) CreateEventSubscribers(ctx context.Context, eventID string, channelIDs []string) error {
 	tx, err := r.db.Begin(ctx)

@@ -32,17 +32,24 @@ type errorString string
 
 func (e errorString) Error() string { return string(e) }
 
+// ServiceValidator validates service IDs exist.
+type ServiceValidator interface {
+	ValidateServicesExist(ctx context.Context, ids []string) (missingIDs []string, err error)
+}
+
 // Service provides notifications business logic.
 type Service struct {
-	repo       Repository
-	dispatcher *Dispatcher
+	repo             Repository
+	dispatcher       *Dispatcher
+	serviceValidator ServiceValidator
 }
 
 // NewService creates a new notifications service.
-func NewService(repo Repository, dispatcher *Dispatcher) *Service {
+func NewService(repo Repository, dispatcher *Dispatcher, serviceValidator ServiceValidator) *Service {
 	return &Service{
-		repo:       repo,
-		dispatcher: dispatcher,
+		repo:             repo,
+		dispatcher:       dispatcher,
+		serviceValidator: serviceValidator,
 	}
 }
 
@@ -293,4 +300,58 @@ func (s *Service) NotifySubscribers(ctx context.Context, serviceIDs []string, su
 		Subject:    subject,
 		Body:       body,
 	})
+}
+
+// SubscriptionsMatrix represents all channels with their subscription settings.
+type SubscriptionsMatrix struct {
+	Channels []ChannelWithSubscriptions `json:"channels"`
+}
+
+// GetSubscriptionsMatrix returns all channels with their subscription settings for a user.
+func (s *Service) GetSubscriptionsMatrix(ctx context.Context, userID string) (*SubscriptionsMatrix, error) {
+	channelsWithSubs, err := s.repo.GetUserChannelsWithSubscriptions(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("get channels with subscriptions: %w", err)
+	}
+
+	return &SubscriptionsMatrix{
+		Channels: channelsWithSubs,
+	}, nil
+}
+
+// SetChannelSubscriptions sets subscription settings for a channel.
+func (s *Service) SetChannelSubscriptions(ctx context.Context, userID, channelID string, subscribeAll bool, serviceIDs []string) error {
+	channel, err := s.repo.GetChannelByID(ctx, channelID)
+	if err != nil {
+		return err
+	}
+
+	if channel.UserID != userID {
+		return ErrChannelNotOwned
+	}
+
+	if !channel.IsVerified {
+		return ErrChannelNotVerified
+	}
+
+	// Validate service IDs if not subscribing to all
+	if !subscribeAll && len(serviceIDs) > 0 {
+		if s.serviceValidator == nil {
+			return errors.New("service validator not configured")
+		}
+		missingIDs, err := s.serviceValidator.ValidateServicesExist(ctx, serviceIDs)
+		if err != nil {
+			return fmt.Errorf("validate services: %w", err)
+		}
+		if len(missingIDs) > 0 {
+			return ErrServicesNotFound
+		}
+	}
+
+	return s.repo.SetChannelSubscriptions(ctx, channelID, subscribeAll, serviceIDs)
+}
+
+// GetChannelSubscriptions returns subscription settings for a channel.
+func (s *Service) GetChannelSubscriptions(ctx context.Context, channelID string) (bool, []string, error) {
+	return s.repo.GetChannelSubscriptions(ctx, channelID)
 }

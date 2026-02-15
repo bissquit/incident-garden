@@ -16,3 +16,9 @@ var (
 	ErrChannelAlreadyVerified   = errors.New("channel already verified")
 	ErrResendNotSupported       = errors.New("resend only available for email channels")
 )
+
+// Subscription errors.
+var (
+	ErrChannelNotVerified = errors.New("channel must be verified to manage subscriptions")
+	ErrServicesNotFound   = errors.New("one or more services not found")
+)

@@ -20,6 +20,8 @@ var errorMappings = []httputil.ErrorMapping{
 	{Error: ErrResendTooSoon, Status: http.StatusTooManyRequests, Message: "please wait before requesting a new code"},
 	{Error: ErrChannelAlreadyVerified, Status: http.StatusBadRequest, Message: "channel already verified"},
 	{Error: ErrResendNotSupported, Status: http.StatusBadRequest, Message: "resend only available for email channels"},
+	{Error: ErrChannelNotVerified, Status: http.StatusBadRequest, Message: "channel must be verified first"},
+	{Error: ErrServicesNotFound, Status: http.StatusBadRequest, Message: "one or more services not found"},
 }
 
 // Handler handles HTTP requests for the notifications module.
@@ -47,18 +49,9 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 		r.Post("/{id}/resend-code", h.ResendVerificationCode)
 	})
 
-	// Subscription endpoints temporarily disabled - will be reimplemented in Phase 8
-	r.Route("/me/subscriptions", func(r chi.Router) {
-		r.Get("/", h.subscriptionsNotImplemented)
-		r.Post("/", h.subscriptionsNotImplemented)
-		r.Delete("/", h.subscriptionsNotImplemented)
-	})
-}
-
-// subscriptionsNotImplemented returns 501 for subscription endpoints.
-// These will be reimplemented in Phase 8 with the new channel-level subscription model.
-func (h *Handler) subscriptionsNotImplemented(w http.ResponseWriter, _ *http.Request) {
-	httputil.Error(w, http.StatusNotImplemented, "subscription endpoints are being redesigned")
+	// Subscription endpoints
+	r.Get("/me/subscriptions", h.GetSubscriptions)
+	r.Put("/me/channels/{id}/subscriptions", h.SetChannelSubscriptions)
 }
 
 // CreateChannelRequest represents request body for creating a channel.
@@ -189,4 +182,60 @@ func (h *Handler) ResendVerificationCode(w http.ResponseWriter, r *http.Request)
 	}
 
 	httputil.Success(w, http.StatusOK, map[string]string{"message": "verification code sent"})
+}
+
+// GetSubscriptions handles GET /me/subscriptions.
+func (h *Handler) GetSubscriptions(w http.ResponseWriter, r *http.Request) {
+	userID := httputil.GetUserID(r.Context())
+
+	matrix, err := h.service.GetSubscriptionsMatrix(r.Context(), userID)
+	if err != nil {
+		httputil.HandleError(r.Context(), w, err, errorMappings)
+		return
+	}
+
+	httputil.Success(w, http.StatusOK, matrix)
+}
+
+// SetSubscriptionsRequest represents request body for setting channel subscriptions.
+type SetSubscriptionsRequest struct {
+	SubscribeToAllServices bool     `json:"subscribe_to_all_services"`
+	ServiceIDs             []string `json:"service_ids"`
+}
+
+// SetChannelSubscriptions handles PUT /me/channels/{id}/subscriptions.
+func (h *Handler) SetChannelSubscriptions(w http.ResponseWriter, r *http.Request) {
+	userID := httputil.GetUserID(r.Context())
+	channelID := chi.URLParam(r, "id")
+
+	var req SetSubscriptionsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httputil.Error(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+
+	// Validation: if subscribeAll is true, service_ids must be empty
+	if req.SubscribeToAllServices && len(req.ServiceIDs) > 0 {
+		httputil.Error(w, http.StatusBadRequest, "service_ids must be empty when subscribe_to_all_services is true")
+		return
+	}
+
+	err := h.service.SetChannelSubscriptions(r.Context(), userID, channelID, req.SubscribeToAllServices, req.ServiceIDs)
+	if err != nil {
+		httputil.HandleError(r.Context(), w, err, errorMappings)
+		return
+	}
+
+	// Return updated subscriptions
+	subscribeAll, serviceIDs, err := h.service.GetChannelSubscriptions(r.Context(), channelID)
+	if err != nil {
+		httputil.HandleError(r.Context(), w, err, errorMappings)
+		return
+	}
+
+	httputil.Success(w, http.StatusOK, map[string]interface{}{
+		"channel_id":                channelID,
+		"subscribe_to_all_services": subscribeAll,
+		"subscribed_service_ids":    serviceIDs,
+	})
 }
