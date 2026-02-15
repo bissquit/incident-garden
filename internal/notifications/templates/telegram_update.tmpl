@@ -1,0 +1,19 @@
+*Update: {{ .Event.Title }}*
+{{- if and .Changes .Changes.StatusFrom }}
+Status: `{{ .Changes.StatusFrom }}` -> `{{ .Changes.StatusTo }}`
+{{- end }}
+{{- if and .Changes .Changes.SeverityFrom }}
+Severity: {{ .Changes.SeverityFrom }} -> {{ .Changes.SeverityTo }}
+{{- end }}
+{{- if and .Changes (len .Changes.ServicesAdded) }}
+Added: {{ range $i, $s := .Changes.ServicesAdded }}{{ if $i }}, {{ end }}`{{ $s.Name }}`{{ end }}
+{{- end }}
+{{- if and .Changes (len .Changes.ServicesRemoved) }}
+Removed: {{ range $i, $s := .Changes.ServicesRemoved }}{{ if $i }}, {{ end }}`{{ $s.Name }}`{{ end }}
+{{- end }}
+{{- if .Event.Message }}
+
+{{ .Event.Message }}
+{{- end }}
+
+[View details]({{ .EventURL }})

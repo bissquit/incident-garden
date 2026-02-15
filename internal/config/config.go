@@ -15,12 +15,13 @@ import (
 
 // Config represents the application configuration.
 type Config struct {
-	Server   ServerConfig
-	Database DatabaseConfig
-	Log      LogConfig
-	JWT      JWTConfig
-	CORS     CORSConfig
-	Cookie   CookieConfig
+	Server        ServerConfig
+	Database      DatabaseConfig
+	Log           LogConfig
+	JWT           JWTConfig
+	CORS          CORSConfig
+	Cookie        CookieConfig
+	Notifications NotificationsConfig
 }
 
 // CORSConfig contains CORS settings.
@@ -66,6 +67,40 @@ type JWTConfig struct {
 	SecretKey            string
 	AccessTokenDuration  time.Duration
 	RefreshTokenDuration time.Duration
+}
+
+// NotificationsConfig contains notification system settings.
+type NotificationsConfig struct {
+	Enabled  bool
+	Email    EmailConfig
+	Telegram TelegramConfig
+	Retry    RetryConfig
+}
+
+// EmailConfig contains email sender settings.
+type EmailConfig struct {
+	Enabled      bool
+	SMTPHost     string
+	SMTPPort     int
+	SMTPUser     string
+	SMTPPassword string
+	FromAddress  string
+	BatchSize    int
+}
+
+// TelegramConfig contains Telegram sender settings.
+type TelegramConfig struct {
+	Enabled   bool
+	BotToken  string
+	RateLimit float64
+}
+
+// RetryConfig contains notification retry settings.
+type RetryConfig struct {
+	MaxAttempts       int
+	InitialBackoff    time.Duration
+	MaxBackoff        time.Duration
+	BackoffMultiplier float64
 }
 
 // Load loads configuration from config.yaml and environment variables.
@@ -115,6 +150,29 @@ func Load() (*Config, error) {
 		Cookie: CookieConfig{
 			Secure: k.Bool("COOKIE_SECURE"),
 			Domain: k.String("COOKIE_DOMAIN"),
+		},
+		Notifications: NotificationsConfig{
+			Enabled: !k.Exists("NOTIFICATIONS_ENABLED") || k.Bool("NOTIFICATIONS_ENABLED"),
+			Email: EmailConfig{
+				Enabled:      k.Bool("NOTIFICATIONS_EMAIL_ENABLED"),
+				SMTPHost:     k.String("NOTIFICATIONS_EMAIL_SMTP_HOST"),
+				SMTPPort:     k.Int("NOTIFICATIONS_EMAIL_SMTP_PORT"),
+				SMTPUser:     k.String("NOTIFICATIONS_EMAIL_SMTP_USER"),
+				SMTPPassword: k.String("NOTIFICATIONS_EMAIL_SMTP_PASSWORD"),
+				FromAddress:  k.String("NOTIFICATIONS_EMAIL_FROM_ADDRESS"),
+				BatchSize:    k.Int("NOTIFICATIONS_EMAIL_BATCH_SIZE"),
+			},
+			Telegram: TelegramConfig{
+				Enabled:   k.Bool("NOTIFICATIONS_TELEGRAM_ENABLED"),
+				BotToken:  k.String("NOTIFICATIONS_TELEGRAM_BOT_TOKEN"),
+				RateLimit: k.Float64("NOTIFICATIONS_TELEGRAM_RATE_LIMIT"),
+			},
+			Retry: RetryConfig{
+				MaxAttempts:       k.Int("NOTIFICATIONS_RETRY_MAX_ATTEMPTS"),
+				InitialBackoff:    k.Duration("NOTIFICATIONS_RETRY_INITIAL_BACKOFF"),
+				MaxBackoff:        k.Duration("NOTIFICATIONS_RETRY_MAX_BACKOFF"),
+				BackoffMultiplier: k.Float64("NOTIFICATIONS_RETRY_BACKOFF_MULTIPLIER"),
+			},
 		},
 	}
 
@@ -188,6 +246,29 @@ func setDefaults(cfg *Config) {
 
 	if len(cfg.CORS.AllowedOrigins) == 0 {
 		cfg.CORS.AllowedOrigins = []string{"http://localhost:3000"}
+	}
+
+	// Notifications defaults
+	if cfg.Notifications.Email.SMTPPort == 0 {
+		cfg.Notifications.Email.SMTPPort = 587
+	}
+	if cfg.Notifications.Email.BatchSize == 0 {
+		cfg.Notifications.Email.BatchSize = 50
+	}
+	if cfg.Notifications.Telegram.RateLimit == 0 {
+		cfg.Notifications.Telegram.RateLimit = 25
+	}
+	if cfg.Notifications.Retry.MaxAttempts == 0 {
+		cfg.Notifications.Retry.MaxAttempts = 3
+	}
+	if cfg.Notifications.Retry.InitialBackoff == 0 {
+		cfg.Notifications.Retry.InitialBackoff = 1 * time.Second
+	}
+	if cfg.Notifications.Retry.MaxBackoff == 0 {
+		cfg.Notifications.Retry.MaxBackoff = 5 * time.Minute
+	}
+	if cfg.Notifications.Retry.BackoffMultiplier == 0 {
+		cfg.Notifications.Retry.BackoffMultiplier = 2.0
 	}
 }
 

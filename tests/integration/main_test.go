@@ -16,12 +16,14 @@ import (
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var (
 	testServer    *httptest.Server
 	testClient    *testutil.Client
 	testValidator *testutil.OpenAPIValidator
+	testDB        *pgxpool.Pool
 )
 
 // OpenAPI spec path relative to the tests/integration directory.
@@ -102,6 +104,12 @@ func TestMain(m *testing.M) {
 		log.Fatalf("create app: %v", err)
 	}
 
+	// Create a direct DB connection for tests that need it
+	testDB, err = pgxpool.New(ctx, pgContainer.ConnectionString)
+	if err != nil {
+		log.Fatalf("create test db pool: %v", err)
+	}
+
 	testServer = httptest.NewServer(application.Router())
 
 	// Load OpenAPI validator
@@ -116,6 +124,7 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 
 	testServer.Close()
+	testDB.Close()
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

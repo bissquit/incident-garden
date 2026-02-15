@@ -146,6 +146,24 @@ v_service_effective_status (VIEW — computed effective status)
 ├── service_id, status (stored), effective_status (computed)
 ├── has_active_events BOOLEAN
 └── Uses worst-case priority: major_outage > partial_outage > degraded > maintenance > operational
+
+notification_channels
+├── id, user_id FK → users, type, target
+├── is_enabled, is_verified, subscribe_to_all_services
+├── created_at, updated_at
+└── CONSTRAINT check_channel_type CHECK (type IN ('email', 'telegram', 'mattermost'))
+
+channel_subscriptions (M:N junction — channel subscribes to services)
+├── channel_id FK → notification_channels ON DELETE CASCADE
+├── service_id FK → services ON DELETE CASCADE
+├── created_at
+└── PRIMARY KEY (channel_id, service_id)
+
+event_subscribers (channels subscribed to specific event)
+├── event_id FK → events ON DELETE CASCADE
+├── channel_id FK → notification_channels ON DELETE CASCADE
+├── created_at
+└── PRIMARY KEY (event_id, channel_id)
 ```
 
 ### Module: identity
@@ -254,26 +272,47 @@ Dependencies: domain.Event, domain.EventService, domain.AffectedService, domain.
 
 ```
 internal/notifications/
-├── handler.go             → CRUD /me/channels, /me/subscriptions
-├── service.go             → CreateChannel, Subscribe, GetSubscribersForServices
-├── repository.go          → Interface: ChannelRepository, SubscriptionRepository
-├── dispatcher.go          → Dispatch(ctx, notification)
+├── handler.go             → CRUD /me/channels, GET /me/subscriptions, PUT /me/channels/{id}/subscriptions
+├── service.go             → CreateChannel, ListUserChannels, UpdateChannel, DeleteChannel, VerifyChannel,
+│                            GetSubscriptionsMatrix, SetChannelSubscriptions
+├── repository.go          → Interface: channel CRUD + subscriptions + event subscribers
+├── dispatcher.go          → Dispatch(ctx, notification) — finds subscribers and sends
 ├── sender.go              → Interface: Sender
-├── email/sender.go        → Email sender (STUB)
-├── telegram/sender.go     → Telegram sender (STUB)
+├── errors.go              → ErrChannelNotFound, ErrChannelNotOwned, ErrChannelNotVerified, ErrServicesNotFound
+├── email/sender.go        → Email sender (real SMTP)
+├── telegram/sender.go     → Telegram sender (real Bot API)
+├── mattermost/sender.go   → Mattermost sender (webhook)
 └── postgres/repository.go
 
-⚠️ Senders are stubs, dispatcher not integrated with events yet
+Key interfaces:
+- CreateChannel, GetChannelByID, ListUserChannels, UpdateChannel, DeleteChannel
+- SetChannelSubscriptions(ctx, channelID, subscribeAll bool, serviceIDs []string)
+- GetChannelSubscriptions(ctx, channelID) → (subscribeAll, serviceIDs, error)
+- GetUserChannelsWithSubscriptions(ctx, userID) → []ChannelWithSubscriptions
+- CreateEventSubscribers(ctx, eventID, channelIDs)
+- GetEventSubscribers(ctx, eventID) → []channelID
+- AddEventSubscribers(ctx, eventID, channelIDs)
+- FindSubscribersForServices(ctx, serviceIDs) → []ChannelInfo
+
+Types:
+- ChannelInfo: ID, UserID, Type, Target, Email
+- ChannelWithSubscriptions: Channel, SubscribeToAllServices, SubscribedServiceIDs
+- SubscriptionsMatrix: Channels []ChannelWithSubscriptions
+
+Dependencies: domain.NotificationChannel, catalog.Service (as ServiceValidator), pkg/postgres
+
+⚠️ Dispatcher not integrated with events yet
 ```
 
 ### Shared
 
 ```
 internal/domain/           → User, Service, ServiceGroup, Event, EventUpdate, EventServiceChange,
-                             Template, Channel, Subscription,
+                             Template, NotificationChannel (with SubscribeToAllServices),
                              ServiceWithEffectiveStatus, ServiceTag, EventService,
                              AffectedService, AffectedGroup (API input types),
                              ServiceStatusLogEntry, StatusLogSourceType
+                             ChannelType: email, telegram, mattermost
 internal/pkg/httputil/     → response.go, middleware.go, errors.go, metrics.go (Prometheus middleware)
 internal/pkg/postgres/     → Connect with retry (exponential backoff, ConnectAttempts config)
 internal/pkg/metrics/      → Prometheus metrics (HTTPRequestDuration, DBPoolConnections)
@@ -481,20 +520,22 @@ docker volume rm docker_postgres_data
 
 ```
 tests/integration/
-├── main_test.go                  # TestMain, testcontainers setup
-├── helpers_test.go               # Shared helper functions
-├── auth_test.go                  # Authentication flows
-├── rbac_test.go                  # Role-based access control
-├── catalog_service_test.go       # Service CRUD
-├── catalog_group_test.go         # Group CRUD and membership
-├── catalog_archive_test.go       # Soft delete, restore
-├── catalog_status_test.go        # Effective status, status log
-├── catalog_service_events_test.go # GET /services/{slug}/events
-├── events_lifecycle_test.go      # Event creation, status transitions
-├── events_composition_test.go    # Add/remove services, updates
-├── events_maintenance_test.go    # Maintenance lifecycle
-├── events_delete_test.go         # Event deletion, cascade
-└── events_public_test.go         # Public endpoints, auth checks
+├── main_test.go                       # TestMain, testcontainers setup
+├── helpers_test.go                    # Shared helper functions
+├── auth_test.go                       # Authentication flows
+├── rbac_test.go                       # Role-based access control
+├── catalog_service_test.go            # Service CRUD
+├── catalog_group_test.go              # Group CRUD and membership
+├── catalog_archive_test.go            # Soft delete, restore
+├── catalog_status_test.go             # Effective status, status log
+├── catalog_service_events_test.go     # GET /services/{slug}/events
+├── events_lifecycle_test.go           # Event creation, status transitions
+├── events_composition_test.go         # Add/remove services, updates
+├── events_maintenance_test.go         # Maintenance lifecycle
+├── events_delete_test.go              # Event deletion, cascade
+├── events_public_test.go              # Public endpoints, auth checks
+├── notifications_verification_test.go # Channel verification flow
+└── notifications_subscriptions_test.go # Channel subscriptions API
 ```
 
 When adding new tests, place them in the appropriate domain file. If a new domain emerges, create a new file following the pattern `<module>_<domain>_test.go`.
@@ -698,7 +739,8 @@ TestDeleteEvent_ServiceStatusUnchanged     // side effect verification
 - `POST /api/v1/auth/register`, `/login`, `/refresh`, `/logout`
 - `GET /api/v1/me`
 - `GET|POST|PATCH|DELETE /api/v1/me/channels`
-- `GET|POST|DELETE /api/v1/me/subscriptions`
+- `GET /api/v1/me/subscriptions` — subscriptions matrix (all channels with their settings)
+- `PUT /api/v1/me/channels/{id}/subscriptions` — set channel subscriptions (requires verified channel)
 
 **Operator+:**
 - `POST /api/v1/events` — create (accepts `affected_services` + `affected_groups` with explicit statuses)
@@ -796,7 +838,7 @@ TestDeleteEvent_ServiceStatusUnchanged     // side effect verification
 
 ```
 roles:           user, operator, admin
-channel_types:   email, telegram
+channel_types:   email, telegram, mattermost
 service_status:  operational, degraded, partial_outage, major_outage, maintenance
 event_type:      incident, maintenance
 event_status:    investigating, identified, monitoring, resolved (incident)
