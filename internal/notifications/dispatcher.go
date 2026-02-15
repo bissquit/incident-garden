@@ -69,3 +69,13 @@ func (d *Dispatcher) Dispatch(ctx context.Context, input DispatchInput) error {
 
 	return nil
 }
+
+// SendToChannel sends a notification to a specific channel type.
+func (d *Dispatcher) SendToChannel(ctx context.Context, channelType domain.ChannelType, notification Notification) error {
+	sender, ok := d.senders[channelType]
+	if !ok {
+		return fmt.Errorf("no sender for channel type: %s", channelType)
+	}
+
+	return sender.Send(ctx, notification)
+}

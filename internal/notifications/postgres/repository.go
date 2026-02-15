@@ -3,6 +3,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -448,4 +449,316 @@ func (r *Repository) DeleteExpiredCodes(ctx context.Context) (int64, error) {
 		return 0, fmt.Errorf("delete expired codes: %w", err)
 	}
 	return result.RowsAffected(), nil
+}
+
+// EnqueueNotification adds a notification to the queue.
+func (r *Repository) EnqueueNotification(ctx context.Context, item *notifications.QueueItem) error {
+	payloadJSON, err := json.Marshal(item.Payload)
+	if err != nil {
+		return fmt.Errorf("marshal payload: %w", err)
+	}
+
+	_, err = r.db.Exec(ctx, `
+		INSERT INTO notification_queue
+			(id, event_id, channel_id, message_type, payload, status, max_attempts, next_attempt_at)
+		VALUES
+			($1, $2, $3, $4, $5, 'pending', $6, NOW())
+	`, item.ID, item.EventID, item.ChannelID, item.MessageType, payloadJSON, item.MaxAttempts)
+
+	if err != nil {
+		return fmt.Errorf("enqueue notification: %w", err)
+	}
+	return nil
+}
+
+// EnqueueBatch adds multiple notifications to the queue.
+func (r *Repository) EnqueueBatch(ctx context.Context, items []*notifications.QueueItem) error {
+	if len(items) == 0 {
+		return nil
+	}
+
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	for _, item := range items {
+		payloadJSON, err := json.Marshal(item.Payload)
+		if err != nil {
+			return fmt.Errorf("marshal payload: %w", err)
+		}
+
+		_, err = tx.Exec(ctx, `
+			INSERT INTO notification_queue
+				(id, event_id, channel_id, message_type, payload, status, max_attempts, next_attempt_at)
+			VALUES
+				($1, $2, $3, $4, $5, 'pending', $6, NOW())
+		`, item.ID, item.EventID, item.ChannelID, item.MessageType, payloadJSON, item.MaxAttempts)
+
+		if err != nil {
+			return fmt.Errorf("enqueue notification %s: %w", item.ID, err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit transaction: %w", err)
+	}
+
+	return nil
+}
+
+// FetchPendingNotifications retrieves pending notifications ready for processing.
+// Uses SELECT FOR UPDATE SKIP LOCKED for concurrent processing.
+// Returned items have Status set to QueueStatusProcessing.
+func (r *Repository) FetchPendingNotifications(ctx context.Context, limit int) ([]*notifications.QueueItem, error) {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin transaction: %w", err)
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	rows, err := tx.Query(ctx, `
+		SELECT id, event_id, channel_id, message_type, payload,
+			   status, attempts, max_attempts, next_attempt_at, last_error,
+			   created_at, updated_at, sent_at
+		FROM notification_queue
+		WHERE status = 'pending'
+		  AND next_attempt_at <= NOW()
+		ORDER BY next_attempt_at
+		LIMIT $1
+		FOR UPDATE SKIP LOCKED
+	`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("fetch pending: %w", err)
+	}
+	defer rows.Close()
+
+	items := make([]*notifications.QueueItem, 0)
+	ids := make([]string, 0)
+
+	for rows.Next() {
+		item, err := scanQueueItem(rows)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+		ids = append(ids, item.ID)
+	}
+
+	// Mark items as processing
+	if len(ids) > 0 {
+		_, err = tx.Exec(ctx, `
+			UPDATE notification_queue
+			SET status = 'processing', updated_at = NOW()
+			WHERE id = ANY($1::uuid[])
+		`, ids)
+		if err != nil {
+			return nil, fmt.Errorf("mark as processing: %w", err)
+		}
+
+		// Update returned items to reflect actual status
+		for _, item := range items {
+			item.Status = notifications.QueueStatusProcessing
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit transaction: %w", err)
+	}
+
+	return items, nil
+}
+
+// scanQueueItem scans a queue item from a row.
+func scanQueueItem(rows pgx.Rows) (*notifications.QueueItem, error) {
+	item := &notifications.QueueItem{}
+	var payloadJSON []byte
+	var lastError *string
+	var sentAt *time.Time
+
+	err := rows.Scan(
+		&item.ID, &item.EventID, &item.ChannelID, &item.MessageType, &payloadJSON,
+		&item.Status, &item.Attempts, &item.MaxAttempts, &item.NextAttemptAt, &lastError,
+		&item.CreatedAt, &item.UpdatedAt, &sentAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("scan: %w", err)
+	}
+
+	if err := json.Unmarshal(payloadJSON, &item.Payload); err != nil {
+		return nil, fmt.Errorf("unmarshal payload: %w", err)
+	}
+
+	if lastError != nil {
+		item.LastError = *lastError
+	}
+	item.SentAt = sentAt
+
+	return item, nil
+}
+
+// MarkAsSent marks a notification as successfully sent.
+func (r *Repository) MarkAsSent(ctx context.Context, id string) error {
+	_, err := r.db.Exec(ctx, `
+		UPDATE notification_queue
+		SET status = 'sent',
+			attempts = attempts + 1,
+			sent_at = NOW(),
+			updated_at = NOW()
+		WHERE id = $1
+	`, id)
+	if err != nil {
+		return fmt.Errorf("mark as sent: %w", err)
+	}
+	return nil
+}
+
+// MarkAsFailed marks a notification as permanently failed.
+func (r *Repository) MarkAsFailed(ctx context.Context, id string, failErr error) error {
+	_, err := r.db.Exec(ctx, `
+		UPDATE notification_queue
+		SET status = 'failed',
+			attempts = attempts + 1,
+			last_error = $2,
+			updated_at = NOW()
+		WHERE id = $1
+	`, id, failErr.Error())
+	if err != nil {
+		return fmt.Errorf("mark as failed: %w", err)
+	}
+	return nil
+}
+
+// MarkForRetry schedules a notification for retry.
+func (r *Repository) MarkForRetry(ctx context.Context, id string, retryErr error, nextAttempt time.Time) error {
+	_, err := r.db.Exec(ctx, `
+		UPDATE notification_queue
+		SET status = 'pending',
+			attempts = attempts + 1,
+			next_attempt_at = $2,
+			last_error = $3,
+			updated_at = NOW()
+		WHERE id = $1
+	`, id, nextAttempt, retryErr.Error())
+	if err != nil {
+		return fmt.Errorf("mark for retry: %w", err)
+	}
+	return nil
+}
+
+// MarkAsProcessing marks a notification as being processed.
+func (r *Repository) MarkAsProcessing(ctx context.Context, id string) error {
+	_, err := r.db.Exec(ctx, `
+		UPDATE notification_queue
+		SET status = 'processing',
+			updated_at = NOW()
+		WHERE id = $1
+	`, id)
+	if err != nil {
+		return fmt.Errorf("mark as processing: %w", err)
+	}
+	return nil
+}
+
+// GetFailedItems returns failed notifications for potential manual retry.
+func (r *Repository) GetFailedItems(ctx context.Context, limit int) ([]*notifications.QueueItem, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT id, event_id, channel_id, message_type, payload,
+			   status, attempts, max_attempts, next_attempt_at,
+			   last_error, created_at, updated_at, sent_at
+		FROM notification_queue
+		WHERE status = 'failed'
+		ORDER BY updated_at DESC
+		LIMIT $1
+	`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("get failed items: %w", err)
+	}
+	defer rows.Close()
+
+	items := make([]*notifications.QueueItem, 0)
+	for rows.Next() {
+		item, err := scanQueueItem(rows)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+
+	return items, nil
+}
+
+// RetryFailedItem resets a failed notification back to pending for retry.
+func (r *Repository) RetryFailedItem(ctx context.Context, id string) error {
+	result, err := r.db.Exec(ctx, `
+		UPDATE notification_queue
+		SET status = 'pending',
+			attempts = 0,
+			next_attempt_at = NOW(),
+			last_error = NULL,
+			updated_at = NOW()
+		WHERE id = $1 AND status = 'failed'
+	`, id)
+	if err != nil {
+		return fmt.Errorf("retry failed item: %w", err)
+	}
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("item not found or not in failed status")
+	}
+	return nil
+}
+
+// RecoverStuckProcessing resets items stuck in processing status back to pending.
+// This handles cases where a worker crashed while processing.
+func (r *Repository) RecoverStuckProcessing(ctx context.Context, stuckFor time.Duration) (int64, error) {
+	cutoff := time.Now().Add(-stuckFor)
+	result, err := r.db.Exec(ctx, `
+		UPDATE notification_queue
+		SET status = 'pending',
+			next_attempt_at = NOW(),
+			updated_at = NOW()
+		WHERE status = 'processing' AND updated_at < $1
+	`, cutoff)
+	if err != nil {
+		return 0, fmt.Errorf("recover stuck processing: %w", err)
+	}
+	return result.RowsAffected(), nil
+}
+
+// DeleteOldSentItems removes sent notifications older than the specified duration.
+func (r *Repository) DeleteOldSentItems(ctx context.Context, olderThan time.Duration) (int64, error) {
+	cutoff := time.Now().Add(-olderThan)
+	result, err := r.db.Exec(ctx, `
+		DELETE FROM notification_queue
+		WHERE status = 'sent' AND sent_at < $1
+	`, cutoff)
+	if err != nil {
+		return 0, fmt.Errorf("delete old sent items: %w", err)
+	}
+	return result.RowsAffected(), nil
+}
+
+// GetQueueStats returns statistics about the notification queue.
+func (r *Repository) GetQueueStats(ctx context.Context) (*notifications.QueueStats, error) {
+	var stats notifications.QueueStats
+
+	err := r.db.QueryRow(ctx, `
+		SELECT
+			COUNT(*) FILTER (WHERE status = 'pending') as pending,
+			COUNT(*) FILTER (WHERE status = 'processing') as processing,
+			COUNT(*) FILTER (WHERE status = 'sent') as sent,
+			COUNT(*) FILTER (WHERE status = 'failed') as failed
+		FROM notification_queue
+	`).Scan(&stats.Pending, &stats.Processing, &stats.Sent, &stats.Failed)
+
+	if err != nil {
+		return nil, fmt.Errorf("get queue stats: %w", err)
+	}
+
+	return &stats, nil
 }

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/bissquit/incident-garden/internal/domain"
+	"github.com/google/uuid"
 )
 
 
@@ -40,6 +41,18 @@ type ServiceNameResolver interface {
 	GetServiceName(ctx context.Context, serviceID string) (string, error)
 }
 
+// NotifierConfig contains notifier configuration.
+type NotifierConfig struct {
+	MaxAttempts int
+}
+
+// DefaultNotifierConfig returns default notifier configuration.
+func DefaultNotifierConfig() NotifierConfig {
+	return NotifierConfig{
+		MaxAttempts: 3,
+	}
+}
+
 // Notifier implements EventNotifier.
 type Notifier struct {
 	repo         Repository
@@ -47,6 +60,7 @@ type Notifier struct {
 	dispatcher   *Dispatcher
 	nameResolver ServiceNameResolver
 	baseURL      string
+	config       NotifierConfig
 }
 
 // NewNotifier creates a new Notifier.
@@ -57,6 +71,19 @@ func NewNotifier(repo Repository, renderer *Renderer, dispatcher *Dispatcher, na
 		dispatcher:   dispatcher,
 		nameResolver: nameResolver,
 		baseURL:      baseURL,
+		config:       DefaultNotifierConfig(),
+	}
+}
+
+// NewNotifierWithConfig creates a new Notifier with custom config.
+func NewNotifierWithConfig(repo Repository, renderer *Renderer, dispatcher *Dispatcher, nameResolver ServiceNameResolver, baseURL string, config NotifierConfig) *Notifier {
+	return &Notifier{
+		repo:         repo,
+		renderer:     renderer,
+		dispatcher:   dispatcher,
+		nameResolver: nameResolver,
+		baseURL:      baseURL,
+		config:       config,
 	}
 }
 
@@ -91,13 +118,13 @@ func (n *Notifier) OnEventCreated(ctx context.Context, event *domain.Event, serv
 	eventData := n.buildEventData(ctx, event, serviceIDs)
 	payload := NewInitialPayload(eventData, n.buildEventURL(event.ID))
 
-	// Send notifications
-	if err := n.sendToChannels(ctx, channels, payload); err != nil {
-		slog.Error("failed to send notifications", "event_id", event.ID, "error", err)
+	// Enqueue notifications
+	if err := n.enqueueForChannels(ctx, event.ID, channelIDs, payload); err != nil {
+		slog.Error("failed to enqueue notifications", "event_id", event.ID, "error", err)
 		// Don't return error - event is created, notifications can be retried
 	}
 
-	slog.Info("event notifications sent", "event_id", event.ID, "subscribers", len(channels))
+	slog.Info("event notifications queued", "event_id", event.ID, "subscribers", len(channels))
 	return nil
 }
 
@@ -191,7 +218,9 @@ func (n *Notifier) onEventResolvedInternal(ctx context.Context, event *domain.Ev
 	res := EventResolution{
 		ResolvedAt: resolvedAt,
 		Duration:   duration,
-		Message:    resolution.Message,
+	}
+	if resolution != nil {
+		res.Message = resolution.Message
 	}
 
 	payload := NewResolvedPayload(eventData, changes, res, n.buildEventURL(event.ID))
@@ -236,7 +265,9 @@ func (n *Notifier) onEventCompletedInternal(ctx context.Context, event *domain.E
 	res := EventResolution{
 		ResolvedAt: completedAt,
 		Duration:   duration,
-		Message:    resolution.Message,
+	}
+	if resolution != nil {
+		res.Message = resolution.Message
 	}
 
 	payload := NewCompletedPayload(eventData, changes, res, n.buildEventURL(event.ID))
@@ -266,60 +297,32 @@ func (n *Notifier) sendToEventSubscribers(ctx context.Context, eventID string, p
 		return nil
 	}
 
-	// Get channel details
-	channels, err := n.repo.GetChannelsByIDs(ctx, channelIDs)
-	if err != nil {
-		return fmt.Errorf("get channels: %w", err)
-	}
-
-	return n.sendToChannels(ctx, channels, payload)
+	return n.enqueueForChannels(ctx, eventID, channelIDs, payload)
 }
 
-// sendToChannels sends notifications to the specified channels.
-func (n *Notifier) sendToChannels(ctx context.Context, channels []ChannelInfo, payload NotificationPayload) error {
-	if n.dispatcher == nil {
-		slog.Warn("dispatcher not configured, notifications not sent")
+// enqueueForChannels adds notifications to the queue for the given channels.
+func (n *Notifier) enqueueForChannels(ctx context.Context, eventID string, channelIDs []string, payload NotificationPayload) error {
+	if len(channelIDs) == 0 {
 		return nil
 	}
 
-	// Group by channel type for efficient rendering
-	byType := make(map[domain.ChannelType][]ChannelInfo)
-	for _, ch := range channels {
-		byType[ch.Type] = append(byType[ch.Type], ch)
+	items := make([]*QueueItem, 0, len(channelIDs))
+	for _, channelID := range channelIDs {
+		items = append(items, &QueueItem{
+			ID:          uuid.New().String(),
+			EventID:     eventID,
+			ChannelID:   channelID,
+			MessageType: payload.MessageType,
+			Payload:     payload,
+			MaxAttempts: n.config.MaxAttempts,
+		})
 	}
 
-	// Send to each channel type
-	for channelType, chans := range byType {
-		subject, body, err := n.renderer.Render(channelType, payload)
-		if err != nil {
-			slog.Error("failed to render notification", "type", channelType, "error", err)
-			continue
-		}
-
-		for _, ch := range chans {
-			notification := Notification{
-				To:      ch.Target,
-				Subject: subject,
-				Body:    body,
-			}
-
-			sender, ok := n.dispatcher.senders[ch.Type]
-			if !ok {
-				slog.Warn("no sender for channel type", "type", ch.Type)
-				continue
-			}
-
-			if err := sender.Send(ctx, notification); err != nil {
-				slog.Error("failed to send notification",
-					"channel_id", ch.ID,
-					"channel_type", ch.Type,
-					"error", err,
-				)
-				// Continue with other channels
-			}
-		}
+	if err := n.repo.EnqueueBatch(ctx, items); err != nil {
+		return fmt.Errorf("enqueue notifications: %w", err)
 	}
 
+	slog.Info("notifications queued", "event_id", eventID, "count", len(items))
 	return nil
 }
 
