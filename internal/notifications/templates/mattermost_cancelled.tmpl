@@ -1,0 +1,7 @@
+**Cancelled: {{ .Event.Title }}**
+{{- if and .Event.ScheduledStart .Event.ScheduledEnd }}
+
+**Originally scheduled:** {{ formatTime .Event.ScheduledStart }} - {{ formatTime .Event.ScheduledEnd }}
+{{- end }}
+
+This maintenance has been cancelled.

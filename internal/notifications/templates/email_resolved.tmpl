@@ -1,0 +1,10 @@
+Resolved: {{ .Event.Title }}
+
+Duration: {{ formatDuration .Resolution.Duration }}
+{{- if .Resolution.Message }}
+
+{{ .Resolution.Message }}
+{{- end }}
+
+---
+View details: {{ .EventURL }}
