@@ -26,7 +26,7 @@
 | HTTP Handler | ✅ Готово | `internal/notifications/handler.go` |
 | Service | ✅ Готово | `internal/notifications/service.go` |
 | Dispatcher | ✅ Готово | `internal/notifications/dispatcher.go` |
-| Email Sender | 🔴 STUB | `internal/notifications/email/sender.go` |
+| Email Sender | ✅ Готово | `internal/notifications/email/sender.go` |
 | Telegram Sender | 🔴 STUB | `internal/notifications/telegram/sender.go` |
 | Mattermost Sender | 🔴 Нет | — |
 | Конфигурация | 🔴 Нет | — |
@@ -108,15 +108,20 @@ NOTIFICATIONS_RETRY_MAX_ATTEMPTS, INITIAL_BACKOFF, MAX_BACKOFF, BACKOFF_MULTIPLI
 **Цель:** Реализовать отправку email через SMTP.
 
 **Изменения:**
-- `internal/notifications/email/sender.go` — SMTP реализация
+- `internal/notifications/email/sender.go` — SMTP реализация с STARTTLS
 - BCC batching (по 50 получателей)
-- Обработка ошибок SMTP
+- Обработка ошибок SMTP с классификацией retryable/non-retryable
+- `internal/notifications/email/sender_test.go` — unit тесты
 
-**Тестирование:**
-- Unit тесты с mock SMTP
-- Опционально: интеграционные тесты с MailHog в Docker
+**Реализовано:**
+- `NewSender(config)` — создание sender с валидацией конфига
+- `Send(ctx, notification)` — отправка одному получателю
+- `SendBatch(ctx, subject, body, recipients)` — отправка нескольким получателям (BCC)
+- `IsRetryable(err)` — классификация ошибок для retry логики
+- STARTTLS поддержка (порт 587)
+- TLS 1.2+ для безопасности
 
-**Статус:** ⬜ Не начато
+**Статус:** ✅ Готово
 
 ---
 
