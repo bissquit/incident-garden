@@ -302,10 +302,10 @@ func (a *App) setupRouter() (*chi.Mux, error) {
 		mattermostSender := mattermost.NewSender(mattermost.Config{})
 
 		dispatcher := notifications.NewDispatcher(notificationsRepo, emailSender, telegramSender, mattermostSender)
-		notificationsService = notifications.NewService(notificationsRepo, dispatcher)
+		notificationsService = notifications.NewService(notificationsRepo, dispatcher, catalogService)
 	} else {
 		// Notifications disabled - create service with nil dispatcher
-		notificationsService = notifications.NewService(notificationsRepo, nil)
+		notificationsService = notifications.NewService(notificationsRepo, nil, catalogService)
 	}
 	notificationsHandler = notifications.NewHandler(notificationsService)
 
