@@ -20,4 +20,15 @@ type CatalogServiceUpdater interface {
 	DeleteStatusLogByEventIDTx(ctx context.Context, tx pgx.Tx, eventID string) error
 	GetServiceStatus(ctx context.Context, serviceID string) (domain.ServiceStatus, error)
 	ValidateServicesExist(ctx context.Context, ids []string) (missingIDs []string, err error)
+	GetServiceName(ctx context.Context, serviceID string) (string, error)
+}
+
+// EventNotifier sends notifications about events.
+// This interface is implemented by notifications.Notifier.
+type EventNotifier interface {
+	OnEventCreated(ctx context.Context, event *domain.Event, serviceIDs []string) error
+	OnEventUpdated(ctx context.Context, event *domain.Event, update *domain.EventUpdate, changes interface{}) error
+	OnEventResolved(ctx context.Context, event *domain.Event, resolution interface{}) error
+	OnEventCompleted(ctx context.Context, event *domain.Event, resolution interface{}) error
+	OnEventCancelled(ctx context.Context, event *domain.Event) error
 }

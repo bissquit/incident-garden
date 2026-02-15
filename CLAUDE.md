@@ -264,8 +264,15 @@ Service methods:
 Resolver interfaces:
 - GroupServiceResolver.ValidateGroupsExist(ctx, ids) → (missingIDs, error)
 - CatalogServiceUpdater.ValidateServicesExist(ctx, ids) → (missingIDs, error)
+- CatalogServiceUpdater.GetServiceName(ctx, serviceID) → (name, error)
+- EventNotifier.OnEventCreated/OnEventUpdated/OnEventResolved/OnEventCompleted/OnEventCancelled
 
-Dependencies: domain.Event, domain.EventService, domain.AffectedService, domain.AffectedGroup, catalog.Service (as GroupServiceResolver + CatalogServiceUpdater), pkg/postgres
+Notification integration:
+- CreateEvent calls notifier.OnEventCreated asynchronously after commit
+- AddUpdate calls notifier.OnEventUpdated/OnEventResolved/OnEventCompleted asynchronously after commit
+- DeleteEvent calls notifier.OnEventCancelled synchronously for scheduled events before deletion
+
+Dependencies: domain.Event, domain.EventService, domain.AffectedService, domain.AffectedGroup, catalog.Service (as GroupServiceResolver + CatalogServiceUpdater), notifications.Notifier (as EventNotifier), pkg/postgres
 ```
 
 ### Module: notifications
@@ -275,13 +282,17 @@ internal/notifications/
 ├── handler.go             → CRUD /me/channels, GET /me/subscriptions, PUT /me/channels/{id}/subscriptions
 ├── service.go             → CreateChannel, ListUserChannels, UpdateChannel, DeleteChannel, VerifyChannel,
 │                            GetSubscriptionsMatrix, SetChannelSubscriptions
+├── notifier.go            → EventNotifier implementation (integration with events module)
 ├── repository.go          → Interface: channel CRUD + subscriptions + event subscribers
 ├── dispatcher.go          → Dispatch(ctx, notification) — finds subscribers and sends
+├── renderer.go            → Template rendering for notifications
+├── payload.go             → NotificationPayload, EventData, EventChanges types
 ├── sender.go              → Interface: Sender
 ├── errors.go              → ErrChannelNotFound, ErrChannelNotOwned, ErrChannelNotVerified, ErrServicesNotFound
 ├── email/sender.go        → Email sender (real SMTP)
 ├── telegram/sender.go     → Telegram sender (real Bot API)
 ├── mattermost/sender.go   → Mattermost sender (webhook)
+├── templates/             → Embedded notification templates (email, telegram, mattermost)
 └── postgres/repository.go
 
 Key interfaces:
@@ -293,15 +304,23 @@ Key interfaces:
 - GetEventSubscribers(ctx, eventID) → []channelID
 - AddEventSubscribers(ctx, eventID, channelIDs)
 - FindSubscribersForServices(ctx, serviceIDs) → []ChannelInfo
+- GetChannelsByIDs(ctx, ids) → []ChannelInfo
+
+EventNotifier (implemented by Notifier):
+- OnEventCreated(ctx, event, serviceIDs) → finds subscribers, saves to event_subscribers, sends initial notification
+- OnEventUpdated(ctx, event, update, changes) → adds new subscribers for added services, sends update notification
+- OnEventResolved(ctx, event, resolution) → sends resolved notification
+- OnEventCompleted(ctx, event, resolution) → sends completed notification
+- OnEventCancelled(ctx, event) → sends cancelled notification (for scheduled maintenance deletion)
 
 Types:
 - ChannelInfo: ID, UserID, Type, Target, Email
 - ChannelWithSubscriptions: Channel, SubscribeToAllServices, SubscribedServiceIDs
 - SubscriptionsMatrix: Channels []ChannelWithSubscriptions
+- NotificationPayload: MessageType, Event, Changes, Resolution, EventURL
+- EventUpdateChanges: StatusFrom, StatusTo, ServicesAdded, ServicesRemoved, ServicesUpdated
 
-Dependencies: domain.NotificationChannel, catalog.Service (as ServiceValidator), pkg/postgres
-
-⚠️ Dispatcher not integrated with events yet
+Dependencies: domain.NotificationChannel, catalog.Service (as ServiceValidator + ServiceNameResolver), events.EventNotifier interface, pkg/postgres
 ```
 
 ### Shared
@@ -902,20 +921,22 @@ make docker-build
   - Graceful shutdown for both API and metrics servers
   - Prometheus alerts (`deployments/prometheus/alerts.yaml`)
   - Deployment guide (`docs/deployment.md`)
-
-⚠️ **Partial:** Notifications (structure ready, senders are stubs)
+- **Notifications:**
+  - Real Email sender (SMTP)
+  - Real Telegram sender (Bot API)
+  - Mattermost sender (Webhooks)
+  - Channel verification flow (email codes, telegram/mattermost test messages)
+  - Channel subscriptions API (subscribe to all or specific services)
+  - Event subscribers (fixed on event creation, new subscribers added when services added)
+  - **Event-Notification integration:** notifications sent on event create/update/resolve/complete/cancel
 
 ### Known Limitations
-
-**Notifications:**
-- Email/Telegram senders are stubs
-- Dispatcher not called when creating events
-- No channel verification
 
 **Missing:**
 - Helm chart (templates empty, see `docs/deployment.md` for K8s examples)
 - Pagination
 - Bulk operations
+- Notification queue with retry (currently synchronous send, failures logged but not retried)
 
 **Tech Debt:**
 - No graceful degradation for senders
@@ -930,10 +951,10 @@ See [docs/deployment.md](./docs/deployment.md) for:
 - Prometheus ServiceMonitor (`deployments/prometheus/servicemonitor.yaml`)
 - Prometheus alerts (`deployments/prometheus/alerts.yaml`)
 
+**New notification ENV variables:**
+- `NOTIFICATIONS_BASE_URL` — Base URL for event links in notifications (e.g., https://status.example.com)
+
 ### Next Up
 
-- [ ] Real Email sender (SMTP)
-- [ ] Real Telegram sender
-- [ ] Dispatcher ↔ Events integration
-- [ ] Channel verification flow
-- [ ] Notifications on event composition changes
+- [ ] Notification queue with retry (notification_queue table already in schema)
+- [ ] Email batching (BCC groups)

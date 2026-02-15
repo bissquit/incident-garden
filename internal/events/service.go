@@ -18,15 +18,17 @@ type Service struct {
 	resolver       GroupServiceResolver
 	catalogService CatalogServiceUpdater
 	renderer       *TemplateRenderer
+	notifier       EventNotifier
 }
 
 // NewService creates a new event service.
-func NewService(repo Repository, resolver GroupServiceResolver, catalogService CatalogServiceUpdater) *Service {
+func NewService(repo Repository, resolver GroupServiceResolver, catalogService CatalogServiceUpdater, notifier EventNotifier) *Service {
 	return &Service{
 		repo:           repo,
 		resolver:       resolver,
 		catalogService: catalogService,
 		renderer:       NewTemplateRenderer(),
+		notifier:       notifier,
 	}
 }
 
@@ -196,6 +198,15 @@ func (s *Service) CreateEvent(ctx context.Context, input CreateEventInput, creat
 		return nil, fmt.Errorf("commit transaction: %w", err)
 	}
 
+	// Send notifications asynchronously
+	if s.notifier != nil && event.NotifySubscribers {
+		go func() {
+			if err := s.notifier.OnEventCreated(context.Background(), event, serviceIDs); err != nil {
+				slog.Error("failed to notify on event created", "event_id", event.ID, "error", err)
+			}
+		}()
+	}
+
 	return event, nil
 }
 
@@ -227,6 +238,9 @@ func (s *Service) AddUpdate(ctx context.Context, input CreateEventUpdateInput, c
 	if err := s.validateAffectedEntities(ctx, input.AddServices, input.AddGroups); err != nil {
 		return nil, err
 	}
+
+	// Save old status for notification
+	oldStatus := event.Status
 
 	tx, err := s.repo.BeginTx(ctx)
 	if err != nil {
@@ -268,6 +282,16 @@ func (s *Service) AddUpdate(ctx context.Context, input CreateEventUpdateInput, c
 
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit: %w", err)
+	}
+
+	// Send notifications asynchronously
+	if s.notifier != nil && input.NotifySubscribers {
+		go func() {
+			notifyErr := s.notifyOnUpdate(context.Background(), event, update, oldStatus, input)
+			if notifyErr != nil {
+				slog.Error("failed to notify on event update", "event_id", event.ID, "error", notifyErr)
+			}
+		}()
 	}
 
 	return update, nil
@@ -509,16 +533,67 @@ func (s *Service) recalculateServicesStoredStatus(ctx context.Context, tx pgx.Tx
 	return nil
 }
 
+// notifyOnUpdate sends appropriate notification based on new event status.
+func (s *Service) notifyOnUpdate(ctx context.Context, event *domain.Event, update *domain.EventUpdate, oldStatus domain.EventStatus, input CreateEventUpdateInput) error {
+	// Build changes info
+	changes := &eventUpdateChanges{
+		StatusFrom: string(oldStatus),
+		StatusTo:   string(event.Status),
+	}
+
+	// Convert add services to EventService for notification
+	for _, as := range input.AddServices {
+		changes.ServicesAdded = append(changes.ServicesAdded, domain.EventService{
+			ServiceID: as.ServiceID,
+			Status:    as.Status,
+		})
+	}
+
+	// Determine notification type based on new status
+	switch event.Status {
+	case domain.EventStatusResolved:
+		return s.notifier.OnEventResolved(ctx, event, &eventResolution{Message: input.Message})
+	case domain.EventStatusCompleted:
+		return s.notifier.OnEventCompleted(ctx, event, &eventResolution{Message: input.Message})
+	default:
+		return s.notifier.OnEventUpdated(ctx, event, update, changes)
+	}
+}
+
+// eventUpdateChanges is a local type that implements the interface{} expected by EventNotifier.
+type eventUpdateChanges struct {
+	StatusFrom      string
+	StatusTo        string
+	SeverityFrom    string
+	SeverityTo      string
+	ServicesAdded   []domain.EventService
+	ServicesRemoved []domain.EventService
+	ServicesUpdated []serviceStatusUpdate
+}
+
+type serviceStatusUpdate struct {
+	ServiceID   string
+	ServiceName string
+	StatusFrom  string
+	StatusTo    string
+}
+
+// eventResolution is a local type for notification resolution info.
+type eventResolution struct {
+	Message string
+}
+
 // GetEventUpdates retrieves all updates for an event.
 func (s *Service) GetEventUpdates(ctx context.Context, eventID string) ([]*domain.EventUpdate, error) {
 	return s.repo.ListEventUpdates(ctx, eventID)
 }
 
-// DeleteEvent deletes a resolved event and all associated data.
+// DeleteEvent deletes an event and all associated data.
 //
 // Deletion rules:
-// 1. Only resolved/completed events can be deleted
-// 2. Active events must be resolved first
+// 1. Resolved/completed events can be deleted
+// 2. Scheduled maintenance can be deleted (sends "cancelled" notification)
+// 3. Active events (investigating, identified, monitoring, in_progress) cannot be deleted
 //
 // What gets deleted (via CASCADE and explicit deletion):
 // - event_services: service associations with statuses
@@ -526,6 +601,7 @@ func (s *Service) GetEventUpdates(ctx context.Context, eventID string) ([]*domai
 // - event_updates: status updates
 // - event_service_changes: audit trail of service additions/removals
 // - service_status_log: entries referencing this event
+// - event_subscribers: notification subscribers
 //
 // What is NOT affected:
 // - services.status: stored status remains unchanged
@@ -538,8 +614,18 @@ func (s *Service) DeleteEvent(ctx context.Context, id string) error {
 		return fmt.Errorf("get event: %w", err)
 	}
 
-	if !event.Status.IsResolved() {
+	// Allow deletion of resolved/completed or scheduled events
+	isScheduled := event.Status == domain.EventStatusScheduled
+	if !event.Status.IsResolved() && !isScheduled {
 		return ErrEventNotResolved
+	}
+
+	// For scheduled maintenance, send "cancelled" notification before deletion
+	// Must be done synchronously because event_subscribers will be deleted
+	if isScheduled && s.notifier != nil && event.NotifySubscribers {
+		if err := s.notifier.OnEventCancelled(ctx, event); err != nil {
+			slog.Error("failed to notify on event cancelled", "event_id", id, "error", err)
+		}
 	}
 
 	tx, err := s.repo.BeginTx(ctx)
@@ -557,7 +643,7 @@ func (s *Service) DeleteEvent(ctx context.Context, id string) error {
 		return fmt.Errorf("delete status log entries: %w", err)
 	}
 
-	// Delete event (CASCADE will delete event_services, event_groups, event_updates, event_service_changes)
+	// Delete event (CASCADE will delete event_services, event_groups, event_updates, event_service_changes, event_subscribers)
 	if err := s.repo.DeleteEventTx(ctx, tx, id); err != nil {
 		return fmt.Errorf("delete event: %w", err)
 	}
