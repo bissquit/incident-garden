@@ -72,6 +72,7 @@ type JWTConfig struct {
 // NotificationsConfig contains notification system settings.
 type NotificationsConfig struct {
 	Enabled  bool
+	BaseURL  string // Base URL for event links (e.g., https://status.example.com)
 	Email    EmailConfig
 	Telegram TelegramConfig
 	Retry    RetryConfig
@@ -153,6 +154,7 @@ func Load() (*Config, error) {
 		},
 		Notifications: NotificationsConfig{
 			Enabled: !k.Exists("NOTIFICATIONS_ENABLED") || k.Bool("NOTIFICATIONS_ENABLED"),
+			BaseURL: k.String("NOTIFICATIONS_BASE_URL"),
 			Email: EmailConfig{
 				Enabled:      k.Bool("NOTIFICATIONS_EMAIL_ENABLED"),
 				SMTPHost:     k.String("NOTIFICATIONS_EMAIL_SMTP_HOST"),

@@ -258,15 +258,11 @@ func (a *App) setupRouter() (*chi.Mux, error) {
 	catalogRepo := catalogpostgres.NewRepository(a.db)
 	catalogService := catalog.NewService(catalogRepo)
 
-	eventsRepo := eventspostgres.NewRepository(a.db)
-	eventsService := events.NewService(eventsRepo, catalogService, catalogService)
-	eventsHandler := events.NewHandler(eventsService)
-
-	catalogHandler := catalog.NewHandler(catalogService, eventsService)
-
+	// Setup notifications
 	notificationsRepo := notificationspostgres.NewRepository(a.db)
 	var notificationsService *notifications.Service
 	var notificationsHandler *notifications.Handler
+	var notifier events.EventNotifier
 
 	slog.Info("notifications configured",
 		"enabled", a.config.Notifications.Enabled,
@@ -298,16 +294,36 @@ func (a *App) setupRouter() (*chi.Mux, error) {
 		}
 
 		// Mattermost is always available (webhook URL is set per-channel by user)
-		// No Enabled flag needed - availability is per-channel (each channel has its own webhook URL)
 		mattermostSender := mattermost.NewSender(mattermost.Config{})
 
 		dispatcher := notifications.NewDispatcher(notificationsRepo, emailSender, telegramSender, mattermostSender)
+
+		renderer, err := notifications.NewRenderer()
+		if err != nil {
+			return nil, fmt.Errorf("create notification renderer: %w", err)
+		}
+
+		notifier = notifications.NewNotifier(
+			notificationsRepo,
+			renderer,
+			dispatcher,
+			catalogService, // implements ServiceNameResolver
+			a.config.Notifications.BaseURL,
+		)
+
 		notificationsService = notifications.NewService(notificationsRepo, dispatcher, catalogService)
 	} else {
 		// Notifications disabled - create service with nil dispatcher
 		notificationsService = notifications.NewService(notificationsRepo, nil, catalogService)
 	}
 	notificationsHandler = notifications.NewHandler(notificationsService)
+
+	// Setup events with notifier
+	eventsRepo := eventspostgres.NewRepository(a.db)
+	eventsService := events.NewService(eventsRepo, catalogService, catalogService, notifier)
+	eventsHandler := events.NewHandler(eventsService)
+
+	catalogHandler := catalog.NewHandler(catalogService, eventsService)
 
 	r.Route("/api/v1", func(r chi.Router) {
 		identityHandler.RegisterRoutes(r)

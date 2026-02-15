@@ -358,6 +358,15 @@ func (s *Service) ValidateGroupsExist(ctx context.Context, ids []string) ([]stri
 	return s.repo.FindMissingGroupIDs(ctx, ids)
 }
 
+// GetServiceName returns the name of a service by ID.
+func (s *Service) GetServiceName(ctx context.Context, serviceID string) (string, error) {
+	service, err := s.repo.GetServiceByID(ctx, serviceID)
+	if err != nil {
+		return "", err
+	}
+	return service.Name, nil
+}
+
 func validateSlug(slug string) error {
 	slug = strings.TrimSpace(slug)
 	if slug == "" {

@@ -30,6 +30,9 @@ type Repository interface {
 	// Find subscribers for services (returns channels that are subscribed to any of the given services)
 	FindSubscribersForServices(ctx context.Context, serviceIDs []string) ([]ChannelInfo, error)
 
+	// GetChannelsByIDs returns channels by their IDs
+	GetChannelsByIDs(ctx context.Context, ids []string) ([]ChannelInfo, error)
+
 	// Verification codes
 	CreateVerificationCode(ctx context.Context, channelID string, code string, expiresAt time.Time) error
 	GetVerificationCode(ctx context.Context, channelID string) (*VerificationCode, error)

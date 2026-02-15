@@ -348,6 +348,39 @@ func (r *Repository) FindSubscribersForServices(ctx context.Context, serviceIDs 
 	return channels, nil
 }
 
+// GetChannelsByIDs returns channels by their IDs.
+func (r *Repository) GetChannelsByIDs(ctx context.Context, ids []string) ([]notifications.ChannelInfo, error) {
+	if len(ids) == 0 {
+		return make([]notifications.ChannelInfo, 0), nil
+	}
+
+	query := `
+		SELECT nc.id, nc.user_id, nc.type, nc.target, u.email
+		FROM notification_channels nc
+		JOIN users u ON u.id = nc.user_id
+		WHERE nc.id = ANY($1::uuid[])
+		  AND nc.is_enabled = true
+		  AND nc.is_verified = true
+	`
+
+	rows, err := r.db.Query(ctx, query, ids)
+	if err != nil {
+		return nil, fmt.Errorf("get channels by ids: %w", err)
+	}
+	defer rows.Close()
+
+	channels := make([]notifications.ChannelInfo, 0, len(ids))
+	for rows.Next() {
+		var info notifications.ChannelInfo
+		if err := rows.Scan(&info.ID, &info.UserID, &info.Type, &info.Target, &info.Email); err != nil {
+			return nil, fmt.Errorf("scan channel info: %w", err)
+		}
+		channels = append(channels, info)
+	}
+
+	return channels, nil
+}
+
 // CreateVerificationCode creates a new verification code, replacing any existing one.
 func (r *Repository) CreateVerificationCode(ctx context.Context, channelID, code string, expiresAt time.Time) error {
 	// Delete any existing code first
