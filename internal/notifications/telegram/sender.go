@@ -3,6 +3,7 @@ package telegram
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 
 	"github.com/bissquit/incident-garden/internal/domain"
@@ -11,7 +12,9 @@ import (
 
 // Config holds telegram sender configuration.
 type Config struct {
-	BotToken string
+	Enabled   bool
+	BotToken  string
+	RateLimit float64
 }
 
 // Sender implements telegram notification sender.
@@ -20,8 +23,20 @@ type Sender struct {
 }
 
 // NewSender creates a new telegram sender.
-func NewSender(config Config) *Sender {
-	return &Sender{config: config}
+// Returns error if enabled but required config is missing.
+func NewSender(config Config) (*Sender, error) {
+	if config.Enabled {
+		if config.BotToken == "" {
+			return nil, errors.New("telegram sender: bot token is required when enabled")
+		}
+	}
+
+	slog.Info("telegram sender configured",
+		"enabled", config.Enabled,
+		"rate_limit", config.RateLimit,
+	)
+
+	return &Sender{config: config}, nil
 }
 
 // Type returns the channel type.
@@ -30,8 +45,16 @@ func (s *Sender) Type() domain.ChannelType {
 }
 
 // Send sends a telegram notification.
+// TODO: Implement actual Telegram Bot API sending.
 func (s *Sender) Send(_ context.Context, notification notifications.Notification) error {
-	slog.Info("sending telegram notification",
+	if !s.config.Enabled {
+		slog.Debug("telegram sender disabled, skipping",
+			"to", notification.To,
+		)
+		return nil
+	}
+
+	slog.Info("sending telegram notification (stub)",
 		"to", notification.To,
 		"subject", notification.Subject,
 	)

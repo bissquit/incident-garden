@@ -76,7 +76,12 @@ func New(cfg *config.Config) (*App, error) {
 
 	go app.collectDBMetrics(metricsCtx)
 
-	router := app.setupRouter()
+	router, err := app.setupRouter()
+	if err != nil {
+		db.Close()
+		metricsCancel()
+		return nil, fmt.Errorf("setup router: %w", err)
+	}
 
 	app.server = &http.Server{
 		Addr:              fmt.Sprintf("%s:%s", cfg.Server.Host, cfg.Server.Port),
@@ -189,7 +194,7 @@ func (a *App) Router() http.Handler {
 	return a.server.Handler
 }
 
-func (a *App) setupRouter() *chi.Mux {
+func (a *App) setupRouter() (*chi.Mux, error) {
 	r := chi.NewRouter()
 
 	// Metrics middleware must be first to measure full request time
@@ -259,11 +264,45 @@ func (a *App) setupRouter() *chi.Mux {
 	catalogHandler := catalog.NewHandler(catalogService, eventsService)
 
 	notificationsRepo := notificationspostgres.NewRepository(a.db)
-	emailSender := email.NewSender(email.Config{})
-	telegramSender := telegram.NewSender(telegram.Config{})
-	dispatcher := notifications.NewDispatcher(notificationsRepo, emailSender, telegramSender)
-	notificationsService := notifications.NewService(notificationsRepo, dispatcher)
-	notificationsHandler := notifications.NewHandler(notificationsService)
+	var notificationsService *notifications.Service
+	var notificationsHandler *notifications.Handler
+
+	slog.Info("notifications configured",
+		"enabled", a.config.Notifications.Enabled,
+		"email_enabled", a.config.Notifications.Email.Enabled,
+		"telegram_enabled", a.config.Notifications.Telegram.Enabled,
+	)
+
+	if a.config.Notifications.Enabled {
+		emailSender, err := email.NewSender(email.Config{
+			Enabled:      a.config.Notifications.Email.Enabled,
+			SMTPHost:     a.config.Notifications.Email.SMTPHost,
+			SMTPPort:     a.config.Notifications.Email.SMTPPort,
+			SMTPUser:     a.config.Notifications.Email.SMTPUser,
+			SMTPPassword: a.config.Notifications.Email.SMTPPassword,
+			FromAddress:  a.config.Notifications.Email.FromAddress,
+			BatchSize:    a.config.Notifications.Email.BatchSize,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("create email sender: %w", err)
+		}
+
+		telegramSender, err := telegram.NewSender(telegram.Config{
+			Enabled:   a.config.Notifications.Telegram.Enabled,
+			BotToken:  a.config.Notifications.Telegram.BotToken,
+			RateLimit: a.config.Notifications.Telegram.RateLimit,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("create telegram sender: %w", err)
+		}
+
+		dispatcher := notifications.NewDispatcher(notificationsRepo, emailSender, telegramSender)
+		notificationsService = notifications.NewService(notificationsRepo, dispatcher)
+	} else {
+		// Notifications disabled - create service with nil dispatcher
+		notificationsService = notifications.NewService(notificationsRepo, nil)
+	}
+	notificationsHandler = notifications.NewHandler(notificationsService)
 
 	r.Route("/api/v1", func(r chi.Router) {
 		identityHandler.RegisterRoutes(r)
@@ -298,7 +337,7 @@ func (a *App) setupRouter() *chi.Mux {
 		catalogHandler.RegisterPublicServiceRoutes(r)
 	})
 
-	return r
+	return r, nil
 }
 
 func (a *App) healthzHandler(w http.ResponseWriter, _ *http.Request) {

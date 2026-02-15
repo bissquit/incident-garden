@@ -109,7 +109,11 @@ func (s *Service) VerifyChannel(ctx context.Context, userID, channelID string) (
 }
 
 // NotifySubscribers sends notifications about an event.
+// Returns nil if notifications are disabled (dispatcher is nil).
 func (s *Service) NotifySubscribers(ctx context.Context, serviceIDs []string, subject, body string) error {
+	if s.dispatcher == nil {
+		return nil
+	}
 	return s.dispatcher.Dispatch(ctx, DispatchInput{
 		ServiceIDs: serviceIDs,
 		Subject:    subject,
