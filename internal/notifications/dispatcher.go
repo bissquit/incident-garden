@@ -35,41 +35,35 @@ type DispatchInput struct {
 
 // Dispatch sends notifications to all subscribers of the given services.
 func (d *Dispatcher) Dispatch(ctx context.Context, input DispatchInput) error {
-	subscribers, err := d.repo.GetSubscribersForServices(ctx, input.ServiceIDs)
+	channels, err := d.repo.FindSubscribersForServices(ctx, input.ServiceIDs)
 	if err != nil {
-		return fmt.Errorf("get subscribers: %w", err)
+		return fmt.Errorf("find subscribers: %w", err)
 	}
 
 	slog.Info("dispatching notifications",
 		"service_ids", input.ServiceIDs,
-		"subscriber_count", len(subscribers),
+		"channel_count", len(channels),
 	)
 
-	for _, sub := range subscribers {
-		for _, channel := range sub.Channels {
-			if !channel.IsEnabled || !channel.IsVerified {
-				continue
-			}
+	for _, ch := range channels {
+		sender, ok := d.senders[ch.Type]
+		if !ok {
+			slog.Warn("no sender for channel type", "type", ch.Type)
+			continue
+		}
 
-			sender, ok := d.senders[channel.Type]
-			if !ok {
-				slog.Warn("no sender for channel type", "type", channel.Type)
-				continue
-			}
+		notification := Notification{
+			To:      ch.Target,
+			Subject: input.Subject,
+			Body:    input.Body,
+		}
 
-			notification := Notification{
-				To:      channel.Target,
-				Subject: input.Subject,
-				Body:    input.Body,
-			}
-
-			if err := sender.Send(ctx, notification); err != nil {
-				slog.Error("failed to send notification",
-					"channel_type", channel.Type,
-					"target", channel.Target,
-					"error", err,
-				)
-			}
+		if err := sender.Send(ctx, notification); err != nil {
+			slog.Error("failed to send notification",
+				"channel_type", ch.Type,
+				"target", ch.Target,
+				"error", err,
+			)
 		}
 	}
 

@@ -12,7 +12,6 @@ import (
 
 var errorMappings = []httputil.ErrorMapping{
 	{Error: ErrChannelNotFound, Status: http.StatusNotFound, Message: "notification channel not found"},
-	{Error: ErrSubscriptionNotFound, Status: http.StatusNotFound, Message: "subscription not found"},
 	{Error: ErrChannelNotOwned, Status: http.StatusForbidden, Message: "channel does not belong to user"},
 }
 
@@ -40,27 +39,29 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 		r.Post("/{id}/verify", h.VerifyChannel)
 	})
 
+	// Subscription endpoints temporarily disabled - will be reimplemented in Phase 8
 	r.Route("/me/subscriptions", func(r chi.Router) {
-		r.Get("/", h.GetSubscription)
-		r.Post("/", h.CreateOrUpdateSubscription)
-		r.Delete("/", h.DeleteSubscription)
+		r.Get("/", h.subscriptionsNotImplemented)
+		r.Post("/", h.subscriptionsNotImplemented)
+		r.Delete("/", h.subscriptionsNotImplemented)
 	})
+}
+
+// subscriptionsNotImplemented returns 501 for subscription endpoints.
+// These will be reimplemented in Phase 8 with the new channel-level subscription model.
+func (h *Handler) subscriptionsNotImplemented(w http.ResponseWriter, _ *http.Request) {
+	httputil.Error(w, http.StatusNotImplemented, "subscription endpoints are being redesigned")
 }
 
 // CreateChannelRequest represents request body for creating a channel.
 type CreateChannelRequest struct {
-	Type   string `json:"type" validate:"required,oneof=email telegram"`
+	Type   string `json:"type" validate:"required,oneof=email telegram mattermost"`
 	Target string `json:"target" validate:"required"`
 }
 
 // UpdateChannelRequest represents request body for updating a channel.
 type UpdateChannelRequest struct {
 	IsEnabled bool `json:"is_enabled"`
-}
-
-// UpdateSubscriptionRequest represents request body for updating subscription.
-type UpdateSubscriptionRequest struct {
-	ServiceIDs []string `json:"service_ids"`
 }
 
 // ListChannels handles GET /me/channels.
@@ -146,48 +147,3 @@ func (h *Handler) VerifyChannel(w http.ResponseWriter, r *http.Request) {
 
 	httputil.Success(w, http.StatusOK, channel)
 }
-
-// GetSubscription handles GET /me/subscriptions.
-func (h *Handler) GetSubscription(w http.ResponseWriter, r *http.Request) {
-	userID := httputil.GetUserID(r.Context())
-
-	sub, err := h.service.GetOrCreateSubscription(r.Context(), userID)
-	if err != nil {
-		httputil.HandleError(r.Context(), w, err, errorMappings)
-		return
-	}
-
-	httputil.Success(w, http.StatusOK, sub)
-}
-
-// CreateOrUpdateSubscription handles POST /me/subscriptions.
-func (h *Handler) CreateOrUpdateSubscription(w http.ResponseWriter, r *http.Request) {
-	userID := httputil.GetUserID(r.Context())
-
-	var req UpdateSubscriptionRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httputil.Error(w, http.StatusBadRequest, "invalid json")
-		return
-	}
-
-	sub, err := h.service.UpdateSubscriptionServices(r.Context(), userID, req.ServiceIDs)
-	if err != nil {
-		httputil.HandleError(r.Context(), w, err, errorMappings)
-		return
-	}
-
-	httputil.Success(w, http.StatusOK, sub)
-}
-
-// DeleteSubscription handles DELETE /me/subscriptions.
-func (h *Handler) DeleteSubscription(w http.ResponseWriter, r *http.Request) {
-	userID := httputil.GetUserID(r.Context())
-
-	if err := h.service.DeleteSubscription(r.Context(), userID); err != nil {
-		httputil.HandleError(r.Context(), w, err, errorMappings)
-		return
-	}
-
-	w.WriteHeader(http.StatusNoContent)
-}
-

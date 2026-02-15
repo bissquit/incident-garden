@@ -146,6 +146,24 @@ v_service_effective_status (VIEW — computed effective status)
 ├── service_id, status (stored), effective_status (computed)
 ├── has_active_events BOOLEAN
 └── Uses worst-case priority: major_outage > partial_outage > degraded > maintenance > operational
+
+notification_channels
+├── id, user_id FK → users, type, target
+├── is_enabled, is_verified, subscribe_to_all_services
+├── created_at, updated_at
+└── CONSTRAINT check_channel_type CHECK (type IN ('email', 'telegram', 'mattermost'))
+
+channel_subscriptions (M:N junction — channel subscribes to services)
+├── channel_id FK → notification_channels ON DELETE CASCADE
+├── service_id FK → services ON DELETE CASCADE
+├── created_at
+└── PRIMARY KEY (channel_id, service_id)
+
+event_subscribers (channels subscribed to specific event)
+├── event_id FK → events ON DELETE CASCADE
+├── channel_id FK → notification_channels ON DELETE CASCADE
+├── created_at
+└── PRIMARY KEY (event_id, channel_id)
 ```
 
 ### Module: identity
@@ -254,26 +272,40 @@ Dependencies: domain.Event, domain.EventService, domain.AffectedService, domain.
 
 ```
 internal/notifications/
-├── handler.go             → CRUD /me/channels, /me/subscriptions
-├── service.go             → CreateChannel, Subscribe, GetSubscribersForServices
-├── repository.go          → Interface: ChannelRepository, SubscriptionRepository
-├── dispatcher.go          → Dispatch(ctx, notification)
+├── handler.go             → CRUD /me/channels (subscriptions temporarily 501)
+├── service.go             → CreateChannel, ListUserChannels, UpdateChannel, DeleteChannel, VerifyChannel
+├── repository.go          → Interface: channel CRUD + subscriptions + event subscribers
+├── dispatcher.go          → Dispatch(ctx, notification) — finds subscribers and sends
 ├── sender.go              → Interface: Sender
+├── errors.go              → ErrChannelNotFound, ErrChannelNotOwned
 ├── email/sender.go        → Email sender (STUB)
 ├── telegram/sender.go     → Telegram sender (STUB)
 └── postgres/repository.go
 
+Key interfaces:
+- CreateChannel, GetChannelByID, ListUserChannels, UpdateChannel, DeleteChannel
+- SetChannelSubscriptions(ctx, channelID, subscribeAll bool, serviceIDs []string)
+- GetChannelSubscriptions(ctx, channelID) → (subscribeAll, serviceIDs, error)
+- CreateEventSubscribers(ctx, eventID, channelIDs)
+- GetEventSubscribers(ctx, eventID) → []channelID
+- AddEventSubscribers(ctx, eventID, channelIDs)
+- FindSubscribersForServices(ctx, serviceIDs) → []ChannelInfo
+
+ChannelInfo: ID, UserID, Type, Target, Email
+
 ⚠️ Senders are stubs, dispatcher not integrated with events yet
+⚠️ /me/subscriptions endpoints return 501 — will be reimplemented in Phase 8
 ```
 
 ### Shared
 
 ```
 internal/domain/           → User, Service, ServiceGroup, Event, EventUpdate, EventServiceChange,
-                             Template, Channel, Subscription,
+                             Template, NotificationChannel (with SubscribeToAllServices),
                              ServiceWithEffectiveStatus, ServiceTag, EventService,
                              AffectedService, AffectedGroup (API input types),
                              ServiceStatusLogEntry, StatusLogSourceType
+                             ChannelType: email, telegram, mattermost
 internal/pkg/httputil/     → response.go, middleware.go, errors.go, metrics.go (Prometheus middleware)
 internal/pkg/postgres/     → Connect with retry (exponential backoff, ConnectAttempts config)
 internal/pkg/metrics/      → Prometheus metrics (HTTPRequestDuration, DBPoolConnections)
@@ -796,7 +828,7 @@ TestDeleteEvent_ServiceStatusUnchanged     // side effect verification
 
 ```
 roles:           user, operator, admin
-channel_types:   email, telegram
+channel_types:   email, telegram, mattermost
 service_status:  operational, degraded, partial_outage, major_outage, maintenance
 event_type:      incident, maintenance
 event_status:    investigating, identified, monitoring, resolved (incident)
