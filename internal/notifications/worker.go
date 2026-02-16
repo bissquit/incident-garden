@@ -128,6 +128,26 @@ func (w *Worker) processItem(ctx context.Context, item *QueueItem) {
 		return
 	}
 
+	// Skip unverified channels
+	if !channel.IsVerified {
+		slog.Debug("skipping unverified channel", "channel_id", item.ChannelID)
+		if markErr := w.repo.MarkAsFailed(ctx, item.ID, fmt.Errorf("channel not verified")); markErr != nil {
+			slog.Error("failed to mark as failed", "item_id", item.ID, "error", markErr)
+		}
+		recordNotificationSent(string(channel.Type), "skipped_unverified")
+		return
+	}
+
+	// Skip disabled channels
+	if !channel.IsEnabled {
+		slog.Debug("skipping disabled channel", "channel_id", item.ChannelID)
+		if markErr := w.repo.MarkAsFailed(ctx, item.ID, fmt.Errorf("channel disabled")); markErr != nil {
+			slog.Error("failed to mark as failed", "item_id", item.ID, "error", markErr)
+		}
+		recordNotificationSent(string(channel.Type), "skipped_disabled")
+		return
+	}
+
 	// Render message
 	subject, body, err := w.renderer.Render(channel.Type, item.Payload)
 	if err != nil {

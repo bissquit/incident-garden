@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: StatusPage API
   description: API for managing service statuses and incidents
-  version: 2.6.0
+  version: 2.7.0
   contact:
     name: API Support
 servers:
@@ -1353,7 +1353,7 @@ components:
       description: Source of the status change
     ChannelType:
       type: string
-      enum: [email, telegram]
+      enum: [email, telegram, mattermost]
     Role:
       type: string
       enum: [user, operator, admin]

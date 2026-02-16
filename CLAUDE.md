@@ -164,6 +164,20 @@ event_subscribers (channels subscribed to specific event)
 ├── channel_id FK → notification_channels ON DELETE CASCADE
 ├── created_at
 └── PRIMARY KEY (event_id, channel_id)
+
+channel_verification_codes (email verification)
+├── id, channel_id FK → notification_channels ON DELETE CASCADE
+├── code VARCHAR(6), expires_at, attempts
+└── created_at
+
+notification_queue (async notification delivery with retry)
+├── id, event_id FK → events, channel_id FK → notification_channels
+├── message_type VARCHAR(20) — initial, update, resolved, completed, cancelled
+├── payload JSONB — NotificationPayload
+├── status VARCHAR(20) — pending, processing, sent, failed
+├── attempts INT, max_attempts INT, next_attempt_at
+├── last_error TEXT, created_at, updated_at, sent_at
+└── Indexes: status + next_attempt_at, event_id
 ```
 
 ### Module: identity
@@ -283,11 +297,14 @@ internal/notifications/
 ├── service.go             → CreateChannel, ListUserChannels, UpdateChannel, DeleteChannel, VerifyChannel,
 │                            GetSubscriptionsMatrix, SetChannelSubscriptions
 ├── notifier.go            → EventNotifier implementation (integration with events module)
-├── repository.go          → Interface: channel CRUD + subscriptions + event subscribers
+├── repository.go          → Interface: channel CRUD + subscriptions + event subscribers + queue
 ├── dispatcher.go          → Dispatch(ctx, notification) — finds subscribers and sends
+├── queue.go               → QueueItem, QueueStatus types for notification queue
+├── worker.go              → Background worker processing queue with retry logic
 ├── renderer.go            → Template rendering for notifications
 ├── payload.go             → NotificationPayload, EventData, EventChanges types
 ├── sender.go              → Interface: Sender
+├── metrics.go             → Prometheus metrics for notifications (queue size, send duration)
 ├── errors.go              → ErrChannelNotFound, ErrChannelNotOwned, ErrChannelNotVerified, ErrServicesNotFound
 ├── email/sender.go        → Email sender (real SMTP)
 ├── telegram/sender.go     → Telegram sender (real Bot API)
@@ -305,6 +322,12 @@ Key interfaces:
 - AddEventSubscribers(ctx, eventID, channelIDs)
 - FindSubscribersForServices(ctx, serviceIDs) → []ChannelInfo
 - GetChannelsByIDs(ctx, ids) → []ChannelInfo
+
+Queue operations:
+- EnqueueNotification(ctx, item) / EnqueueBatch(ctx, items)
+- FetchPendingNotifications(ctx, limit) → []*QueueItem
+- MarkAsSent(ctx, id) / MarkAsFailed(ctx, id, err) / MarkForRetry(ctx, id, err, nextAttempt)
+- GetQueueStats(ctx) → *QueueStats (pending, processing, sent, failed counts)
 
 EventNotifier (implemented by Notifier):
 - OnEventCreated(ctx, event, serviceIDs) → finds subscribers, saves to event_subscribers, sends initial notification
@@ -348,10 +371,12 @@ main.go → app.NewApp(cfg)
             ├── identity:     Repository → Service → Handler + Middleware
             ├── catalog:      Repository → Service → Handler
             │                              ↓
-            ├── events:       Repository → Service (resolver=catalogService) → Handler
-            └── notifications: Repository → Service → Dispatcher → Handler
-                                                        ├── email.Sender
-                                                        └── telegram.Sender
+            ├── events:       Repository → Service (resolver=catalogService, notifier) → Handler
+            └── notifications: Repository → Service → Handler
+                               Repository → Dispatcher → Worker (background)
+                                              ├── email.Sender
+                                              ├── telegram.Sender
+                                              └── mattermost.Sender
             All Handlers → chi.Router → HTTP Server (:8080)
             Prometheus metrics → Metrics Server (:9090)
 ```
@@ -541,6 +566,7 @@ docker volume rm docker_postgres_data
 tests/integration/
 ├── main_test.go                       # TestMain, testcontainers setup
 ├── helpers_test.go                    # Shared helper functions
+├── mocks_test.go                      # Mock senders for notification tests
 ├── auth_test.go                       # Authentication flows
 ├── rbac_test.go                       # Role-based access control
 ├── catalog_service_test.go            # Service CRUD
@@ -553,8 +579,12 @@ tests/integration/
 ├── events_maintenance_test.go         # Maintenance lifecycle
 ├── events_delete_test.go              # Event deletion, cascade
 ├── events_public_test.go              # Public endpoints, auth checks
+├── notifications_channels_test.go     # Channel CRUD
+├── notifications_subscriptions_test.go # Channel subscriptions API
 ├── notifications_verification_test.go # Channel verification flow
-└── notifications_subscriptions_test.go # Channel subscriptions API
+├── notifications_queue_test.go        # Queue operations, retry logic
+├── notifications_dispatch_test.go     # Dispatcher tests
+└── notifications_events_test.go       # Event-notification integration
 ```
 
 When adding new tests, place them in the appropriate domain file. If a new domain emerges, create a new file following the pattern `<module>_<domain>_test.go`.
@@ -865,6 +895,8 @@ event_status:    investigating, identified, monitoring, resolved (incident)
 severity:        minor, major, critical
 change_action:   added, removed
 status_log_source: manual, event, webhook
+message_type:    initial, update, resolved, completed, cancelled
+queue_status:    pending, processing, sent, failed
 ```
 
 ### Test Users (from migrations)
@@ -929,6 +961,7 @@ make docker-build
   - Channel subscriptions API (subscribe to all or specific services)
   - Event subscribers (fixed on event creation, new subscribers added when services added)
   - **Event-Notification integration:** notifications sent on event create/update/resolve/complete/cancel
+  - **Notification queue with retry:** async delivery via `notification_queue` table, background worker with exponential backoff
 
 ### Known Limitations
 
@@ -936,7 +969,7 @@ make docker-build
 - Helm chart (templates empty, see `docs/deployment.md` for K8s examples)
 - Pagination
 - Bulk operations
-- Notification queue with retry (currently synchronous send, failures logged but not retried)
+- Email batching (BCC groups for bulk sending)
 
 **Tech Debt:**
 - No graceful degradation for senders
@@ -956,5 +989,5 @@ See [docs/deployment.md](./docs/deployment.md) for:
 
 ### Next Up
 
-- [ ] Notification queue with retry (notification_queue table already in schema)
-- [ ] Email batching (BCC groups)
+- [ ] Email batching (BCC groups for bulk sending)
+- [ ] Telegram rate limiting (25 msg/sec)

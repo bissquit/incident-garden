@@ -6,7 +6,6 @@ import (
 	"context"
 	"net/http"
 	"testing"
-	"time"
 
 	"github.com/bissquit/incident-garden/internal/testutil"
 	"github.com/stretchr/testify/assert"
@@ -330,6 +329,50 @@ func TestNotifications_TelegramChannel_NoCodeNeeded(t *testing.T) {
 	resp.Body.Close()
 }
 
+func TestNotifications_MattermostChannel_NoCodeNeeded(t *testing.T) {
+	client := newTestClient(t)
+	client.LoginAsUser(t)
+
+	// Create mattermost channel
+	resp, err := client.POST("/api/v1/me/channels", map[string]interface{}{
+		"type":   "mattermost",
+		"target": "https://mattermost.example.com/hooks/test123",
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var channelResp struct {
+		Data struct {
+			ID         string `json:"id"`
+			IsVerified bool   `json:"is_verified"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &channelResp)
+	channelID := channelResp.Data.ID
+	assert.False(t, channelResp.Data.IsVerified)
+
+	t.Cleanup(func() {
+		resp, _ := client.DELETE("/api/v1/me/channels/" + channelID)
+		if resp != nil {
+			resp.Body.Close()
+		}
+	})
+
+	// No verification code should be created for mattermost
+	var count int
+	err = testDB.QueryRow(context.Background(), `
+		SELECT COUNT(*) FROM channel_verification_codes WHERE channel_id = $1
+	`, channelID).Scan(&count)
+	require.NoError(t, err)
+	assert.Equal(t, 0, count, "no verification code for mattermost")
+
+	// Resend code should fail for mattermost
+	resp, err = client.POST("/api/v1/me/channels/"+channelID+"/resend-code", nil)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	resp.Body.Close()
+}
+
 func TestNotifications_ExpiredCode(t *testing.T) {
 	client := newTestClient(t)
 	client.LoginAsUser(t)
@@ -467,10 +510,7 @@ func TestNotifications_VerifyCodeDeletedOnChannelDelete(t *testing.T) {
 	require.Equal(t, http.StatusNoContent, resp.StatusCode)
 	resp.Body.Close()
 
-	// Code should be deleted (CASCADE)
-	// Wait a bit for potential async operations
-	time.Sleep(100 * time.Millisecond)
-
+	// Code should be deleted (CASCADE DELETE is synchronous in PostgreSQL)
 	err = testDB.QueryRow(context.Background(), `
 		SELECT COUNT(*) FROM channel_verification_codes WHERE channel_id = $1
 	`, channelID).Scan(&count)
