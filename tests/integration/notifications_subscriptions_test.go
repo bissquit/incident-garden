@@ -261,6 +261,190 @@ func TestSubscriptions_UpdateReplacesPrevious(t *testing.T) {
 	assert.Equal(t, serviceID2, result.Data.SubscribedServiceIDs[0])
 }
 
+func TestSubscriptions_GetMatrix_IncludesBothVerifiedAndUnverified(t *testing.T) {
+	client := newTestClient(t)
+	client.LoginAsUser(t)
+
+	// Create unverified channel
+	unverifiedID := createEmailChannel(t, client)
+	t.Cleanup(func() { deleteChannel(t, client, unverifiedID) })
+
+	// Create and verify another channel
+	verifiedID := createAndVerifyEmailChannel(t, client)
+	t.Cleanup(func() { deleteChannel(t, client, verifiedID) })
+
+	// Get matrix - should contain both channels
+	resp, err := client.GET("/api/v1/me/subscriptions")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var result struct {
+		Data struct {
+			Channels []struct {
+				Channel struct {
+					ID         string `json:"id"`
+					IsVerified bool   `json:"is_verified"`
+				} `json:"channel"`
+			} `json:"channels"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &result)
+
+	// Should have both channels
+	require.Len(t, result.Data.Channels, 2)
+
+	// Find channels by ID
+	var foundVerified, foundUnverified bool
+	for _, ch := range result.Data.Channels {
+		if ch.Channel.ID == verifiedID {
+			assert.True(t, ch.Channel.IsVerified)
+			foundVerified = true
+		}
+		if ch.Channel.ID == unverifiedID {
+			assert.False(t, ch.Channel.IsVerified)
+			foundUnverified = true
+		}
+	}
+	assert.True(t, foundVerified, "verified channel should be in matrix")
+	assert.True(t, foundUnverified, "unverified channel should also be in matrix")
+}
+
+func TestSubscriptions_SubscribeToAll_IncludesNewServices(t *testing.T) {
+	client := newTestClient(t)
+	client.LoginAsAdmin(t)
+
+	// Create and verify channel with subscribe_to_all
+	channelID := createAndVerifyEmailChannel(t, client)
+	t.Cleanup(func() { deleteChannel(t, client, channelID) })
+
+	// Subscribe to all services
+	resp, err := client.PUT("/api/v1/me/channels/"+channelID+"/subscriptions", map[string]interface{}{
+		"subscribe_to_all_services": true,
+	})
+	require.NoError(t, err)
+	resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	// Create a new service AFTER subscription was set
+	serviceID, serviceSlug := createTestService(t, client, "new-service-after-sub")
+	t.Cleanup(func() { deleteService(t, client, serviceSlug) })
+
+	// Get matrix and verify channel still has subscribe_to_all_services: true
+	// This means it will receive notifications for the new service
+	resp, err = client.GET("/api/v1/me/subscriptions")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var result struct {
+		Data struct {
+			Channels []struct {
+				Channel struct {
+					ID string `json:"id"`
+				} `json:"channel"`
+				SubscribeToAllServices bool `json:"subscribe_to_all_services"`
+			} `json:"channels"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &result)
+
+	// Find our channel and verify subscribe_to_all is still true
+	var found bool
+	for _, ch := range result.Data.Channels {
+		if ch.Channel.ID == channelID {
+			assert.True(t, ch.SubscribeToAllServices, "should still be subscribed to all")
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "channel should be in matrix")
+	_ = serviceID // Used to ensure service was created
+}
+
+func TestSubscriptions_SubscribeToAll_OverridesServiceList(t *testing.T) {
+	client := newTestClient(t)
+	client.LoginAsAdmin(t)
+
+	// Create service
+	serviceID, serviceSlug := createTestService(t, client, "override-test-svc")
+	t.Cleanup(func() { deleteService(t, client, serviceSlug) })
+
+	// Create and verify channel
+	channelID := createAndVerifyEmailChannel(t, client)
+	t.Cleanup(func() { deleteChannel(t, client, channelID) })
+
+	// First subscribe to specific services
+	resp, err := client.PUT("/api/v1/me/channels/"+channelID+"/subscriptions", map[string]interface{}{
+		"subscribe_to_all_services": false,
+		"service_ids":               []string{serviceID},
+	})
+	require.NoError(t, err)
+	resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	// Now switch to subscribe_to_all
+	resp, err = client.PUT("/api/v1/me/channels/"+channelID+"/subscriptions", map[string]interface{}{
+		"subscribe_to_all_services": true,
+	})
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var result struct {
+		Data struct {
+			SubscribeToAllServices bool     `json:"subscribe_to_all_services"`
+			SubscribedServiceIDs   []string `json:"subscribed_service_ids"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &result)
+
+	// subscribe_to_all should override service_ids
+	assert.True(t, result.Data.SubscribeToAllServices)
+	assert.Empty(t, result.Data.SubscribedServiceIDs, "service_ids should be cleared when subscribing to all")
+}
+
+func TestSubscriptions_ClearSubscriptions(t *testing.T) {
+	client := newTestClient(t)
+	client.LoginAsAdmin(t)
+
+	// Create service
+	serviceID, serviceSlug := createTestService(t, client, "clear-sub-svc")
+	t.Cleanup(func() { deleteService(t, client, serviceSlug) })
+
+	// Create and verify channel
+	channelID := createAndVerifyEmailChannel(t, client)
+	t.Cleanup(func() { deleteChannel(t, client, channelID) })
+
+	// Subscribe to specific services
+	resp, err := client.PUT("/api/v1/me/channels/"+channelID+"/subscriptions", map[string]interface{}{
+		"subscribe_to_all_services": false,
+		"service_ids":               []string{serviceID},
+	})
+	require.NoError(t, err)
+	resp.Body.Close()
+
+	// Clear subscriptions (empty service_ids, not subscribe to all)
+	resp, err = client.PUT("/api/v1/me/channels/"+channelID+"/subscriptions", map[string]interface{}{
+		"subscribe_to_all_services": false,
+		"service_ids":               []string{},
+	})
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var result struct {
+		Data struct {
+			SubscribeToAllServices bool     `json:"subscribe_to_all_services"`
+			SubscribedServiceIDs   []string `json:"subscribed_service_ids"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &result)
+
+	assert.False(t, result.Data.SubscribeToAllServices)
+	assert.Empty(t, result.Data.SubscribedServiceIDs)
+}
+
 // Helper functions
 
 func randomSuffix() string {

@@ -75,8 +75,8 @@ func TestNotificationQueue_EnqueueAndFetch(t *testing.T) {
 	assert.Equal(t, item.ID, fetchedItem.ID)
 	assert.Equal(t, item.EventID, fetchedItem.EventID)
 	assert.Equal(t, item.ChannelID, fetchedItem.ChannelID)
-	// Note: Status in fetched item reflects original status before update in transaction
-	// The DB has already been updated to 'processing' but the scanned value was from before the update
+	// FetchPendingNotifications atomically updates status to 'processing' and returns items
+	// The returned status reflects the original value before the update (SELECT ... FOR UPDATE pattern)
 
 	// Mark as sent
 	err = repo.MarkAsSent(ctx, item.ID)
