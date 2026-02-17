@@ -24,6 +24,10 @@ var (
 	testClient    *testutil.Client
 	testValidator *testutil.OpenAPIValidator
 	testDB        *pgxpool.Pool
+
+	// Mailpit for E2E email testing
+	mailpitContainer *testutil.MailpitContainer
+	mailpitClient    *MailpitClient
 )
 
 // OpenAPI spec path relative to the tests/integration directory.
@@ -56,6 +60,22 @@ func TestMain(m *testing.M) {
 			log.Printf("terminate postgres: %v", err)
 		}
 	}()
+
+	// Start Mailpit container (for E2E email tests)
+	mailpitContainer, err = testutil.NewMailpitContainer(ctx)
+	if err != nil {
+		log.Fatalf("start mailpit: %v", err)
+	}
+	defer func() {
+		if err := mailpitContainer.Terminate(ctx); err != nil {
+			log.Printf("terminate mailpit: %v", err)
+		}
+	}()
+
+	mailpitClient = NewMailpitClient(
+		mailpitContainer.APIHost,
+		mailpitContainer.APIPort,
+	)
 
 	migrator, err := migrate.New(
 		"file://../../migrations",
@@ -96,6 +116,23 @@ func TestMain(m *testing.M) {
 		Cookie: config.CookieConfig{
 			Secure: false, // Not using HTTPS in tests
 			Domain: "",
+		},
+		// Notifications DISABLED at app level for test isolation.
+		//
+		// Why this approach:
+		// 1. Mock-based tests (notifications_dispatch_test.go, notifications_events_test.go) create
+		//    their own workers with mock senders to verify dispatch logic without real SMTP.
+		// 2. E2E tests (notifications_email_e2e_test.go) create their own workers with Mailpit
+		//    sender via setupE2ENotificationInfra() to test real SMTP delivery.
+		// 3. If app-level notifications were enabled, the global worker would compete with
+		//    test-specific workers for queue items, causing race conditions and flaky tests.
+		// 4. This also prevents "subscribe_to_all" channels from receiving unexpected notifications
+		//    during unrelated tests (e.g., event creation tests that don't test notifications).
+		//
+		// Alternative considered: Enable app notifications and use mailpitClient.DeleteAllMessages()
+		// before each test. Rejected because it doesn't solve the mock-based test interference issue.
+		Notifications: config.NotificationsConfig{
+			Enabled: false,
 		},
 	}
 

@@ -151,7 +151,7 @@ type AffectedGroup struct {
 }
 
 // createTestIncident creates an incident and returns its ID.
-func createTestIncident(t *testing.T, client *testutil.Client, title string, services []AffectedService, groups []AffectedGroup) string {
+func createTestIncident(t *testing.T, client *testutil.Client, title string, services []AffectedService, groups []AffectedGroup, opts ...incidentOption) string {
 	t.Helper()
 
 	payload := map[string]interface{}{
@@ -160,6 +160,10 @@ func createTestIncident(t *testing.T, client *testutil.Client, title string, ser
 		"status":      "investigating",
 		"severity":    "minor",
 		"description": "Test incident description",
+	}
+
+	for _, opt := range opts {
+		opt(payload)
 	}
 
 	if len(services) > 0 {
@@ -198,12 +202,16 @@ func createTestIncident(t *testing.T, client *testutil.Client, title string, ser
 }
 
 // resolveEvent resolves an incident (incident -> resolved).
-func resolveEvent(t *testing.T, client *testutil.Client, eventID string) {
+func resolveEvent(t *testing.T, client *testutil.Client, eventID string, notifySubscribers ...bool) {
 	t.Helper()
-	resp, err := client.POST("/api/v1/events/"+eventID+"/updates", map[string]interface{}{
+	payload := map[string]interface{}{
 		"status":  "resolved",
 		"message": "Fixed",
-	})
+	}
+	if len(notifySubscribers) > 0 && notifySubscribers[0] {
+		payload["notify_subscribers"] = true
+	}
+	resp, err := client.POST("/api/v1/events/"+eventID+"/updates", payload)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 	resp.Body.Close()
@@ -346,4 +354,102 @@ func getServiceEffectiveStatus(t *testing.T, client *testutil.Client, slug strin
 	}
 	testutil.DecodeJSON(t, resp, &result)
 	return result.Data.EffectiveStatus
+}
+
+// =============================================================================
+// Email E2E Test Helpers
+// =============================================================================
+
+// getAdminDefaultChannel returns admin user's default email channel ID.
+func getAdminDefaultChannel(t *testing.T, client *testutil.Client) string {
+	t.Helper()
+	return getChannelByTarget(t, client, "admin@example.com")
+}
+
+// getUserDefaultChannel returns current user's default email channel ID.
+// Assumes user is logged in.
+func getUserDefaultChannel(t *testing.T, client *testutil.Client) string {
+	t.Helper()
+	resp, err := client.GET("/api/v1/me/channels")
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var result struct {
+		Data []struct {
+			ID   string `json:"id"`
+			Type string `json:"type"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &result)
+
+	for _, ch := range result.Data {
+		if ch.Type == "email" {
+			return ch.ID
+		}
+	}
+	t.Fatal("no email channel found for current user")
+	return ""
+}
+
+// getChannelByTarget finds channel by email address.
+func getChannelByTarget(t *testing.T, client *testutil.Client, target string) string {
+	t.Helper()
+	resp, err := client.GET("/api/v1/me/channels")
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var result struct {
+		Data []struct {
+			ID     string `json:"id"`
+			Target string `json:"target"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &result)
+
+	for _, ch := range result.Data {
+		if ch.Target == target {
+			return ch.ID
+		}
+	}
+	t.Fatalf("channel with target %s not found", target)
+	return ""
+}
+
+// subscribeChannelToService subscribes a channel to specific services.
+func subscribeChannelToService(t *testing.T, client *testutil.Client, channelID string, serviceIDs ...string) {
+	t.Helper()
+	resp, err := client.PUT("/api/v1/me/channels/"+channelID+"/subscriptions",
+		map[string]interface{}{
+			"subscribe_to_all_services": false,
+			"service_ids":               serviceIDs,
+		})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	resp.Body.Close()
+}
+
+// incidentOption configures incident creation.
+type incidentOption func(map[string]interface{})
+
+// withNotifySubscribers enables subscriber notifications.
+func withNotifySubscribers() incidentOption {
+	return func(m map[string]interface{}) {
+		m["notify_subscribers"] = true
+	}
+}
+
+// addEventUpdate adds a status update to an event.
+func addEventUpdate(t *testing.T, client *testutil.Client, eventID, status, message string, notifySubscribers ...bool) {
+	t.Helper()
+	payload := map[string]interface{}{
+		"status":  status,
+		"message": message,
+	}
+	if len(notifySubscribers) > 0 && notifySubscribers[0] {
+		payload["notify_subscribers"] = true
+	}
+	resp, err := client.POST("/api/v1/events/"+eventID+"/updates", payload)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	resp.Body.Close()
 }

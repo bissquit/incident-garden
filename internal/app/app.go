@@ -220,6 +220,12 @@ func (a *App) Router() http.Handler {
 	return a.server.Handler
 }
 
+// NotificationWorker returns the notification worker instance.
+// Used in tests to access worker state. Returns nil if notifications disabled.
+func (a *App) NotificationWorker() *notifications.Worker {
+	return a.notificationWorker
+}
+
 func (a *App) setupRouter(ctx context.Context) (*chi.Mux, *notifications.Worker, error) {
 	r := chi.NewRouter()
 
