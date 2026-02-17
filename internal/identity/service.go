@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/bissquit/incident-garden/internal/domain"
 	"golang.org/x/crypto/bcrypt"
@@ -17,17 +18,26 @@ var (
 	ErrInvalidToken       = errors.New("invalid token")
 )
 
+// UserCreatedHandler handles user creation events.
+// Used to create default notification channels, send welcome emails, etc.
+type UserCreatedHandler interface {
+	OnUserCreated(ctx context.Context, user *domain.User) error
+}
+
 // Service provides identity business logic.
 type Service struct {
-	repo          Repository
-	authenticator Authenticator
+	repo               Repository
+	authenticator      Authenticator
+	userCreatedHandler UserCreatedHandler
 }
 
 // NewService creates a new identity service.
-func NewService(repo Repository, authenticator Authenticator) *Service {
+// userCreatedHandler is optional and can be nil.
+func NewService(repo Repository, authenticator Authenticator, userCreatedHandler UserCreatedHandler) *Service {
 	return &Service{
-		repo:          repo,
-		authenticator: authenticator,
+		repo:               repo,
+		authenticator:      authenticator,
+		userCreatedHandler: userCreatedHandler,
 	}
 }
 
@@ -64,6 +74,18 @@ func (s *Service) Register(ctx context.Context, input RegisterInput) (*domain.Us
 
 	if err := s.repo.CreateUser(ctx, user); err != nil {
 		return nil, err
+	}
+
+	// Create default notification channel
+	if s.userCreatedHandler != nil {
+		if err := s.userCreatedHandler.OnUserCreated(ctx, user); err != nil {
+			slog.Warn("failed to create default notification channel",
+				"user_id", user.ID,
+				"email", user.Email,
+				"error", err,
+			)
+			// Don't fail registration — user can create channel manually
+		}
 	}
 
 	return user, nil

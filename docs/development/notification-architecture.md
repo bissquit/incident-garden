@@ -1,4 +1,4 @@
-# Notification Architecture (already implemented)
+# Notification Architecture (ада)
 
 > Архитектурный документ системы уведомлений для IncidentGarden.
 > Версия: 1.0 | Дата: 2024-01

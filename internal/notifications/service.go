@@ -55,6 +55,20 @@ func NewService(repo Repository, dispatcher *Dispatcher, serviceValidator Servic
 
 // CreateChannel creates a new notification channel for user.
 func (s *Service) CreateChannel(ctx context.Context, userID string, channelType domain.ChannelType, target string) (*domain.NotificationChannel, error) {
+	// Check for duplicate email channel with same target
+	// Only email channels need duplicate check because:
+	// - Email: same address shouldn't have multiple channels
+	// - Telegram/Mattermost: target is external ID, duplicates are technically possible
+	if channelType == domain.ChannelTypeEmail {
+		existing, err := s.repo.GetChannelByUserAndTarget(ctx, userID, channelType, target)
+		if err != nil {
+			return nil, fmt.Errorf("check existing channel: %w", err)
+		}
+		if existing != nil {
+			return nil, ErrChannelAlreadyExists
+		}
+	}
+
 	channel := &domain.NotificationChannel{
 		UserID:                 userID,
 		Type:                   channelType,
@@ -354,4 +368,28 @@ func (s *Service) SetChannelSubscriptions(ctx context.Context, userID, channelID
 // GetChannelSubscriptions returns subscription settings for a channel.
 func (s *Service) GetChannelSubscriptions(ctx context.Context, channelID string) (bool, []string, error) {
 	return s.repo.GetChannelSubscriptions(ctx, channelID)
+}
+
+// OnUserCreated creates default email channel for newly registered user.
+// Implements identity.UserCreatedHandler interface.
+func (s *Service) OnUserCreated(ctx context.Context, user *domain.User) error {
+	channel := &domain.NotificationChannel{
+		UserID:                 user.ID,
+		Type:                   domain.ChannelTypeEmail,
+		Target:                 user.Email,
+		IsEnabled:              true,
+		IsVerified:             true, // trusted — from registration
+		SubscribeToAllServices: false,
+	}
+
+	if err := s.repo.CreateChannel(ctx, channel); err != nil {
+		return fmt.Errorf("create default email channel: %w", err)
+	}
+
+	slog.Info("created default email channel",
+		"user_id", user.ID,
+		"channel_id", channel.ID,
+	)
+
+	return nil
 }

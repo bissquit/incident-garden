@@ -192,7 +192,7 @@ internal/identity/
 └── postgres/repository.go
 
 Middleware: RequireAuth(next), RequireRole(roles...)
-Dependencies: domain.User, pkg/postgres, pkg/httputil
+Dependencies: domain.User, pkg/postgres, pkg/httputil, notifications.Service (as UserCreatedHandler)
 ```
 
 ### Module: catalog
@@ -882,6 +882,13 @@ TestDeleteEvent_ServiceStatusUnchanged     // side effect verification
 - CASCADE deletes: event_services, event_groups, event_updates, event_service_changes
 - Status log entries referencing the event are deleted explicitly
 - Service statuses are NOT changed (event was already resolved)
+
+**Default Email Channel:**
+- Upon registration, user automatically receives a verified email channel
+- This channel uses the registration email address
+- User can immediately configure subscriptions without additional verification
+- Additional email addresses still require verification via 6-digit code
+- Duplicate email channels (same user + same target) are rejected with 409 Conflict
 
 ### Enums
 

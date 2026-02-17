@@ -266,24 +266,10 @@ func (a *App) setupRouter(ctx context.Context) (*chi.Mux, *notifications.Worker,
 </html>`))
 	})
 
-	identityRepo := identitypostgres.NewRepository(a.db)
-	jwtAuth := jwt.NewAuthenticator(jwt.Config{
-		SecretKey:            a.config.JWT.SecretKey,
-		AccessTokenDuration:  a.config.JWT.AccessTokenDuration,
-		RefreshTokenDuration: a.config.JWT.RefreshTokenDuration,
-	}, identityRepo)
-	identityService := identity.NewService(identityRepo, jwtAuth)
-	identityHandler := identity.NewHandler(identityService, identity.CookieSettings{
-		Secure:               a.config.Cookie.Secure,
-		Domain:               a.config.Cookie.Domain,
-		AccessTokenDuration:  a.config.JWT.AccessTokenDuration,
-		RefreshTokenDuration: a.config.JWT.RefreshTokenDuration,
-	})
-
 	catalogRepo := catalogpostgres.NewRepository(a.db)
 	catalogService := catalog.NewService(catalogRepo)
 
-	// Setup notifications
+	// Setup notifications first (needed for identity hook)
 	notificationsRepo := notificationspostgres.NewRepository(a.db)
 	var notificationsService *notifications.Service
 	var notificationsHandler *notifications.Handler
@@ -365,6 +351,21 @@ func (a *App) setupRouter(ctx context.Context) (*chi.Mux, *notifications.Worker,
 		notificationsService = notifications.NewService(notificationsRepo, nil, catalogService)
 	}
 	notificationsHandler = notifications.NewHandler(notificationsService)
+
+	// Setup identity with notifications hook
+	identityRepo := identitypostgres.NewRepository(a.db)
+	jwtAuth := jwt.NewAuthenticator(jwt.Config{
+		SecretKey:            a.config.JWT.SecretKey,
+		AccessTokenDuration:  a.config.JWT.AccessTokenDuration,
+		RefreshTokenDuration: a.config.JWT.RefreshTokenDuration,
+	}, identityRepo)
+	identityService := identity.NewService(identityRepo, jwtAuth, notificationsService)
+	identityHandler := identity.NewHandler(identityService, identity.CookieSettings{
+		Secure:               a.config.Cookie.Secure,
+		Domain:               a.config.Cookie.Domain,
+		AccessTokenDuration:  a.config.JWT.AccessTokenDuration,
+		RefreshTokenDuration: a.config.JWT.RefreshTokenDuration,
+	})
 
 	// Setup events with notifier
 	eventsRepo := eventspostgres.NewRepository(a.db)
