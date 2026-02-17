@@ -182,9 +182,9 @@ func TestChannels_List_ReturnsUserChannelsOnly(t *testing.T) {
 	}
 }
 
-func TestChannels_List_Empty_ReturnsEmptyArray(t *testing.T) {
+func TestChannels_List_ReturnsArrayNotNull(t *testing.T) {
 	client := newTestClient(t)
-	registerAndLoginUser(t, client, "list-empty")
+	registerAndLoginUser(t, client, "list-array")
 
 	resp, err := client.GET("/api/v1/me/channels")
 	require.NoError(t, err)
@@ -195,8 +195,9 @@ func TestChannels_List_Empty_ReturnsEmptyArray(t *testing.T) {
 		Data []interface{} `json:"data"`
 	}
 	testutil.DecodeJSON(t, resp, &result)
-	assert.NotNil(t, result.Data, "data should be empty array, not null")
-	assert.Empty(t, result.Data)
+	assert.NotNil(t, result.Data, "data should be array, not null")
+	// New users now get a default email channel, so it won't be empty
+	assert.Len(t, result.Data, 1, "new user should have exactly one default channel")
 }
 
 func TestChannels_List_Success(t *testing.T) {

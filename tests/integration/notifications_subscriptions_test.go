@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSubscriptions_GetMatrix_Empty(t *testing.T) {
+func TestSubscriptions_GetMatrix_HasDefaultChannel(t *testing.T) {
 	client := newTestClient(t)
 	client.LoginAsUser(t)
 
@@ -29,7 +29,8 @@ func TestSubscriptions_GetMatrix_Empty(t *testing.T) {
 		} `json:"data"`
 	}
 	testutil.DecodeJSON(t, resp, &result)
-	assert.Empty(t, result.Data.Channels)
+	// Pre-seeded users now have default email channel from migration
+	assert.NotEmpty(t, result.Data.Channels)
 }
 
 func TestSubscriptions_GetMatrix_WithChannel(t *testing.T) {
@@ -59,12 +60,20 @@ func TestSubscriptions_GetMatrix_WithChannel(t *testing.T) {
 		} `json:"data"`
 	}
 	testutil.DecodeJSON(t, resp, &result)
-	require.Len(t, result.Data.Channels, 1)
-	assert.Equal(t, channelID, result.Data.Channels[0].Channel.ID)
-	assert.Equal(t, "email", result.Data.Channels[0].Channel.Type)
-	assert.True(t, result.Data.Channels[0].Channel.IsVerified)
-	assert.False(t, result.Data.Channels[0].SubscribeToAllServices)
-	assert.Empty(t, result.Data.Channels[0].SubscribedServiceIDs)
+
+	// Find our created channel among all channels
+	var foundChannel bool
+	for _, ch := range result.Data.Channels {
+		if ch.Channel.ID == channelID {
+			assert.Equal(t, "email", ch.Channel.Type)
+			assert.True(t, ch.Channel.IsVerified)
+			assert.False(t, ch.SubscribeToAllServices)
+			assert.Empty(t, ch.SubscribedServiceIDs)
+			foundChannel = true
+			break
+		}
+	}
+	assert.True(t, foundChannel, "created channel should be in matrix")
 }
 
 func TestSubscriptions_SetChannelSubscriptions_AllServices(t *testing.T) {
@@ -273,7 +282,7 @@ func TestSubscriptions_GetMatrix_IncludesBothVerifiedAndUnverified(t *testing.T)
 	verifiedID := createAndVerifyEmailChannel(t, client)
 	t.Cleanup(func() { deleteChannel(t, client, verifiedID) })
 
-	// Get matrix - should contain both channels
+	// Get matrix - should contain both created channels (plus any default channels)
 	resp, err := client.GET("/api/v1/me/subscriptions")
 	require.NoError(t, err)
 	defer resp.Body.Close()
@@ -291,8 +300,8 @@ func TestSubscriptions_GetMatrix_IncludesBothVerifiedAndUnverified(t *testing.T)
 	}
 	testutil.DecodeJSON(t, resp, &result)
 
-	// Should have both channels
-	require.Len(t, result.Data.Channels, 2)
+	// Should have at least both channels we created
+	require.GreaterOrEqual(t, len(result.Data.Channels), 2)
 
 	// Find channels by ID
 	var foundVerified, foundUnverified bool

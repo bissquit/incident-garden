@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: StatusPage API
   description: API for managing service statuses and incidents
-  version: 2.7.0
+  version: 2.8.0
   contact:
     name: API Support
 servers:
@@ -947,6 +947,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
+        '409':
+          $ref: '#/components/responses/ConflictError'
   /api/v1/me/channels/{id}:
     patch:
       tags: [channels]

@@ -14,6 +14,7 @@ import (
 var errorMappings = []httputil.ErrorMapping{
 	{Error: ErrChannelNotFound, Status: http.StatusNotFound, Message: "notification channel not found"},
 	{Error: ErrChannelNotOwned, Status: http.StatusForbidden, Message: "channel does not belong to user"},
+	{Error: ErrChannelAlreadyExists, Status: http.StatusConflict, Message: "channel with this email already exists"},
 	{Error: ErrVerificationCodeNotFound, Status: http.StatusBadRequest, Message: "verification code expired, request a new one"},
 	{Error: ErrVerificationCodeInvalid, Status: http.StatusBadRequest, Message: "invalid verification code"},
 	{Error: ErrTooManyAttempts, Status: http.StatusTooManyRequests, Message: "too many attempts, request a new code"},

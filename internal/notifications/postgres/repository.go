@@ -69,6 +69,32 @@ func (r *Repository) GetChannelByID(ctx context.Context, id string) (*domain.Not
 	return &channel, nil
 }
 
+// GetChannelByUserAndTarget returns channel by user, type and target.
+// Returns nil, nil if not found.
+func (r *Repository) GetChannelByUserAndTarget(ctx context.Context, userID string, channelType domain.ChannelType, target string) (*domain.NotificationChannel, error) {
+	query := `
+		SELECT id, user_id, type, target, is_enabled, is_verified,
+		       subscribe_to_all_services, created_at, updated_at
+		FROM notification_channels
+		WHERE user_id = $1 AND type = $2 AND target = $3
+	`
+
+	var ch domain.NotificationChannel
+	err := r.db.QueryRow(ctx, query, userID, channelType, target).Scan(
+		&ch.ID, &ch.UserID, &ch.Type, &ch.Target,
+		&ch.IsEnabled, &ch.IsVerified, &ch.SubscribeToAllServices,
+		&ch.CreatedAt, &ch.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("query channel: %w", err)
+	}
+
+	return &ch, nil
+}
+
 // ListUserChannels retrieves all notification channels for a user.
 func (r *Repository) ListUserChannels(ctx context.Context, userID string) ([]domain.NotificationChannel, error) {
 	query := `

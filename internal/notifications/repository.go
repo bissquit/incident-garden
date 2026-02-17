@@ -13,6 +13,7 @@ type Repository interface {
 	// Channel CRUD
 	CreateChannel(ctx context.Context, channel *domain.NotificationChannel) error
 	GetChannelByID(ctx context.Context, id string) (*domain.NotificationChannel, error)
+	GetChannelByUserAndTarget(ctx context.Context, userID string, channelType domain.ChannelType, target string) (*domain.NotificationChannel, error)
 	ListUserChannels(ctx context.Context, userID string) ([]domain.NotificationChannel, error)
 	UpdateChannel(ctx context.Context, channel *domain.NotificationChannel) error
 	DeleteChannel(ctx context.Context, id string) error

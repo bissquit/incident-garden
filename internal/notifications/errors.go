@@ -4,7 +4,8 @@ import "errors"
 
 // Repository errors.
 var (
-	ErrChannelNotFound = errors.New("notification channel not found")
+	ErrChannelNotFound      = errors.New("notification channel not found")
+	ErrChannelAlreadyExists = errors.New("channel with this target already exists")
 )
 
 // Verification errors.

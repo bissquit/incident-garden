@@ -29,6 +29,9 @@ func (m *mockRepository) CreateChannel(_ context.Context, _ *domain.Notification
 func (m *mockRepository) GetChannelByID(_ context.Context, _ string) (*domain.NotificationChannel, error) {
 	return nil, nil
 }
+func (m *mockRepository) GetChannelByUserAndTarget(_ context.Context, _ string, _ domain.ChannelType, _ string) (*domain.NotificationChannel, error) {
+	return nil, nil
+}
 func (m *mockRepository) ListUserChannels(_ context.Context, _ string) ([]domain.NotificationChannel, error) {
 	return nil, nil
 }
