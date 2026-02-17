@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0](https://github.com/bissquit/incident-garden/compare/v2.1.0...v2.2.0) (2026-02-17)
+
+
+### Features
+
+* add Mattermost sender with webhook support ([860a9bc](https://github.com/bissquit/incident-garden/commit/860a9bc3586c48ec031183ae5305dd8513dbdde7))
+* add notification queue with retry mechanism ([3d4ffdf](https://github.com/bissquit/incident-garden/commit/3d4ffdf1a54d301005a5487a88e849c440b143d3))
+* add NotificationPayload contract and template renderer ([5a70147](https://github.com/bissquit/incident-garden/commit/5a70147f56b1764292b1c58dbb42c3e565e466cf))
+* add notifications configuration support ([4d47440](https://github.com/bissquit/incident-garden/commit/4d47440c64fc1624353712b30e24f737b6f2d48b))
+* implement email verification with confirmation code ([01e326a](https://github.com/bissquit/incident-garden/commit/01e326a37f58f541c718a8b22079fd952375d15f))
+* implement new subscriptions API for channel-level subscriptions ([386c71a](https://github.com/bissquit/incident-garden/commit/386c71a0e4cc3754196e58fdb649ddb0b17aee93))
+* implement real Email sender with SMTP support ([7714887](https://github.com/bissquit/incident-garden/commit/77148877d50517f214a17394742bd7f074473b99))
+* implement real Telegram sender with Bot API ([3385cde](https://github.com/bissquit/incident-garden/commit/3385cde93e210c6272a49d2e501dc61ca0b13ad1))
+* integrate notifications with events module ([b39fb23](https://github.com/bissquit/incident-garden/commit/b39fb233b5d6b4962cec6f1a1d8bd76397213fd3))
+* **notifications:** auto-create email channel on user registration ([ffca058](https://github.com/bissquit/incident-garden/commit/ffca0583d0312e2bff4d8acfe62f1a594a81305f))
+* refactor notification subscriptions to channel-level model ([08fb8a5](https://github.com/bissquit/incident-garden/commit/08fb8a5177aa8b67f948f46b7bfe89f059a01c33))
+
 ## [2.1.0](https://github.com/bissquit/incident-garden/compare/v2.0.0...v2.1.0) (2026-02-14)
 
 
