@@ -232,6 +232,12 @@ func TestDefaultChannel_SubscribeToAll(t *testing.T) {
 	require.Len(t, channelsResult.Data, 1)
 	channelID := channelsResult.Data[0].ID
 
+	// Cleanup: delete channel after test to avoid affecting other tests
+	t.Cleanup(func() {
+		client.LoginAs(t, email, "password123")
+		deleteChannel(t, client, channelID)
+	})
+
 	// Set subscribe to all
 	resp, err = client.PUT("/api/v1/me/channels/"+channelID+"/subscriptions", map[string]interface{}{
 		"subscribe_to_all_services": true,

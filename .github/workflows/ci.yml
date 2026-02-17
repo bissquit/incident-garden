@@ -106,8 +106,15 @@ jobs:
       - name: Download dependencies
         run: go mod download
 
+      - name: Pre-pull test container images
+        run: |
+          docker pull postgres:16-alpine
+          docker pull ghcr.io/axllent/mailpit:latest
+
       - name: Run integration tests
-        run: go test -v -race -tags=integration ./tests/integration/...
+        run: go test -v -race -tags=integration -timeout=15m ./tests/integration/...
+        env:
+          TESTCONTAINERS_RYUK_DISABLED: "true"
 
   build:
     name: Build
