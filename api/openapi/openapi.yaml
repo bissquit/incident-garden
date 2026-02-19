@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: StatusPage API
   description: API for managing service statuses and incidents
-  version: 2.8.0
+  version: 2.9.0
   contact:
     name: API Support
 servers:
@@ -1918,7 +1918,6 @@ components:
       properties:
         is_enabled:
           type: boolean
-      required: [is_enabled]
     VerifyChannelRequest:
       type: object
       description: Request body for email channel verification. Not required for Telegram/Mattermost.
