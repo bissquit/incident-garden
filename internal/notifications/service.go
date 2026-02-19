@@ -99,7 +99,7 @@ func (s *Service) ListUserChannels(ctx context.Context, userID string) ([]domain
 }
 
 // UpdateChannel updates a channel (enable/disable).
-func (s *Service) UpdateChannel(ctx context.Context, userID, channelID string, isEnabled bool) (*domain.NotificationChannel, error) {
+func (s *Service) UpdateChannel(ctx context.Context, userID, channelID string, isEnabled *bool) (*domain.NotificationChannel, error) {
 	channel, err := s.repo.GetChannelByID(ctx, channelID)
 	if err != nil {
 		return nil, err
@@ -109,7 +109,9 @@ func (s *Service) UpdateChannel(ctx context.Context, userID, channelID string, i
 		return nil, ErrChannelNotOwned
 	}
 
-	channel.IsEnabled = isEnabled
+	if isEnabled != nil {
+		channel.IsEnabled = *isEnabled
+	}
 
 	if err := s.repo.UpdateChannel(ctx, channel); err != nil {
 		return nil, err

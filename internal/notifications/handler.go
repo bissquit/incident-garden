@@ -63,7 +63,7 @@ type CreateChannelRequest struct {
 
 // UpdateChannelRequest represents request body for updating a channel.
 type UpdateChannelRequest struct {
-	IsEnabled bool `json:"is_enabled"`
+	IsEnabled *bool `json:"is_enabled"`
 }
 
 // VerifyChannelRequest represents request body for verifying a channel.
