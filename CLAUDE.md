@@ -149,7 +149,7 @@ v_service_effective_status (VIEW — computed effective status)
 
 notification_channels
 ├── id, user_id FK → users, type, target
-├── is_enabled, is_verified, subscribe_to_all_services
+├── is_enabled, is_verified, is_default, subscribe_to_all_services
 ├── created_at, updated_at
 └── CONSTRAINT check_channel_type CHECK (type IN ('email', 'telegram', 'mattermost'))
 
@@ -305,7 +305,7 @@ internal/notifications/
 ├── payload.go             → NotificationPayload, EventData, EventChanges types
 ├── sender.go              → Interface: Sender
 ├── metrics.go             → Prometheus metrics for notifications (queue size, send duration)
-├── errors.go              → ErrChannelNotFound, ErrChannelNotOwned, ErrChannelNotVerified, ErrServicesNotFound
+├── errors.go              → ErrChannelNotFound, ErrChannelNotOwned, ErrChannelNotVerified, ErrServicesNotFound, ErrCannotDeleteDefaultChannel
 ├── email/sender.go        → Email sender (real SMTP)
 ├── telegram/sender.go     → Telegram sender (real Bot API)
 ├── mattermost/sender.go   → Mattermost sender (webhook)
@@ -884,8 +884,9 @@ TestDeleteEvent_ServiceStatusUnchanged     // side effect verification
 - Service statuses are NOT changed (event was already resolved)
 
 **Default Email Channel:**
-- Upon registration, user automatically receives a verified email channel
+- Upon registration, user automatically receives a verified email channel marked as `is_default=true`
 - This channel uses the registration email address
+- Default channels cannot be deleted (returns 409 Conflict)
 - User can immediately configure subscriptions without additional verification
 - Additional email addresses still require verification via 6-digit code
 - Duplicate email channels (same user + same target) are rejected with 409 Conflict

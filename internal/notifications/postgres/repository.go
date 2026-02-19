@@ -27,8 +27,8 @@ func NewRepository(db *pgxpool.Pool) *Repository {
 // CreateChannel creates a new notification channel.
 func (r *Repository) CreateChannel(ctx context.Context, channel *domain.NotificationChannel) error {
 	query := `
-		INSERT INTO notification_channels (user_id, type, target, is_enabled, is_verified, subscribe_to_all_services)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO notification_channels (user_id, type, target, is_enabled, is_verified, is_default, subscribe_to_all_services)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING id, created_at, updated_at
 	`
 	return r.db.QueryRow(ctx, query,
@@ -37,6 +37,7 @@ func (r *Repository) CreateChannel(ctx context.Context, channel *domain.Notifica
 		channel.Target,
 		channel.IsEnabled,
 		channel.IsVerified,
+		channel.IsDefault,
 		channel.SubscribeToAllServices,
 	).Scan(&channel.ID, &channel.CreatedAt, &channel.UpdatedAt)
 }
@@ -44,7 +45,7 @@ func (r *Repository) CreateChannel(ctx context.Context, channel *domain.Notifica
 // GetChannelByID retrieves a notification channel by ID.
 func (r *Repository) GetChannelByID(ctx context.Context, id string) (*domain.NotificationChannel, error) {
 	query := `
-		SELECT id, user_id, type, target, is_enabled, is_verified, subscribe_to_all_services, created_at, updated_at
+		SELECT id, user_id, type, target, is_enabled, is_verified, is_default, subscribe_to_all_services, created_at, updated_at
 		FROM notification_channels
 		WHERE id = $1
 	`
@@ -56,6 +57,7 @@ func (r *Repository) GetChannelByID(ctx context.Context, id string) (*domain.Not
 		&channel.Target,
 		&channel.IsEnabled,
 		&channel.IsVerified,
+		&channel.IsDefault,
 		&channel.SubscribeToAllServices,
 		&channel.CreatedAt,
 		&channel.UpdatedAt,
@@ -73,7 +75,7 @@ func (r *Repository) GetChannelByID(ctx context.Context, id string) (*domain.Not
 // Returns nil, nil if not found.
 func (r *Repository) GetChannelByUserAndTarget(ctx context.Context, userID string, channelType domain.ChannelType, target string) (*domain.NotificationChannel, error) {
 	query := `
-		SELECT id, user_id, type, target, is_enabled, is_verified,
+		SELECT id, user_id, type, target, is_enabled, is_verified, is_default,
 		       subscribe_to_all_services, created_at, updated_at
 		FROM notification_channels
 		WHERE user_id = $1 AND type = $2 AND target = $3
@@ -82,7 +84,7 @@ func (r *Repository) GetChannelByUserAndTarget(ctx context.Context, userID strin
 	var ch domain.NotificationChannel
 	err := r.db.QueryRow(ctx, query, userID, channelType, target).Scan(
 		&ch.ID, &ch.UserID, &ch.Type, &ch.Target,
-		&ch.IsEnabled, &ch.IsVerified, &ch.SubscribeToAllServices,
+		&ch.IsEnabled, &ch.IsVerified, &ch.IsDefault, &ch.SubscribeToAllServices,
 		&ch.CreatedAt, &ch.UpdatedAt,
 	)
 	if err != nil {
@@ -98,7 +100,7 @@ func (r *Repository) GetChannelByUserAndTarget(ctx context.Context, userID strin
 // ListUserChannels retrieves all notification channels for a user.
 func (r *Repository) ListUserChannels(ctx context.Context, userID string) ([]domain.NotificationChannel, error) {
 	query := `
-		SELECT id, user_id, type, target, is_enabled, is_verified, subscribe_to_all_services, created_at, updated_at
+		SELECT id, user_id, type, target, is_enabled, is_verified, is_default, subscribe_to_all_services, created_at, updated_at
 		FROM notification_channels
 		WHERE user_id = $1
 		ORDER BY created_at DESC
@@ -119,6 +121,7 @@ func (r *Repository) ListUserChannels(ctx context.Context, userID string) ([]dom
 			&channel.Target,
 			&channel.IsEnabled,
 			&channel.IsVerified,
+			&channel.IsDefault,
 			&channel.SubscribeToAllServices,
 			&channel.CreatedAt,
 			&channel.UpdatedAt,

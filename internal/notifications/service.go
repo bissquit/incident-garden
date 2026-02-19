@@ -131,6 +131,10 @@ func (s *Service) DeleteChannel(ctx context.Context, userID, channelID string) e
 		return ErrChannelNotOwned
 	}
 
+	if channel.IsDefault {
+		return ErrCannotDeleteDefaultChannel
+	}
+
 	return s.repo.DeleteChannel(ctx, channelID)
 }
 
@@ -381,6 +385,7 @@ func (s *Service) OnUserCreated(ctx context.Context, user *domain.User) error {
 		Target:                 user.Email,
 		IsEnabled:              true,
 		IsVerified:             true, // trusted — from registration
+		IsDefault:              true,
 		SubscribeToAllServices: false,
 	}
 

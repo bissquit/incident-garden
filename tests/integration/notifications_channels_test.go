@@ -405,6 +405,72 @@ func TestChannels_Delete_NotFound(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 }
 
+func TestChannels_Delete_DefaultChannel_Conflict(t *testing.T) {
+	client := newTestClient(t)
+
+	// Register a new user (creates default email channel automatically)
+	email := testutil.RandomEmail()
+	resp, err := client.POST("/api/v1/auth/register", map[string]string{
+		"email":    email,
+		"password": "password123",
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	resp.Body.Close()
+
+	// Login as new user
+	client.LoginAs(t, email, "password123")
+
+	// Get channels, find the default one
+	resp, err = client.GET("/api/v1/me/channels")
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var channelsResult struct {
+		Data []struct {
+			ID        string `json:"id"`
+			Type      string `json:"type"`
+			Target    string `json:"target"`
+			IsDefault bool   `json:"is_default"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &channelsResult)
+	require.Len(t, channelsResult.Data, 1, "new user should have exactly one default channel")
+	assert.True(t, channelsResult.Data[0].IsDefault, "channel should be marked as default")
+	assert.Equal(t, "email", channelsResult.Data[0].Type)
+	assert.Equal(t, email, channelsResult.Data[0].Target)
+
+	defaultChannelID := channelsResult.Data[0].ID
+
+	// Try to DELETE the default channel — should be rejected
+	resp, err = client.DELETE("/api/v1/me/channels/" + defaultChannelID)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusConflict, resp.StatusCode)
+
+	var errorResult struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	testutil.DecodeJSON(t, resp, &errorResult)
+	assert.Contains(t, errorResult.Error.Message, "cannot delete default channel")
+
+	// Verify channel still exists
+	resp, err = client.GET("/api/v1/me/channels")
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var afterResult struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	testutil.DecodeJSON(t, resp, &afterResult)
+	assert.Len(t, afterResult.Data, 1, "channel count should be unchanged after failed delete")
+	assert.Equal(t, defaultChannelID, afterResult.Data[0].ID, "default channel should still exist")
+}
+
 func TestChannels_Delete_WithSubscriptions_CascadeDeletes(t *testing.T) {
 	client := newTestClient(t)
 	client.LoginAsAdmin(t)
