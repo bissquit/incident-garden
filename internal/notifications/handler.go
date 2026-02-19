@@ -201,7 +201,7 @@ func (h *Handler) GetSubscriptions(w http.ResponseWriter, r *http.Request) {
 // SetSubscriptionsRequest represents request body for setting channel subscriptions.
 type SetSubscriptionsRequest struct {
 	SubscribeToAllServices bool     `json:"subscribe_to_all_services"`
-	ServiceIDs             []string `json:"service_ids"`
+	ServiceIDs             []string `json:"service_ids" validate:"dive,uuid"`
 }
 
 // SetChannelSubscriptions handles PUT /me/channels/{id}/subscriptions.
@@ -212,6 +212,11 @@ func (h *Handler) SetChannelSubscriptions(w http.ResponseWriter, r *http.Request
 	var req SetSubscriptionsRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httputil.Error(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+
+	if err := h.validator.Struct(req); err != nil {
+		httputil.ValidationError(w, err)
 		return
 	}
 
