@@ -232,9 +232,20 @@ func TestDefaultChannel_SubscribeToAll(t *testing.T) {
 	require.Len(t, channelsResult.Data, 1)
 	channelID := channelsResult.Data[0].ID
 
-	// Cleanup: delete channel after test to avoid affecting other tests
+	// Cleanup: reset subscriptions to neutral state before attempting delete.
+	// Default channels can't be deleted, so we must reset subscriptions
+	// to prevent this channel from receiving notifications in other tests.
 	t.Cleanup(func() {
 		client.LoginAs(t, email, "password123")
+		resetResp, resetErr := client.PUT("/api/v1/me/channels/"+channelID+"/subscriptions", map[string]interface{}{
+			"subscribe_to_all_services": false,
+			"service_ids":               []string{},
+		})
+		if resetErr != nil {
+			t.Logf("cleanup warning: failed to reset subscriptions for channel %s: %v", channelID, resetErr)
+		} else {
+			resetResp.Body.Close()
+		}
 		deleteChannel(t, client, channelID)
 	})
 
