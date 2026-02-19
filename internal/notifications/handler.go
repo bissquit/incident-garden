@@ -23,6 +23,7 @@ var errorMappings = []httputil.ErrorMapping{
 	{Error: ErrResendNotSupported, Status: http.StatusBadRequest, Message: "resend only available for email channels"},
 	{Error: ErrChannelNotVerified, Status: http.StatusBadRequest, Message: "channel must be verified first"},
 	{Error: ErrServicesNotFound, Status: http.StatusBadRequest, Message: "one or more services not found"},
+	{Error: ErrCannotDeleteDefaultChannel, Status: http.StatusConflict, Message: "cannot delete default channel"},
 }
 
 // Handler handles HTTP requests for the notifications module.

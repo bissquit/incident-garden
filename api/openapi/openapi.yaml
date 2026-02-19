@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: StatusPage API
   description: API for managing service statuses and incidents
-  version: 2.9.0
+  version: 2.10.0
   contact:
     name: API Support
 servers:
@@ -994,6 +994,8 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '409':
+          $ref: '#/components/responses/ConflictError'
   /api/v1/me/channels/{id}/verify:
     post:
       tags: [channels]
@@ -1605,13 +1607,16 @@ components:
           type: boolean
         is_verified:
           type: boolean
+        is_default:
+          type: boolean
+          description: Whether this is the default (registration) email channel
         created_at:
           type: string
           format: date-time
         updated_at:
           type: string
           format: date-time
-      required: [id, user_id, type, target, is_enabled, is_verified, created_at, updated_at]
+      required: [id, user_id, type, target, is_enabled, is_verified, is_default, created_at, updated_at]
     ChannelWithSubscriptions:
       type: object
       properties:

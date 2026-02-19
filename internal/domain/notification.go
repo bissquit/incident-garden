@@ -20,6 +20,7 @@ type NotificationChannel struct {
 	Target                 string      `json:"target"`
 	IsEnabled              bool        `json:"is_enabled"`
 	IsVerified             bool        `json:"is_verified"`
+	IsDefault              bool        `json:"is_default"`
 	SubscribeToAllServices bool        `json:"subscribe_to_all_services"`
 	CreatedAt              time.Time   `json:"created_at"`
 	UpdatedAt              time.Time   `json:"updated_at"`
