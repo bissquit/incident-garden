@@ -302,6 +302,10 @@ func (a *App) setupRouter(ctx context.Context) (*chi.Mux, *notifications.Worker,
 			return nil, nil, fmt.Errorf("create email sender: %w", err)
 		}
 
+		if !a.config.Notifications.Email.Enabled {
+			slog.Warn("email sender is disabled: email notifications and verification codes will not be sent")
+		}
+
 		telegramSender, err := telegram.NewSender(telegram.Config{
 			Enabled:   a.config.Notifications.Telegram.Enabled,
 			BotToken:  a.config.Notifications.Telegram.BotToken,
@@ -309,6 +313,10 @@ func (a *App) setupRouter(ctx context.Context) (*chi.Mux, *notifications.Worker,
 		})
 		if err != nil {
 			return nil, nil, fmt.Errorf("create telegram sender: %w", err)
+		}
+
+		if !a.config.Notifications.Telegram.Enabled {
+			slog.Warn("telegram sender is disabled: telegram notifications will not be sent")
 		}
 
 		// Mattermost is always available (webhook URL is set per-channel by user)
