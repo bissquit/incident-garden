@@ -75,7 +75,7 @@ func (s *Sender) Type() domain.ChannelType {
 // Send sends a Telegram notification.
 func (s *Sender) Send(ctx context.Context, notification notifications.Notification) error {
 	if !s.config.Enabled {
-		slog.Debug("telegram sender disabled, skipping",
+		slog.Warn("telegram sender disabled, skipping send",
 			"to", notification.To,
 		)
 		return nil

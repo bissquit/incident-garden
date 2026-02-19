@@ -80,7 +80,7 @@ func (s *Sender) Type() domain.ChannelType {
 // Send sends an email notification to a single recipient.
 func (s *Sender) Send(ctx context.Context, notification notifications.Notification) error {
 	if !s.config.Enabled {
-		slog.Debug("email sender disabled, skipping",
+		slog.Warn("email sender disabled, skipping send",
 			"recipient_count", 1,
 		)
 		return nil
@@ -93,7 +93,7 @@ func (s *Sender) Send(ctx context.Context, notification notifications.Notificati
 // Recipients are split into batches to respect SMTP server limits.
 func (s *Sender) SendBatch(ctx context.Context, subject, body string, recipients []string) error {
 	if !s.config.Enabled {
-		slog.Debug("email sender disabled, skipping",
+		slog.Warn("email sender disabled, skipping send",
 			"recipient_count", len(recipients),
 		)
 		return nil

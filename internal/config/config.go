@@ -301,6 +301,22 @@ func validate(cfg *Config) error {
 	if cfg.Server.Port == cfg.Server.MetricsPort {
 		return fmt.Errorf("SERVER_PORT and SERVER_METRICS_PORT must be different (both set to %s)", cfg.Server.Port)
 	}
+
+	if cfg.Notifications.Enabled && cfg.Notifications.Email.Enabled {
+		if cfg.Notifications.Email.SMTPHost == "" {
+			return fmt.Errorf("NOTIFICATIONS_EMAIL_SMTP_HOST is required when email notifications are enabled")
+		}
+		if cfg.Notifications.Email.FromAddress == "" {
+			return fmt.Errorf("NOTIFICATIONS_EMAIL_FROM_ADDRESS is required when email notifications are enabled")
+		}
+	}
+
+	if cfg.Notifications.Enabled && cfg.Notifications.Telegram.Enabled {
+		if cfg.Notifications.Telegram.BotToken == "" {
+			return fmt.Errorf("NOTIFICATIONS_TELEGRAM_BOT_TOKEN is required when telegram notifications are enabled")
+		}
+	}
+
 	return nil
 }
 
