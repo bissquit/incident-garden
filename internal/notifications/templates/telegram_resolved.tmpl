@@ -1,8 +1,10 @@
-*Resolved: {{ .Event.Title }}*
+<b>✅ Resolved: {{ escapeHTML .Event.Title }}</b>
 Duration: {{ formatDuration .Resolution.Duration }}
 {{- if .Resolution.Message }}
 
-{{ .Resolution.Message }}
+{{ escapeHTML .Resolution.Message }}
 {{- end }}
+{{- if .EventURL }}
 
-[View details]({{ .EventURL }})
+<a href="{{ .EventURL }}">View details</a>
+{{- end }}

@@ -549,6 +549,21 @@ func (s *Service) notifyOnUpdate(ctx context.Context, event *domain.Event, updat
 		})
 	}
 
+	// Expand add groups to individual services for notification
+	for _, ag := range input.AddGroups {
+		serviceIDs, err := s.resolver.GetGroupServices(ctx, ag.GroupID)
+		if err != nil {
+			slog.Error("failed to resolve group services for notification", "group_id", ag.GroupID, "error", err)
+			continue
+		}
+		for _, sid := range serviceIDs {
+			changes.ServicesAdded = append(changes.ServicesAdded, domain.EventService{
+				ServiceID: sid,
+				Status:    ag.Status,
+			})
+		}
+	}
+
 	// Determine notification type based on new status
 	switch event.Status {
 	case domain.EventStatusResolved:

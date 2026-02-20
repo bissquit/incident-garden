@@ -173,6 +173,10 @@ func (n *Notifier) onEventUpdatedInternal(ctx context.Context, event *domain.Eve
 
 	// Build payload
 	eventData := n.buildEventData(ctx, event, event.ServiceIDs)
+	// For updates, use the update message instead of the original event description
+	if update != nil && update.Message != "" {
+		eventData.Message = update.Message
+	}
 	eventChanges := n.convertChanges(ctx, changes)
 	payload := NewUpdatePayload(eventData, eventChanges, n.buildEventURL(event.ID))
 

@@ -1,19 +1,21 @@
-*Update: {{ .Event.Title }}*
+<b>Update: {{ escapeHTML .Event.Title }}</b>
 {{- if and .Changes .Changes.StatusFrom }}
-Status: `{{ .Changes.StatusFrom }}` -> `{{ .Changes.StatusTo }}`
+Status: <code>{{ .Changes.StatusFrom }}</code> → <code>{{ .Changes.StatusTo }}</code>
 {{- end }}
 {{- if and .Changes .Changes.SeverityFrom }}
-Severity: {{ .Changes.SeverityFrom }} -> {{ .Changes.SeverityTo }}
+Severity: {{ .Changes.SeverityFrom }} → {{ .Changes.SeverityTo }}
 {{- end }}
 {{- if and .Changes (len .Changes.ServicesAdded) }}
-Added: {{ range $i, $s := .Changes.ServicesAdded }}{{ if $i }}, {{ end }}`{{ $s.Name }}`{{ end }}
+Added: {{ range $i, $s := .Changes.ServicesAdded }}{{ if $i }}, {{ end }}<code>{{ escapeHTML $s.Name }}</code>{{ end }}
 {{- end }}
 {{- if and .Changes (len .Changes.ServicesRemoved) }}
-Removed: {{ range $i, $s := .Changes.ServicesRemoved }}{{ if $i }}, {{ end }}`{{ $s.Name }}`{{ end }}
+Removed: {{ range $i, $s := .Changes.ServicesRemoved }}{{ if $i }}, {{ end }}<code>{{ escapeHTML $s.Name }}</code>{{ end }}
 {{- end }}
 {{- if .Event.Message }}
 
-{{ .Event.Message }}
+{{ escapeHTML .Event.Message }}
 {{- end }}
+{{- if .EventURL }}
 
-[View details]({{ .EventURL }})
+<a href="{{ .EventURL }}">View details</a>
+{{- end }}
