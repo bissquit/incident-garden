@@ -133,6 +133,12 @@ func TestMain(m *testing.M) {
 		// before each test. Rejected because it doesn't solve the mock-based test interference issue.
 		Notifications: config.NotificationsConfig{
 			Enabled: false,
+			Email: config.EmailConfig{
+				Enabled: true,
+			},
+			Telegram: config.TelegramConfig{
+				Enabled: true,
+			},
 		},
 	}
 
