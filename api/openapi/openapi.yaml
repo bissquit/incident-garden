@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: StatusPage API
   description: API for managing service statuses and incidents
-  version: 2.10.0
+  version: 2.11.0
   contact:
     name: API Support
 servers:
@@ -25,6 +25,8 @@ tags:
     description: User notification channels
   - name: subscriptions
     description: Notification subscriptions
+  - name: notifications
+    description: Notification system configuration
   - name: status
     description: Public status
 paths:
@@ -1186,6 +1188,24 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+  /api/v1/notifications/config:
+    get:
+      tags: [notifications]
+      summary: Get notifications configuration
+      description: |
+        Returns available notification channel types and their configuration.
+        This is a public endpoint, no authentication required.
+
+        Mattermost is always available. Email and Telegram availability
+        depends on server configuration.
+      operationId: getNotificationsConfig
+      responses:
+        '200':
+          description: Notifications configuration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationsConfigResponse'
   /api/v1/status:
     get:
       tags: [status]
@@ -2150,6 +2170,27 @@ components:
               type: integer
             offset:
               type: integer
+    NotificationsConfigResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            available_channels:
+              type: array
+              items:
+                type: string
+                enum: [email, telegram, mattermost]
+              description: List of enabled notification channel types
+            telegram:
+              type: object
+              nullable: true
+              description: Telegram configuration (only present when telegram is enabled and bot_username is configured)
+              properties:
+                bot_username:
+                  type: string
+                  description: Bot username for deep links
+          required: [available_channels]
     PublicStatusResponse:
       type: object
       properties:

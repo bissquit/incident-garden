@@ -37,24 +37,86 @@ type ServiceValidator interface {
 	ValidateServicesExist(ctx context.Context, ids []string) (missingIDs []string, err error)
 }
 
+// ChannelConfig describes which channel types are available.
+type ChannelConfig struct {
+	EmailEnabled        bool
+	TelegramEnabled     bool
+	TelegramBotUsername string
+}
+
+// AvailableChannelsResponse is returned by GetAvailableChannels for the public config endpoint.
+type AvailableChannelsResponse struct {
+	AvailableChannels []string          `json:"available_channels"`
+	Telegram          *TelegramInfo     `json:"telegram,omitempty"`
+}
+
+// TelegramInfo holds public Telegram configuration.
+type TelegramInfo struct {
+	BotUsername string `json:"bot_username"`
+}
+
 // Service provides notifications business logic.
 type Service struct {
 	repo             Repository
 	dispatcher       *Dispatcher
 	serviceValidator ServiceValidator
+	channelConfig    *ChannelConfig
 }
 
 // NewService creates a new notifications service.
-func NewService(repo Repository, dispatcher *Dispatcher, serviceValidator ServiceValidator) *Service {
+func NewService(repo Repository, dispatcher *Dispatcher, serviceValidator ServiceValidator, channelConfig *ChannelConfig) *Service {
 	return &Service{
 		repo:             repo,
 		dispatcher:       dispatcher,
 		serviceValidator: serviceValidator,
+		channelConfig:    channelConfig,
 	}
+}
+
+// GetAvailableChannels returns the list of available channel types and their configuration.
+func (s *Service) GetAvailableChannels() *AvailableChannelsResponse {
+	channels := make([]string, 0)
+
+	if s.channelConfig != nil && s.channelConfig.EmailEnabled {
+		channels = append(channels, string(domain.ChannelTypeEmail))
+	}
+	if s.channelConfig != nil && s.channelConfig.TelegramEnabled {
+		channels = append(channels, string(domain.ChannelTypeTelegram))
+	}
+
+	// Mattermost is always available (webhook URL is set per-channel by user)
+	channels = append(channels, string(domain.ChannelTypeMattermost))
+
+	resp := &AvailableChannelsResponse{
+		AvailableChannels: channels,
+	}
+
+	if s.channelConfig != nil && s.channelConfig.TelegramEnabled && s.channelConfig.TelegramBotUsername != "" {
+		resp.Telegram = &TelegramInfo{
+			BotUsername: s.channelConfig.TelegramBotUsername,
+		}
+	}
+
+	return resp
 }
 
 // CreateChannel creates a new notification channel for user.
 func (s *Service) CreateChannel(ctx context.Context, userID string, channelType domain.ChannelType, target string) (*domain.NotificationChannel, error) {
+	// Check if channel type is enabled
+	if s.channelConfig != nil {
+		switch channelType {
+		case domain.ChannelTypeEmail:
+			if !s.channelConfig.EmailEnabled {
+				return nil, ErrChannelTypeDisabled
+			}
+		case domain.ChannelTypeTelegram:
+			if !s.channelConfig.TelegramEnabled {
+				return nil, ErrChannelTypeDisabled
+			}
+		// Mattermost is always available
+		}
+	}
+
 	// Check for duplicate email channel with same target
 	// Only email channels need duplicate check because:
 	// - Email: same address shouldn't have multiple channels
@@ -379,6 +441,13 @@ func (s *Service) GetChannelSubscriptions(ctx context.Context, channelID string)
 // OnUserCreated creates default email channel for newly registered user.
 // Implements identity.UserCreatedHandler interface.
 func (s *Service) OnUserCreated(ctx context.Context, user *domain.User) error {
+	if s.channelConfig != nil && !s.channelConfig.EmailEnabled {
+		slog.Warn("email channel disabled, skipping default channel creation",
+			"user_id", user.ID,
+		)
+		return nil
+	}
+
 	channel := &domain.NotificationChannel{
 		UserID:                 user.ID,
 		Type:                   domain.ChannelTypeEmail,
