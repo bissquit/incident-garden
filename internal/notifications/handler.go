@@ -24,6 +24,7 @@ var errorMappings = []httputil.ErrorMapping{
 	{Error: ErrChannelNotVerified, Status: http.StatusBadRequest, Message: "channel must be verified first"},
 	{Error: ErrServicesNotFound, Status: http.StatusBadRequest, Message: "one or more services not found"},
 	{Error: ErrCannotDeleteDefaultChannel, Status: http.StatusConflict, Message: "cannot delete default channel"},
+	{Error: ErrChannelTypeDisabled, Status: http.StatusBadRequest, Message: "channel type is not available"},
 }
 
 // Handler handles HTTP requests for the notifications module.
@@ -245,4 +246,10 @@ func (h *Handler) SetChannelSubscriptions(w http.ResponseWriter, r *http.Request
 		"subscribe_to_all_services": subscribeAll,
 		"subscribed_service_ids":    serviceIDs,
 	})
+}
+
+// GetNotificationsConfig handles GET /notifications/config.
+func (h *Handler) GetNotificationsConfig(w http.ResponseWriter, _ *http.Request) {
+	config := h.service.GetAvailableChannels()
+	httputil.Success(w, http.StatusOK, config)
 }

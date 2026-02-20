@@ -28,3 +28,8 @@ var (
 var (
 	ErrCannotDeleteDefaultChannel = errors.New("cannot delete default channel")
 )
+
+// Channel type errors.
+var (
+	ErrChannelTypeDisabled = errors.New("channel type is not available")
+)

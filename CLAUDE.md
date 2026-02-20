@@ -293,9 +293,9 @@ Dependencies: domain.Event, domain.EventService, domain.AffectedService, domain.
 
 ```
 internal/notifications/
-├── handler.go             → CRUD /me/channels, GET /me/subscriptions, PUT /me/channels/{id}/subscriptions
+├── handler.go             → CRUD /me/channels, GET /me/subscriptions, PUT /me/channels/{id}/subscriptions, GET /notifications/config
 ├── service.go             → CreateChannel, ListUserChannels, UpdateChannel, DeleteChannel, VerifyChannel,
-│                            GetSubscriptionsMatrix, SetChannelSubscriptions
+│                            GetSubscriptionsMatrix, SetChannelSubscriptions, GetAvailableChannels
 ├── notifier.go            → EventNotifier implementation (integration with events module)
 ├── repository.go          → Interface: channel CRUD + subscriptions + event subscribers + queue
 ├── dispatcher.go          → Dispatch(ctx, notification) — finds subscribers and sends
@@ -305,7 +305,7 @@ internal/notifications/
 ├── payload.go             → NotificationPayload, EventData, EventChanges types
 ├── sender.go              → Interface: Sender
 ├── metrics.go             → Prometheus metrics for notifications (queue size, send duration)
-├── errors.go              → ErrChannelNotFound, ErrChannelNotOwned, ErrChannelNotVerified, ErrServicesNotFound, ErrCannotDeleteDefaultChannel
+├── errors.go              → ErrChannelNotFound, ErrChannelNotOwned, ErrChannelNotVerified, ErrServicesNotFound, ErrCannotDeleteDefaultChannel, ErrChannelTypeDisabled
 ├── email/sender.go        → Email sender (real SMTP)
 ├── telegram/sender.go     → Telegram sender (real Bot API)
 ├── mattermost/sender.go   → Mattermost sender (webhook)
@@ -337,6 +337,8 @@ EventNotifier (implemented by Notifier):
 - OnEventCancelled(ctx, event) → sends cancelled notification (for scheduled maintenance deletion)
 
 Types:
+- ChannelConfig: EmailEnabled, TelegramEnabled, TelegramBotUsername
+- AvailableChannelsResponse: AvailableChannels []string, Telegram *TelegramInfo
 - ChannelInfo: ID, UserID, Type, Target, Email
 - ChannelWithSubscriptions: Channel, SubscribeToAllServices, SubscribedServiceIDs
 - SubscriptionsMatrix: Channels []ChannelWithSubscriptions
@@ -783,6 +785,7 @@ TestDeleteEvent_ServiceStatusUnchanged     // side effect verification
 - `GET /api/v1/events`, `/events/{id}` — events (read-only)
 - `GET /api/v1/events/{id}/updates` — event updates (read-only)
 - `GET /api/v1/events/{id}/changes` — event service changes (read-only)
+- `GET /api/v1/notifications/config` — available channel types and config
 
 **Auth (any authenticated):**
 - `POST /api/v1/auth/register`, `/login`, `/refresh`, `/logout`
@@ -890,6 +893,13 @@ TestDeleteEvent_ServiceStatusUnchanged     // side effect verification
 - User can immediately configure subscriptions without additional verification
 - Additional email addresses still require verification via 6-digit code
 - Duplicate email channels (same user + same target) are rejected with 409 Conflict
+- If email notifications are disabled (`NOTIFICATIONS_EMAIL_ENABLED=false`), default channel creation is skipped
+
+**Channel Type Availability:**
+- `CreateChannel` rejects disabled channel types with 400 Bad Request (`ErrChannelTypeDisabled`)
+- Email and Telegram availability controlled by `NOTIFICATIONS_EMAIL_ENABLED` / `NOTIFICATIONS_TELEGRAM_ENABLED`
+- Mattermost is always available (webhook URL is set per-channel by user)
+- `GET /api/v1/notifications/config` returns currently available channel types (public endpoint)
 
 ### Enums
 
@@ -994,6 +1004,8 @@ See [docs/deployment.md](./docs/deployment.md) for:
 
 **New notification ENV variables:**
 - `NOTIFICATIONS_BASE_URL` — Base URL for event links in notifications (e.g., https://status.example.com)
+- `NOTIFICATIONS_TELEGRAM_API_URL` — Custom Telegram Bot API URL template (default: `https://api.telegram.org/bot%s/sendMessage`)
+- `NOTIFICATIONS_TELEGRAM_BOT_USERNAME` — Telegram bot username for deep links (e.g., `YourStatusBot`)
 
 ### Next Up
 

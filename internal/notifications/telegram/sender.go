@@ -28,6 +28,7 @@ type Config struct {
 	Enabled   bool
 	BotToken  string
 	RateLimit float64 // messages per second, default 25
+	APIUrl    string  // custom API URL template, default: https://api.telegram.org/bot%s/sendMessage
 }
 
 // Sender implements Telegram notification sender via Bot API.
@@ -52,6 +53,11 @@ func NewSender(config Config) (*Sender, error) {
 		rateLimit = defaultRateLimit
 	}
 
+	apiURL := defaultAPIURL
+	if config.APIUrl != "" {
+		apiURL = config.APIUrl
+	}
+
 	slog.Info("telegram sender configured",
 		"enabled", config.Enabled,
 		"rate_limit", rateLimit,
@@ -63,7 +69,7 @@ func NewSender(config Config) (*Sender, error) {
 			Timeout: requestTimeout,
 		},
 		limiter: rate.NewLimiter(rate.Limit(rateLimit), defaultBurstSize),
-		apiURL:  defaultAPIURL,
+		apiURL:  apiURL,
 	}, nil
 }
 

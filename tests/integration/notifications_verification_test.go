@@ -541,7 +541,7 @@ func setupVerificationService(t *testing.T, mocks *MockSenderRegistry) *notifica
 	t.Helper()
 	repo := notificationspostgres.NewRepository(testDB)
 	dispatcher := notifications.NewDispatcher(repo, mocks.GetSenders()...)
-	return notifications.NewService(repo, dispatcher, nil)
+	return notifications.NewService(repo, dispatcher, nil, nil)
 }
 
 // getUserID returns the user ID for the currently logged-in user.
