@@ -1,23 +1,25 @@
 {{- if eq .Event.Type "incident" -}}
-{{ typeEmoji .Event.Type }} *Incident: {{ .Event.Title }}*
+{{ typeEmoji .Event.Type }} <b>Incident: {{ escapeHTML .Event.Title }}</b>
 {{- else -}}
-{{ typeEmoji .Event.Type }} *Maintenance: {{ .Event.Title }}*
+{{ typeEmoji .Event.Type }} <b>Maintenance: {{ escapeHTML .Event.Title }}</b>
 {{- end }}
 {{- if .Event.Services }}
-Services: {{ range $i, $s := .Event.Services }}{{ if $i }}, {{ end }}`{{ $s.Name }}`{{ end }}
+Services: {{ range $i, $s := .Event.Services }}{{ if $i }}, {{ end }}<code>{{ escapeHTML $s.Name }}</code>{{ end }}
 {{- end }}
 {{- if and (eq .Event.Type "incident") .Event.Severity }}
 Severity: {{ severityEmoji .Event.Severity }} {{ .Event.Severity | title }}
 {{- end }}
-Status: `{{ .Event.Status }}`
+Status: <code>{{ .Event.Status }}</code>
 {{- if .Event.ScheduledStart }}
-Scheduled: {{ formatTime .Event.ScheduledStart }} - {{ formatTime .Event.ScheduledEnd }}
+Scheduled: {{ formatTime .Event.ScheduledStart }} – {{ formatTime .Event.ScheduledEnd }}
 {{- else if .Event.StartedAt }}
 Started: {{ formatTime .Event.StartedAt }}
 {{- end }}
 {{- if .Event.Message }}
 
-{{ .Event.Message }}
+{{ escapeHTML .Event.Message }}
 {{- end }}
+{{- if .EventURL }}
 
-[View details]({{ .EventURL }})
+<a href="{{ .EventURL }}">View details</a>
+{{- end }}

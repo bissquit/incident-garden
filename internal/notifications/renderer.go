@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"embed"
 	"fmt"
+	"html"
 	"strings"
 	"text/template"
 	"time"
@@ -33,6 +34,7 @@ func NewRenderer() (*Renderer, error) {
 		"statusEmoji":    statusEmoji,
 		"severityEmoji":  severityEmoji,
 		"typeEmoji":      typeEmoji,
+		"escapeHTML":     html.EscapeString,
 	}
 
 	r := &Renderer{

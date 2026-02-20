@@ -244,10 +244,10 @@ func TestRenderer_TelegramFormat(t *testing.T) {
 	_, body, err := r.Render(domain.ChannelTypeTelegram, payload)
 	require.NoError(t, err)
 
-	// Telegram should use Markdown
-	assert.Contains(t, body, "*Incident: API Issues*")
-	assert.Contains(t, body, "`API`")
-	assert.Contains(t, body, "[View details]")
+	// Telegram should use HTML
+	assert.Contains(t, body, "<b>Incident: API Issues</b>")
+	assert.Contains(t, body, "<code>API</code>")
+	assert.Contains(t, body, `<a href="https://status.example.com/events/evt-123">View details</a>`)
 }
 
 func TestRenderer_MattermostFormat(t *testing.T) {
