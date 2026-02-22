@@ -16,6 +16,7 @@ var (
 	ErrResendTooSoon            = errors.New("please wait before requesting a new code")
 	ErrChannelAlreadyVerified   = errors.New("channel already verified")
 	ErrResendNotSupported       = errors.New("resend only available for email channels")
+	ErrVerificationFailed       = errors.New("channel verification failed")
 )
 
 // Subscription errors.

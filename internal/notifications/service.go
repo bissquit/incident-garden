@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/big"
+	"strings"
 	"time"
 
 	"github.com/bissquit/incident-garden/internal/domain"
@@ -278,7 +279,10 @@ func (s *Service) verifyByTestMessage(ctx context.Context, channel *domain.Notif
 	}
 
 	if err := sender.Send(ctx, notification); err != nil {
-		return nil, fmt.Errorf("send test message: %w", err)
+		slog.Warn("channel verification failed",
+			"channel_id", channel.ID, "type", channel.Type, "error", err)
+		msg := classifyVerificationError(channel.Type, err)
+		return nil, fmt.Errorf("%w: %s", ErrVerificationFailed, msg)
 	}
 
 	// Mark as verified
@@ -289,6 +293,29 @@ func (s *Service) verifyByTestMessage(ctx context.Context, channel *domain.Notif
 
 	slog.Info("channel verified via test message", "channel_id", channel.ID, "type", channel.Type)
 	return channel, nil
+}
+
+// classifyVerificationError returns a user-friendly error message based on the sender error.
+func classifyVerificationError(channelType domain.ChannelType, err error) string {
+	errMsg := err.Error()
+
+	switch channelType {
+	case domain.ChannelTypeTelegram:
+		switch {
+		case strings.Contains(errMsg, "chat not found"):
+			return "chat not found — please send /start to the bot first, then try again"
+		case strings.Contains(errMsg, "bot was blocked"):
+			return "bot is blocked — please unblock the bot in Telegram and try again"
+		case strings.Contains(errMsg, "Unauthorized"):
+			return "bot token is misconfigured — contact the administrator"
+		default:
+			return "failed to send test message to Telegram — check the chat ID"
+		}
+	case domain.ChannelTypeMattermost:
+		return "failed to send test message — check the webhook URL"
+	default:
+		return "failed to send test message"
+	}
 }
 
 // ResendVerificationCode sends a new verification code for email channels.
