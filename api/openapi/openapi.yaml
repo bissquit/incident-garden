@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: StatusPage API
   description: API for managing service statuses and incidents
-  version: 2.11.0
+  version: 2.12.0
   contact:
     name: API Support
 servers:
@@ -1046,6 +1046,22 @@ paths:
           $ref: '#/components/responses/ForbiddenError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '422':
+          description: |
+            Channel verification failed. The request is valid but the external service
+            rejected the test message. Common causes: user hasn't started a conversation
+            with the Telegram bot, bot is blocked, or invalid webhook URL.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      message:
+                        type: string
+                        example: "channel verification failed: chat not found — please send /start to the bot first, then try again"
         '429':
           description: Too many verification attempts
           content:

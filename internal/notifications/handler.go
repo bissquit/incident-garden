@@ -25,6 +25,7 @@ var errorMappings = []httputil.ErrorMapping{
 	{Error: ErrServicesNotFound, Status: http.StatusBadRequest, Message: "one or more services not found"},
 	{Error: ErrCannotDeleteDefaultChannel, Status: http.StatusConflict, Message: "cannot delete default channel"},
 	{Error: ErrChannelTypeDisabled, Status: http.StatusBadRequest, Message: "channel type is not available"},
+	{Error: ErrVerificationFailed, Status: http.StatusUnprocessableEntity, Message: ""},
 }
 
 // Handler handles HTTP requests for the notifications module.

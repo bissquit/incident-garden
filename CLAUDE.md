@@ -305,7 +305,7 @@ internal/notifications/
 ├── payload.go             → NotificationPayload, EventData, EventChanges types
 ├── sender.go              → Interface: Sender
 ├── metrics.go             → Prometheus metrics for notifications (queue size, send duration)
-├── errors.go              → ErrChannelNotFound, ErrChannelNotOwned, ErrChannelNotVerified, ErrServicesNotFound, ErrCannotDeleteDefaultChannel, ErrChannelTypeDisabled
+├── errors.go              → ErrChannelNotFound, ErrChannelNotOwned, ErrChannelNotVerified, ErrServicesNotFound, ErrCannotDeleteDefaultChannel, ErrChannelTypeDisabled, ErrVerificationFailed
 ├── email/sender.go        → Email sender (real SMTP)
 ├── telegram/sender.go     → Telegram sender (real Bot API)
 ├── mattermost/sender.go   → Mattermost sender (webhook)
@@ -901,6 +901,13 @@ TestDeleteEvent_ServiceStatusUnchanged     // side effect verification
 - Email and Telegram availability controlled by `NOTIFICATIONS_EMAIL_ENABLED` / `NOTIFICATIONS_TELEGRAM_ENABLED`
 - Mattermost is always available (webhook URL is set per-channel by user)
 - `GET /api/v1/notifications/config` returns currently available channel types (public endpoint)
+
+**Channel Verification Errors:**
+- Telegram/Mattermost verification failures return 422 Unprocessable Entity (`ErrVerificationFailed`) with user-friendly message
+- Telegram "chat not found" → user must send /start to the bot first
+- Telegram "bot was blocked" → user must unblock the bot
+- Mattermost → check webhook URL
+- Error is classified in `classifyVerificationError()` in `service.go`
 
 ### Enums
 
