@@ -1,9 +1,9 @@
 Update: {{ .Event.Title }}
-{{- if and .Changes .Changes.StatusFrom }}
+{{- if and .Changes (ne .Changes.StatusFrom .Changes.StatusTo) }}
 
 Status: {{ .Changes.StatusFrom | title }} -> {{ .Changes.StatusTo | title }}
 {{- end }}
-{{- if and .Changes .Changes.SeverityFrom }}
+{{- if and .Changes (ne .Changes.SeverityFrom .Changes.SeverityTo) }}
 Severity: {{ .Changes.SeverityFrom | title }} -> {{ .Changes.SeverityTo | title }}
 {{- end }}
 {{- if and .Changes (len .Changes.ServicesAdded) }}
@@ -24,13 +24,19 @@ Services removed:
 
 Service status changes:
 {{- range .Changes.ServicesUpdated }}
-  - {{ .Name }}: {{ .StatusFrom }} -> {{ .StatusTo }}
+  - {{ .Name }}: {{ .StatusFrom | title }} -> {{ .StatusTo | title }}
 {{- end }}
+{{- end }}
+{{- if and .Changes .Changes.Reason }}
+
+Reason: {{ .Changes.Reason }}
 {{- end }}
 {{- if .Event.Message }}
 
 {{ .Event.Message }}
 {{- end }}
+{{- if .EventURL }}
 
 ---
 View details: {{ .EventURL }}
+{{- end }}

@@ -272,6 +272,14 @@ func (s *Service) AddUpdate(ctx context.Context, input CreateEventUpdateInput, c
 		return nil, fmt.Errorf("update event: %w", err)
 	}
 
+	// Capture old service statuses for notification before changes
+	oldServiceStatuses := make(map[string]domain.ServiceStatus)
+	for _, su := range input.ServiceUpdates {
+		if status, err := s.repo.GetEventServiceStatusTx(ctx, tx, input.EventID, su.ServiceID); err == nil {
+			oldServiceStatuses[su.ServiceID] = status
+		}
+	}
+
 	if err := s.processServiceChanges(ctx, tx, input, createdBy); err != nil {
 		return nil, err
 	}
@@ -287,7 +295,7 @@ func (s *Service) AddUpdate(ctx context.Context, input CreateEventUpdateInput, c
 	// Send notifications asynchronously
 	if s.notifier != nil && input.NotifySubscribers {
 		go func() {
-			notifyErr := s.notifyOnUpdate(context.Background(), event, update, oldStatus, input)
+			notifyErr := s.notifyOnUpdate(context.Background(), event, update, oldStatus, input, oldServiceStatuses)
 			if notifyErr != nil {
 				slog.Error("failed to notify on event update", "event_id", event.ID, "error", notifyErr)
 			}
@@ -534,15 +542,20 @@ func (s *Service) recalculateServicesStoredStatus(ctx context.Context, tx pgx.Tx
 }
 
 // notifyOnUpdate sends appropriate notification based on new event status.
-func (s *Service) notifyOnUpdate(ctx context.Context, event *domain.Event, update *domain.EventUpdate, oldStatus domain.EventStatus, input CreateEventUpdateInput) error {
+func (s *Service) notifyOnUpdate(ctx context.Context, event *domain.Event, update *domain.EventUpdate, oldStatus domain.EventStatus, input CreateEventUpdateInput, oldServiceStatuses map[string]domain.ServiceStatus) error {
 	// Build changes info
 	changes := &eventUpdateChanges{
 		StatusFrom: string(oldStatus),
 		StatusTo:   string(event.Status),
+		Reason:     input.Reason,
 	}
+
+	// Track seen service IDs to deduplicate across AddServices and AddGroups
+	seen := make(map[string]bool)
 
 	// Convert add services to EventService for notification
 	for _, as := range input.AddServices {
+		seen[as.ServiceID] = true
 		changes.ServicesAdded = append(changes.ServicesAdded, domain.EventService{
 			ServiceID: as.ServiceID,
 			Status:    as.Status,
@@ -557,11 +570,41 @@ func (s *Service) notifyOnUpdate(ctx context.Context, event *domain.Event, updat
 			continue
 		}
 		for _, sid := range serviceIDs {
+			if seen[sid] {
+				continue
+			}
+			seen[sid] = true
 			changes.ServicesAdded = append(changes.ServicesAdded, domain.EventService{
 				ServiceID: sid,
 				Status:    ag.Status,
 			})
 		}
+	}
+
+	// Populate removed services (name resolved in convertChanges via GetServiceName)
+	for _, sid := range input.RemoveServiceIDs {
+		changes.ServicesRemoved = append(changes.ServicesRemoved, domain.EventService{
+			ServiceID: sid,
+			Status:    "", // No status for removed services
+		})
+	}
+
+	// Populate updated services with old/new statuses
+	for _, su := range input.ServiceUpdates {
+		name := su.ServiceID
+		if resolved, err := s.catalogService.GetServiceName(ctx, su.ServiceID); err == nil {
+			name = resolved
+		}
+		statusFrom := ""
+		if oldStatus, ok := oldServiceStatuses[su.ServiceID]; ok {
+			statusFrom = string(oldStatus)
+		}
+		changes.ServicesUpdated = append(changes.ServicesUpdated, serviceStatusUpdate{
+			ServiceID:   su.ServiceID,
+			ServiceName: name,
+			StatusFrom:  statusFrom,
+			StatusTo:    string(su.Status),
+		})
 	}
 
 	// Determine notification type based on new status
@@ -584,6 +627,7 @@ type eventUpdateChanges struct {
 	ServicesAdded   []domain.EventService
 	ServicesRemoved []domain.EventService
 	ServicesUpdated []serviceStatusUpdate
+	Reason          string
 }
 
 type serviceStatusUpdate struct {

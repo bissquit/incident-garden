@@ -25,6 +25,8 @@
 
 {{ .Event.Message }}
 {{- end }}
+{{- if .EventURL }}
 
 ---
 [View details]({{ .EventURL }})
+{{- end }}

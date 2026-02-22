@@ -399,8 +399,8 @@ func TestRenderer_WithServiceStatusChanges(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Contains(t, body, "Service status changes:")
-	assert.Contains(t, body, "API: degraded -> partial_outage")
-	assert.Contains(t, body, "Web: operational -> degraded")
+	assert.Contains(t, body, "API: Degraded -> Partial_outage")
+	assert.Contains(t, body, "Web: Operational -> Degraded")
 }
 
 func TestBuilderFunctions(t *testing.T) {

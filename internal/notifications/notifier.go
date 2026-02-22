@@ -21,6 +21,7 @@ type EventUpdateChanges struct {
 	ServicesAdded   []domain.EventService
 	ServicesRemoved []domain.EventService
 	ServicesUpdated []ServiceStatusUpdate
+	Reason          string
 }
 
 // ServiceStatusUpdate describes a service status change within an event.
@@ -381,6 +382,7 @@ func (n *Notifier) convertChanges(ctx context.Context, changes *EventUpdateChang
 		StatusTo:     changes.StatusTo,
 		SeverityFrom: changes.SeverityFrom,
 		SeverityTo:   changes.SeverityTo,
+		Reason:       changes.Reason,
 	}
 
 	// Convert added services
@@ -469,6 +471,10 @@ func (n *Notifier) extractChanges(v interface{}) *EventUpdateChanges {
 		changes.SeverityTo = f.String()
 	}
 
+	if f := val.FieldByName("Reason"); f.IsValid() && f.Kind() == reflect.String {
+		changes.Reason = f.String()
+	}
+
 	// Extract ServicesAdded - array of structs with ServiceID and Status fields
 	if f := val.FieldByName("ServicesAdded"); f.IsValid() && f.Kind() == reflect.Slice {
 		for i := 0; i < f.Len(); i++ {
@@ -485,6 +491,52 @@ func (n *Notifier) extractChanges(v interface{}) *EventUpdateChanges {
 					svc.Status = domain.ServiceStatus(status.String())
 				}
 				changes.ServicesAdded = append(changes.ServicesAdded, svc)
+			}
+		}
+	}
+
+	// Extract ServicesRemoved - array of structs with ServiceID and Status fields
+	if f := val.FieldByName("ServicesRemoved"); f.IsValid() && f.Kind() == reflect.Slice {
+		for i := 0; i < f.Len(); i++ {
+			elem := f.Index(i)
+			if elem.Kind() == reflect.Ptr {
+				elem = elem.Elem()
+			}
+			if elem.Kind() == reflect.Struct {
+				svc := domain.EventService{}
+				if sid := elem.FieldByName("ServiceID"); sid.IsValid() && sid.Kind() == reflect.String {
+					svc.ServiceID = sid.String()
+				}
+				if status := elem.FieldByName("Status"); status.IsValid() {
+					svc.Status = domain.ServiceStatus(status.String())
+				}
+				changes.ServicesRemoved = append(changes.ServicesRemoved, svc)
+			}
+		}
+	}
+
+	// Extract ServicesUpdated - array of structs with ServiceID, ServiceName, StatusFrom, StatusTo
+	if f := val.FieldByName("ServicesUpdated"); f.IsValid() && f.Kind() == reflect.Slice {
+		for i := 0; i < f.Len(); i++ {
+			elem := f.Index(i)
+			if elem.Kind() == reflect.Ptr {
+				elem = elem.Elem()
+			}
+			if elem.Kind() == reflect.Struct {
+				su := ServiceStatusUpdate{}
+				if sid := elem.FieldByName("ServiceID"); sid.IsValid() && sid.Kind() == reflect.String {
+					su.ServiceID = sid.String()
+				}
+				if name := elem.FieldByName("ServiceName"); name.IsValid() && name.Kind() == reflect.String {
+					su.ServiceName = name.String()
+				}
+				if sf := elem.FieldByName("StatusFrom"); sf.IsValid() && sf.Kind() == reflect.String {
+					su.StatusFrom = sf.String()
+				}
+				if st := elem.FieldByName("StatusTo"); st.IsValid() && st.Kind() == reflect.String {
+					su.StatusTo = st.String()
+				}
+				changes.ServicesUpdated = append(changes.ServicesUpdated, su)
 			}
 		}
 	}
