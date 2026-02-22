@@ -25,6 +25,8 @@ Started: {{ formatTime .Event.StartedAt }}
 
 {{ .Event.Message }}
 {{- end }}
+{{- if .EventURL }}
 
 ---
 View details: {{ .EventURL }}
+{{- end }}

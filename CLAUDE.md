@@ -339,11 +339,12 @@ EventNotifier (implemented by Notifier):
 Types:
 - ChannelConfig: EmailEnabled, TelegramEnabled, TelegramBotUsername
 - AvailableChannelsResponse: AvailableChannels []string, Telegram *TelegramInfo
+- TelegramInfo: BotUsername
 - ChannelInfo: ID, UserID, Type, Target, Email
 - ChannelWithSubscriptions: Channel, SubscribeToAllServices, SubscribedServiceIDs
 - SubscriptionsMatrix: Channels []ChannelWithSubscriptions
-- NotificationPayload: MessageType, Event, Changes, Resolution, EventURL
-- EventUpdateChanges: StatusFrom, StatusTo, ServicesAdded, ServicesRemoved, ServicesUpdated
+- NotificationPayload: MessageType, Event, Changes, Resolution, EventURL, GeneratedAt
+- EventUpdateChanges: StatusFrom, StatusTo, SeverityFrom, SeverityTo, ServicesAdded, ServicesRemoved, ServicesUpdated, Reason
 
 Dependencies: domain.NotificationChannel, catalog.Service (as ServiceValidator + ServiceNameResolver), events.EventNotifier interface, pkg/postgres
 ```
@@ -1006,6 +1007,9 @@ See [docs/deployment.md](./docs/deployment.md) for:
 - `NOTIFICATIONS_BASE_URL` — Base URL for event links in notifications (e.g., https://status.example.com)
 - `NOTIFICATIONS_TELEGRAM_API_URL` — Custom Telegram Bot API URL template (default: `https://api.telegram.org/bot%s/sendMessage`)
 - `NOTIFICATIONS_TELEGRAM_BOT_USERNAME` — Telegram bot username for deep links (e.g., `YourStatusBot`)
+- `NOTIFICATIONS_WORKER_NUM_WORKERS` — Number of concurrent notification workers (default: `5`)
+- `NOTIFICATIONS_WORKER_BATCH_SIZE` — Items per queue fetch (default: `100`)
+- `NOTIFICATIONS_WORKER_POLL_INTERVAL` — Queue polling interval (default: `5s`)
 
 ### Next Up
 

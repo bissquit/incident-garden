@@ -1,15 +1,22 @@
 <b>Update: {{ escapeHTML .Event.Title }}</b>
-{{- if and .Changes .Changes.StatusFrom }}
-Status: <code>{{ .Changes.StatusFrom }}</code> → <code>{{ .Changes.StatusTo }}</code>
+{{- if and .Changes (ne .Changes.StatusFrom .Changes.StatusTo) }}
+Status: <code>{{ .Changes.StatusFrom | title }}</code> → <code>{{ .Changes.StatusTo | title }}</code>
 {{- end }}
-{{- if and .Changes .Changes.SeverityFrom }}
-Severity: {{ .Changes.SeverityFrom }} → {{ .Changes.SeverityTo }}
+{{- if and .Changes (ne .Changes.SeverityFrom .Changes.SeverityTo) }}
+Severity: {{ .Changes.SeverityFrom | title }} → {{ .Changes.SeverityTo | title }}
 {{- end }}
 {{- if and .Changes (len .Changes.ServicesAdded) }}
-Added: {{ range $i, $s := .Changes.ServicesAdded }}{{ if $i }}, {{ end }}<code>{{ escapeHTML $s.Name }}</code>{{ end }}
+Added: {{ range $i, $s := .Changes.ServicesAdded }}{{ if $i }}, {{ end }}<code>{{ escapeHTML $s.Name }}</code> ({{ $s.Status }}){{ end }}
 {{- end }}
 {{- if and .Changes (len .Changes.ServicesRemoved) }}
 Removed: {{ range $i, $s := .Changes.ServicesRemoved }}{{ if $i }}, {{ end }}<code>{{ escapeHTML $s.Name }}</code>{{ end }}
+{{- end }}
+{{- if and .Changes (len .Changes.ServicesUpdated) }}
+Status changes: {{ range $i, $s := .Changes.ServicesUpdated }}{{ if $i }}, {{ end }}<code>{{ escapeHTML $s.Name }}</code> {{ $s.StatusFrom | title }} → {{ $s.StatusTo | title }}{{ end }}
+{{- end }}
+{{- if and .Changes .Changes.Reason }}
+
+Reason: {{ escapeHTML .Changes.Reason }}
 {{- end }}
 {{- if .Event.Message }}
 

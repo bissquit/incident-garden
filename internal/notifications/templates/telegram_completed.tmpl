@@ -1,5 +1,8 @@
 <b>✅ Completed: {{ escapeHTML .Event.Title }}</b>
 Duration: {{ formatDuration .Resolution.Duration }}
+{{- if .Event.Services }}
+Services: {{ range $i, $s := .Event.Services }}{{ if $i }}, {{ end }}<code>{{ escapeHTML $s.Name }}</code>{{ end }}
+{{- end }}
 {{- if .Resolution.Message }}
 
 {{ escapeHTML .Resolution.Message }}

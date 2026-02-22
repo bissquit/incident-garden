@@ -38,6 +38,7 @@ Production deployment guide for IncidentGarden.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `NOTIFICATIONS_ENABLED` | `true` | Global notifications toggle |
+| `NOTIFICATIONS_BASE_URL` | `` | Base URL for event links in notifications (e.g., `https://status.example.com`) |
 | `NOTIFICATIONS_EMAIL_ENABLED` | `false` | Enable Email sender |
 | `NOTIFICATIONS_EMAIL_SMTP_HOST` | `` | SMTP server hostname |
 | `NOTIFICATIONS_EMAIL_SMTP_PORT` | `587` | SMTP server port |
@@ -48,10 +49,15 @@ Production deployment guide for IncidentGarden.
 | `NOTIFICATIONS_TELEGRAM_ENABLED` | `false` | Enable Telegram sender |
 | `NOTIFICATIONS_TELEGRAM_BOT_TOKEN` | `` | Telegram Bot API token |
 | `NOTIFICATIONS_TELEGRAM_RATE_LIMIT` | `25` | Messages per second limit |
+| `NOTIFICATIONS_TELEGRAM_BOT_USERNAME` | `` | Telegram bot username for deep links (e.g., `YourStatusBot`) |
+| `NOTIFICATIONS_TELEGRAM_API_URL` | `https://api.telegram.org/bot%s/sendMessage` | Custom Telegram Bot API URL template |
 | `NOTIFICATIONS_RETRY_MAX_ATTEMPTS` | `3` | Max retry attempts |
 | `NOTIFICATIONS_RETRY_INITIAL_BACKOFF` | `1s` | Initial retry delay |
 | `NOTIFICATIONS_RETRY_MAX_BACKOFF` | `5m` | Maximum retry delay |
 | `NOTIFICATIONS_RETRY_BACKOFF_MULTIPLIER` | `2.0` | Backoff multiplier |
+| `NOTIFICATIONS_WORKER_NUM_WORKERS` | `5` | Number of concurrent notification workers |
+| `NOTIFICATIONS_WORKER_BATCH_SIZE` | `100` | Items per queue fetch |
+| `NOTIFICATIONS_WORKER_POLL_INTERVAL` | `5s` | Queue polling interval |
 
 **Note:** When `NOTIFICATIONS_EMAIL_ENABLED=true`, the following are required:
 - `NOTIFICATIONS_EMAIL_SMTP_HOST`

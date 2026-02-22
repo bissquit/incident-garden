@@ -4,7 +4,7 @@
 {{ typeEmoji .Event.Type }} <b>Maintenance: {{ escapeHTML .Event.Title }}</b>
 {{- end }}
 {{- if .Event.Services }}
-Services: {{ range $i, $s := .Event.Services }}{{ if $i }}, {{ end }}<code>{{ escapeHTML $s.Name }}</code>{{ end }}
+Services: {{ range $i, $s := .Event.Services }}{{ if $i }}, {{ end }}<code>{{ escapeHTML $s.Name }}</code>{{ if $s.Status }} ({{ $s.Status }}){{ end }}{{ end }}
 {{- end }}
 {{- if and (eq .Event.Type "incident") .Event.Severity }}
 Severity: {{ severityEmoji .Event.Severity }} {{ .Event.Severity | title }}

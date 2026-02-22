@@ -62,6 +62,7 @@ type EventChanges struct {
 	ServicesAdded   []ServiceInfo         `json:"services_added,omitempty"`
 	ServicesRemoved []ServiceInfo         `json:"services_removed,omitempty"`
 	ServicesUpdated []ServiceStatusChange `json:"services_updated,omitempty"`
+	Reason          string                `json:"reason,omitempty"`
 }
 
 // ServiceStatusChange describes a service status change.
