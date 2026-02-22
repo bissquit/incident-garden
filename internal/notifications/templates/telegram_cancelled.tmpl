@@ -1,6 +1,10 @@
-*Cancelled: {{ .Event.Title }}*
+<b>Cancelled: {{ escapeHTML .Event.Title }}</b>
 {{- if and .Event.ScheduledStart .Event.ScheduledEnd }}
-Originally scheduled: {{ formatTime .Event.ScheduledStart }} - {{ formatTime .Event.ScheduledEnd }}
+Originally scheduled: {{ formatTime .Event.ScheduledStart }} – {{ formatTime .Event.ScheduledEnd }}
 {{- end }}
 
 This maintenance has been cancelled.
+{{- if .EventURL }}
+
+<a href="{{ .EventURL }}">View details</a>
+{{- end }}

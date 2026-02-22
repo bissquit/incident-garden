@@ -149,7 +149,7 @@ v_service_effective_status (VIEW — computed effective status)
 
 notification_channels
 ├── id, user_id FK → users, type, target
-├── is_enabled, is_verified, subscribe_to_all_services
+├── is_enabled, is_verified, is_default, subscribe_to_all_services
 ├── created_at, updated_at
 └── CONSTRAINT check_channel_type CHECK (type IN ('email', 'telegram', 'mattermost'))
 
@@ -293,9 +293,9 @@ Dependencies: domain.Event, domain.EventService, domain.AffectedService, domain.
 
 ```
 internal/notifications/
-├── handler.go             → CRUD /me/channels, GET /me/subscriptions, PUT /me/channels/{id}/subscriptions
+├── handler.go             → CRUD /me/channels, GET /me/subscriptions, PUT /me/channels/{id}/subscriptions, GET /notifications/config
 ├── service.go             → CreateChannel, ListUserChannels, UpdateChannel, DeleteChannel, VerifyChannel,
-│                            GetSubscriptionsMatrix, SetChannelSubscriptions
+│                            GetSubscriptionsMatrix, SetChannelSubscriptions, GetAvailableChannels
 ├── notifier.go            → EventNotifier implementation (integration with events module)
 ├── repository.go          → Interface: channel CRUD + subscriptions + event subscribers + queue
 ├── dispatcher.go          → Dispatch(ctx, notification) — finds subscribers and sends
@@ -305,7 +305,7 @@ internal/notifications/
 ├── payload.go             → NotificationPayload, EventData, EventChanges types
 ├── sender.go              → Interface: Sender
 ├── metrics.go             → Prometheus metrics for notifications (queue size, send duration)
-├── errors.go              → ErrChannelNotFound, ErrChannelNotOwned, ErrChannelNotVerified, ErrServicesNotFound
+├── errors.go              → ErrChannelNotFound, ErrChannelNotOwned, ErrChannelNotVerified, ErrServicesNotFound, ErrCannotDeleteDefaultChannel, ErrChannelTypeDisabled
 ├── email/sender.go        → Email sender (real SMTP)
 ├── telegram/sender.go     → Telegram sender (real Bot API)
 ├── mattermost/sender.go   → Mattermost sender (webhook)
@@ -337,11 +337,14 @@ EventNotifier (implemented by Notifier):
 - OnEventCancelled(ctx, event) → sends cancelled notification (for scheduled maintenance deletion)
 
 Types:
+- ChannelConfig: EmailEnabled, TelegramEnabled, TelegramBotUsername
+- AvailableChannelsResponse: AvailableChannels []string, Telegram *TelegramInfo
+- TelegramInfo: BotUsername
 - ChannelInfo: ID, UserID, Type, Target, Email
 - ChannelWithSubscriptions: Channel, SubscribeToAllServices, SubscribedServiceIDs
 - SubscriptionsMatrix: Channels []ChannelWithSubscriptions
-- NotificationPayload: MessageType, Event, Changes, Resolution, EventURL
-- EventUpdateChanges: StatusFrom, StatusTo, ServicesAdded, ServicesRemoved, ServicesUpdated
+- NotificationPayload: MessageType, Event, Changes, Resolution, EventURL, GeneratedAt
+- EventUpdateChanges: StatusFrom, StatusTo, SeverityFrom, SeverityTo, ServicesAdded, ServicesRemoved, ServicesUpdated, Reason
 
 Dependencies: domain.NotificationChannel, catalog.Service (as ServiceValidator + ServiceNameResolver), events.EventNotifier interface, pkg/postgres
 ```
@@ -783,6 +786,7 @@ TestDeleteEvent_ServiceStatusUnchanged     // side effect verification
 - `GET /api/v1/events`, `/events/{id}` — events (read-only)
 - `GET /api/v1/events/{id}/updates` — event updates (read-only)
 - `GET /api/v1/events/{id}/changes` — event service changes (read-only)
+- `GET /api/v1/notifications/config` — available channel types and config
 
 **Auth (any authenticated):**
 - `POST /api/v1/auth/register`, `/login`, `/refresh`, `/logout`
@@ -884,11 +888,19 @@ TestDeleteEvent_ServiceStatusUnchanged     // side effect verification
 - Service statuses are NOT changed (event was already resolved)
 
 **Default Email Channel:**
-- Upon registration, user automatically receives a verified email channel
+- Upon registration, user automatically receives a verified email channel marked as `is_default=true`
 - This channel uses the registration email address
+- Default channels cannot be deleted (returns 409 Conflict)
 - User can immediately configure subscriptions without additional verification
 - Additional email addresses still require verification via 6-digit code
 - Duplicate email channels (same user + same target) are rejected with 409 Conflict
+- If email notifications are disabled (`NOTIFICATIONS_EMAIL_ENABLED=false`), default channel creation is skipped
+
+**Channel Type Availability:**
+- `CreateChannel` rejects disabled channel types with 400 Bad Request (`ErrChannelTypeDisabled`)
+- Email and Telegram availability controlled by `NOTIFICATIONS_EMAIL_ENABLED` / `NOTIFICATIONS_TELEGRAM_ENABLED`
+- Mattermost is always available (webhook URL is set per-channel by user)
+- `GET /api/v1/notifications/config` returns currently available channel types (public endpoint)
 
 ### Enums
 
@@ -993,6 +1005,11 @@ See [docs/deployment.md](./docs/deployment.md) for:
 
 **New notification ENV variables:**
 - `NOTIFICATIONS_BASE_URL` — Base URL for event links in notifications (e.g., https://status.example.com)
+- `NOTIFICATIONS_TELEGRAM_API_URL` — Custom Telegram Bot API URL template (default: `https://api.telegram.org/bot%s/sendMessage`)
+- `NOTIFICATIONS_TELEGRAM_BOT_USERNAME` — Telegram bot username for deep links (e.g., `YourStatusBot`)
+- `NOTIFICATIONS_WORKER_NUM_WORKERS` — Number of concurrent notification workers (default: `5`)
+- `NOTIFICATIONS_WORKER_BATCH_SIZE` — Items per queue fetch (default: `100`)
+- `NOTIFICATIONS_WORKER_POLL_INTERVAL` — Queue polling interval (default: `5s`)
 
 ### Next Up
 

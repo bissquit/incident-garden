@@ -244,10 +244,10 @@ func TestRenderer_TelegramFormat(t *testing.T) {
 	_, body, err := r.Render(domain.ChannelTypeTelegram, payload)
 	require.NoError(t, err)
 
-	// Telegram should use Markdown
-	assert.Contains(t, body, "*Incident: API Issues*")
-	assert.Contains(t, body, "`API`")
-	assert.Contains(t, body, "[View details]")
+	// Telegram should use HTML
+	assert.Contains(t, body, "<b>Incident: API Issues</b>")
+	assert.Contains(t, body, "<code>API</code>")
+	assert.Contains(t, body, `<a href="https://status.example.com/events/evt-123">View details</a>`)
 }
 
 func TestRenderer_MattermostFormat(t *testing.T) {
@@ -399,8 +399,8 @@ func TestRenderer_WithServiceStatusChanges(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Contains(t, body, "Service status changes:")
-	assert.Contains(t, body, "API: degraded -> partial_outage")
-	assert.Contains(t, body, "Web: operational -> degraded")
+	assert.Contains(t, body, "API: Degraded -> Partial_outage")
+	assert.Contains(t, body, "Web: Operational -> Degraded")
 }
 
 func TestBuilderFunctions(t *testing.T) {

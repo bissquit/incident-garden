@@ -23,6 +23,8 @@ var errorMappings = []httputil.ErrorMapping{
 	{Error: ErrResendNotSupported, Status: http.StatusBadRequest, Message: "resend only available for email channels"},
 	{Error: ErrChannelNotVerified, Status: http.StatusBadRequest, Message: "channel must be verified first"},
 	{Error: ErrServicesNotFound, Status: http.StatusBadRequest, Message: "one or more services not found"},
+	{Error: ErrCannotDeleteDefaultChannel, Status: http.StatusConflict, Message: "cannot delete default channel"},
+	{Error: ErrChannelTypeDisabled, Status: http.StatusBadRequest, Message: "channel type is not available"},
 }
 
 // Handler handles HTTP requests for the notifications module.
@@ -63,7 +65,7 @@ type CreateChannelRequest struct {
 
 // UpdateChannelRequest represents request body for updating a channel.
 type UpdateChannelRequest struct {
-	IsEnabled bool `json:"is_enabled"`
+	IsEnabled *bool `json:"is_enabled"`
 }
 
 // VerifyChannelRequest represents request body for verifying a channel.
@@ -201,7 +203,7 @@ func (h *Handler) GetSubscriptions(w http.ResponseWriter, r *http.Request) {
 // SetSubscriptionsRequest represents request body for setting channel subscriptions.
 type SetSubscriptionsRequest struct {
 	SubscribeToAllServices bool     `json:"subscribe_to_all_services"`
-	ServiceIDs             []string `json:"service_ids"`
+	ServiceIDs             []string `json:"service_ids" validate:"dive,uuid"`
 }
 
 // SetChannelSubscriptions handles PUT /me/channels/{id}/subscriptions.
@@ -212,6 +214,11 @@ func (h *Handler) SetChannelSubscriptions(w http.ResponseWriter, r *http.Request
 	var req SetSubscriptionsRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httputil.Error(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+
+	if err := h.validator.Struct(req); err != nil {
+		httputil.ValidationError(w, err)
 		return
 	}
 
@@ -239,4 +246,10 @@ func (h *Handler) SetChannelSubscriptions(w http.ResponseWriter, r *http.Request
 		"subscribe_to_all_services": subscribeAll,
 		"subscribed_service_ids":    serviceIDs,
 	})
+}
+
+// GetNotificationsConfig handles GET /notifications/config.
+func (h *Handler) GetNotificationsConfig(w http.ResponseWriter, _ *http.Request) {
+	config := h.service.GetAvailableChannels()
+	httputil.Success(w, http.StatusOK, config)
 }

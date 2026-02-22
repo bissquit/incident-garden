@@ -92,9 +92,11 @@ type EmailConfig struct {
 
 // TelegramConfig contains Telegram sender settings.
 type TelegramConfig struct {
-	Enabled   bool
-	BotToken  string
-	RateLimit float64
+	Enabled     bool
+	BotToken    string
+	RateLimit   float64
+	APIUrl      string // Custom API URL template (default: https://api.telegram.org/bot%s/sendMessage)
+	BotUsername string // Bot username for deep links (e.g., YourStatusBot)
 }
 
 // RetryConfig contains notification retry settings.
@@ -173,9 +175,11 @@ func Load() (*Config, error) {
 				BatchSize:    k.Int("NOTIFICATIONS_EMAIL_BATCH_SIZE"),
 			},
 			Telegram: TelegramConfig{
-				Enabled:   k.Bool("NOTIFICATIONS_TELEGRAM_ENABLED"),
-				BotToken:  k.String("NOTIFICATIONS_TELEGRAM_BOT_TOKEN"),
-				RateLimit: k.Float64("NOTIFICATIONS_TELEGRAM_RATE_LIMIT"),
+				Enabled:     k.Bool("NOTIFICATIONS_TELEGRAM_ENABLED"),
+				BotToken:    k.String("NOTIFICATIONS_TELEGRAM_BOT_TOKEN"),
+				RateLimit:   k.Float64("NOTIFICATIONS_TELEGRAM_RATE_LIMIT"),
+				APIUrl:      k.String("NOTIFICATIONS_TELEGRAM_API_URL"),
+				BotUsername: k.String("NOTIFICATIONS_TELEGRAM_BOT_USERNAME"),
 			},
 			Retry: RetryConfig{
 				MaxAttempts:       k.Int("NOTIFICATIONS_RETRY_MAX_ATTEMPTS"),
@@ -273,6 +277,9 @@ func setDefaults(cfg *Config) {
 	if cfg.Notifications.Telegram.RateLimit == 0 {
 		cfg.Notifications.Telegram.RateLimit = 25
 	}
+	if cfg.Notifications.Telegram.APIUrl == "" {
+		cfg.Notifications.Telegram.APIUrl = "https://api.telegram.org/bot%s/sendMessage"
+	}
 	if cfg.Notifications.Retry.MaxAttempts == 0 {
 		cfg.Notifications.Retry.MaxAttempts = 3
 	}
@@ -301,6 +308,22 @@ func validate(cfg *Config) error {
 	if cfg.Server.Port == cfg.Server.MetricsPort {
 		return fmt.Errorf("SERVER_PORT and SERVER_METRICS_PORT must be different (both set to %s)", cfg.Server.Port)
 	}
+
+	if cfg.Notifications.Enabled && cfg.Notifications.Email.Enabled {
+		if cfg.Notifications.Email.SMTPHost == "" {
+			return fmt.Errorf("NOTIFICATIONS_EMAIL_SMTP_HOST is required when email notifications are enabled")
+		}
+		if cfg.Notifications.Email.FromAddress == "" {
+			return fmt.Errorf("NOTIFICATIONS_EMAIL_FROM_ADDRESS is required when email notifications are enabled")
+		}
+	}
+
+	if cfg.Notifications.Enabled && cfg.Notifications.Telegram.Enabled {
+		if cfg.Notifications.Telegram.BotToken == "" {
+			return fmt.Errorf("NOTIFICATIONS_TELEGRAM_BOT_TOKEN is required when telegram notifications are enabled")
+		}
+	}
+
 	return nil
 }
 

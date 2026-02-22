@@ -1,10 +1,19 @@
 **Resolved: {{ .Event.Title }}**
 
 **Duration:** {{ formatDuration .Resolution.Duration }}
+{{- if .Event.Services }}
+
+**Affected services:**
+{{- range .Event.Services }}
+- {{ .Name }}
+{{- end }}
+{{- end }}
 {{- if .Resolution.Message }}
 
 {{ .Resolution.Message }}
 {{- end }}
+{{- if .EventURL }}
 
 ---
 [View details]({{ .EventURL }})
+{{- end }}

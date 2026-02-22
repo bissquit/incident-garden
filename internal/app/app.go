@@ -302,13 +302,22 @@ func (a *App) setupRouter(ctx context.Context) (*chi.Mux, *notifications.Worker,
 			return nil, nil, fmt.Errorf("create email sender: %w", err)
 		}
 
+		if !a.config.Notifications.Email.Enabled {
+			slog.Warn("email sender is disabled: email notifications and verification codes will not be sent")
+		}
+
 		telegramSender, err := telegram.NewSender(telegram.Config{
 			Enabled:   a.config.Notifications.Telegram.Enabled,
 			BotToken:  a.config.Notifications.Telegram.BotToken,
 			RateLimit: a.config.Notifications.Telegram.RateLimit,
+			APIUrl:    a.config.Notifications.Telegram.APIUrl,
 		})
 		if err != nil {
 			return nil, nil, fmt.Errorf("create telegram sender: %w", err)
+		}
+
+		if !a.config.Notifications.Telegram.Enabled {
+			slog.Warn("telegram sender is disabled: telegram notifications will not be sent")
 		}
 
 		// Mattermost is always available (webhook URL is set per-channel by user)
@@ -351,10 +360,22 @@ func (a *App) setupRouter(ctx context.Context) (*chi.Mux, *notifications.Worker,
 		// Start queue metrics collection
 		go a.collectQueueMetrics(ctx, notificationsRepo)
 
-		notificationsService = notifications.NewService(notificationsRepo, dispatcher, catalogService)
+		channelConfig := &notifications.ChannelConfig{
+			EmailEnabled:        a.config.Notifications.Email.Enabled,
+			TelegramEnabled:     a.config.Notifications.Telegram.Enabled,
+			TelegramBotUsername: a.config.Notifications.Telegram.BotUsername,
+		}
+
+		notificationsService = notifications.NewService(notificationsRepo, dispatcher, catalogService, channelConfig)
 	} else {
 		// Notifications disabled - create service with nil dispatcher
-		notificationsService = notifications.NewService(notificationsRepo, nil, catalogService)
+		channelConfig := &notifications.ChannelConfig{
+			EmailEnabled:        a.config.Notifications.Email.Enabled,
+			TelegramEnabled:     a.config.Notifications.Telegram.Enabled,
+			TelegramBotUsername: a.config.Notifications.Telegram.BotUsername,
+		}
+
+		notificationsService = notifications.NewService(notificationsRepo, nil, catalogService, channelConfig)
 	}
 	notificationsHandler = notifications.NewHandler(notificationsService)
 
@@ -385,6 +406,8 @@ func (a *App) setupRouter(ctx context.Context) (*chi.Mux, *notifications.Worker,
 
 		eventsHandler.RegisterPublicRoutes(r)
 		eventsHandler.RegisterPublicEventRoutes(r)
+
+		r.Get("/notifications/config", notificationsHandler.GetNotificationsConfig)
 
 		r.Group(func(r chi.Router) {
 			r.Use(httputil.AuthMiddleware(identityService))

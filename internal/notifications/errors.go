@@ -23,3 +23,13 @@ var (
 	ErrChannelNotVerified = errors.New("channel must be verified to manage subscriptions")
 	ErrServicesNotFound   = errors.New("one or more services not found")
 )
+
+// Deletion errors.
+var (
+	ErrCannotDeleteDefaultChannel = errors.New("cannot delete default channel")
+)
+
+// Channel type errors.
+var (
+	ErrChannelTypeDisabled = errors.New("channel type is not available")
+)
