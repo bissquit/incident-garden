@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/bissquit/incident-garden/internal/domain"
 	"github.com/stretchr/testify/assert"
@@ -20,6 +21,11 @@ type mockRepository struct {
 	updateUserPasswordCalled      bool
 	updateUserCalled              bool
 	deleteUserRefreshTokensCalled bool
+
+	savePasswordResetTokenCalled        bool
+	deleteUserPasswordResetTokensCalled bool
+	latestPasswordResetToken            *domain.PasswordResetToken
+	getPasswordResetTokenResult         *domain.PasswordResetToken
 }
 
 func newMockRepository() *mockRepository {
@@ -97,15 +103,19 @@ func (m *mockRepository) UpdateUserPassword(_ context.Context, userID string, pa
 }
 
 func (m *mockRepository) SavePasswordResetToken(_ context.Context, _ *domain.PasswordResetToken) error {
+	m.savePasswordResetTokenCalled = true
 	return nil
 }
 
 func (m *mockRepository) GetPasswordResetToken(_ context.Context, _ string) (*domain.PasswordResetToken, error) {
+	if m.getPasswordResetTokenResult != nil {
+		return m.getPasswordResetTokenResult, nil
+	}
 	return nil, ErrInvalidResetToken
 }
 
 func (m *mockRepository) GetLatestPasswordResetToken(_ context.Context, _ string) (*domain.PasswordResetToken, error) {
-	return nil, nil
+	return m.latestPasswordResetToken, nil
 }
 
 func (m *mockRepository) DeletePasswordResetToken(_ context.Context, _ string) error {
@@ -113,6 +123,7 @@ func (m *mockRepository) DeletePasswordResetToken(_ context.Context, _ string) e
 }
 
 func (m *mockRepository) DeleteUserPasswordResetTokens(_ context.Context, _ string) error {
+	m.deleteUserPasswordResetTokensCalled = true
 	return nil
 }
 
@@ -152,13 +163,30 @@ func (m *mockUserCreatedHandler) OnUserCreated(_ context.Context, user *domain.U
 	return m.err
 }
 
+// mockEmailSender implements EmailSender for testing.
+type mockEmailSender struct {
+	called  bool
+	to      string
+	subject string
+	body    string
+	err     error
+}
+
+func (m *mockEmailSender) SendEmail(_ context.Context, to, subject, body string) error {
+	m.called = true
+	m.to = to
+	m.subject = subject
+	m.body = body
+	return m.err
+}
+
 func TestRegister_CallsUserCreatedHandler(t *testing.T) {
 	// Arrange
 	repo := newMockRepository()
 	auth := &mockAuthenticator{}
 	handler := &mockUserCreatedHandler{}
 
-	service := NewService(repo, auth, handler)
+	service := NewService(repo, auth, handler, nil, "")
 
 	// Act
 	user, err := service.Register(context.Background(), RegisterInput{
@@ -180,7 +208,7 @@ func TestRegister_ContinuesIfHandlerFails(t *testing.T) {
 	auth := &mockAuthenticator{}
 	handler := &mockUserCreatedHandler{err: errors.New("handler error")}
 
-	service := NewService(repo, auth, handler)
+	service := NewService(repo, auth, handler, nil, "")
 
 	// Act
 	user, err := service.Register(context.Background(), RegisterInput{
@@ -199,7 +227,7 @@ func TestRegister_WorksWithNilHandler(t *testing.T) {
 	repo := newMockRepository()
 	auth := &mockAuthenticator{}
 
-	service := NewService(repo, auth, nil) // nil handler
+	service := NewService(repo, auth, nil, nil, "") // nil handler
 
 	// Act
 	user, err := service.Register(context.Background(), RegisterInput{
@@ -220,7 +248,7 @@ func TestRegister_EmailAlreadyExists(t *testing.T) {
 	auth := &mockAuthenticator{}
 	handler := &mockUserCreatedHandler{}
 
-	service := NewService(repo, auth, handler)
+	service := NewService(repo, auth, handler, nil, "")
 
 	// Act
 	user, err := service.Register(context.Background(), RegisterInput{
@@ -241,7 +269,7 @@ func TestRegister_CreateUserFails(t *testing.T) {
 	auth := &mockAuthenticator{}
 	handler := &mockUserCreatedHandler{}
 
-	service := NewService(repo, auth, handler)
+	service := NewService(repo, auth, handler, nil, "")
 
 	// Act
 	user, err := service.Register(context.Background(), RegisterInput{
@@ -268,7 +296,7 @@ func TestLogin_DeactivatedUser(t *testing.T) {
 		IsActive:     false,
 	}
 
-	service := NewService(repo, auth, nil)
+	service := NewService(repo, auth, nil, nil, "")
 
 	_, _, err := service.Login(context.Background(), LoginInput{
 		Email:    "test@example.com",
@@ -290,7 +318,7 @@ func TestChangePassword_Success(t *testing.T) {
 		IsActive:     true,
 	}
 
-	service := NewService(repo, auth, nil)
+	service := NewService(repo, auth, nil, nil, "")
 
 	err := service.ChangePassword(context.Background(), ChangePasswordInput{
 		UserID:          "user-1",
@@ -315,7 +343,7 @@ func TestChangePassword_WrongCurrentPassword(t *testing.T) {
 		IsActive:     true,
 	}
 
-	service := NewService(repo, auth, nil)
+	service := NewService(repo, auth, nil, nil, "")
 
 	err := service.ChangePassword(context.Background(), ChangePasswordInput{
 		UserID:          "user-1",
@@ -340,7 +368,7 @@ func TestChangePassword_ClearsMustChangePassword(t *testing.T) {
 		MustChangePassword: true,
 	}
 
-	service := NewService(repo, auth, nil)
+	service := NewService(repo, auth, nil, nil, "")
 
 	err := service.ChangePassword(context.Background(), ChangePasswordInput{
 		UserID:          "user-1",
@@ -363,7 +391,7 @@ func TestUpdateProfile_Success(t *testing.T) {
 		IsActive: true,
 	}
 
-	service := NewService(repo, auth, nil)
+	service := NewService(repo, auth, nil, nil, "")
 
 	firstName := "John"
 	lastName := "Doe"
@@ -390,7 +418,7 @@ func TestUpdateProfile_PartialUpdate(t *testing.T) {
 		IsActive:  true,
 	}
 
-	service := NewService(repo, auth, nil)
+	service := NewService(repo, auth, nil, nil, "")
 
 	newFirst := "Updated"
 	user, err := service.UpdateProfile(context.Background(), UpdateProfileInput{
@@ -401,4 +429,161 @@ func TestUpdateProfile_PartialUpdate(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Updated", user.FirstName)
 	assert.Equal(t, "Name", user.LastName) // Unchanged
+}
+
+func TestForgotPassword_NoEmailSender(t *testing.T) {
+	repo := newMockRepository()
+	auth := &mockAuthenticator{}
+
+	service := NewService(repo, auth, nil, nil, "https://example.com")
+
+	err := service.ForgotPassword(context.Background(), "test@example.com")
+	assert.ErrorIs(t, err, ErrEmailNotConfigured)
+}
+
+func TestForgotPassword_UserNotFound(t *testing.T) {
+	repo := newMockRepository()
+	auth := &mockAuthenticator{}
+	emailSender := &mockEmailSender{}
+
+	service := NewService(repo, auth, nil, emailSender, "https://example.com")
+
+	err := service.ForgotPassword(context.Background(), "nonexistent@example.com")
+	require.NoError(t, err) // silent — no email enumeration
+	assert.False(t, emailSender.called)
+}
+
+func TestForgotPassword_Success(t *testing.T) {
+	repo := newMockRepository()
+	auth := &mockAuthenticator{}
+	emailSender := &mockEmailSender{}
+
+	repo.users["test@example.com"] = &domain.User{
+		ID:    "user-1",
+		Email: "test@example.com",
+	}
+
+	service := NewService(repo, auth, nil, emailSender, "https://example.com")
+
+	err := service.ForgotPassword(context.Background(), "test@example.com")
+	require.NoError(t, err)
+	assert.True(t, emailSender.called)
+	assert.Equal(t, "test@example.com", emailSender.to)
+	assert.True(t, repo.savePasswordResetTokenCalled)
+	assert.Contains(t, emailSender.body, "https://example.com/reset-password?token=")
+}
+
+func TestForgotPassword_RateLimit(t *testing.T) {
+	repo := newMockRepository()
+	auth := &mockAuthenticator{}
+	emailSender := &mockEmailSender{}
+
+	repo.users["test@example.com"] = &domain.User{
+		ID:    "user-1",
+		Email: "test@example.com",
+	}
+	// Token created 2 minutes ago — should be rate limited
+	repo.latestPasswordResetToken = &domain.PasswordResetToken{
+		CreatedAt: time.Now().Add(-2 * time.Minute),
+	}
+
+	service := NewService(repo, auth, nil, emailSender, "https://example.com")
+
+	err := service.ForgotPassword(context.Background(), "test@example.com")
+	require.NoError(t, err)
+	assert.False(t, emailSender.called) // rate limited, no email sent
+	assert.False(t, repo.savePasswordResetTokenCalled)
+}
+
+func TestResetPassword_Success(t *testing.T) {
+	repo := newMockRepository()
+	auth := &mockAuthenticator{}
+
+	repo.users["test@example.com"] = &domain.User{
+		ID:                 "user-1",
+		Email:              "test@example.com",
+		MustChangePassword: true,
+		IsActive:           true,
+	}
+
+	repo.getPasswordResetTokenResult = &domain.PasswordResetToken{
+		UserID: "user-1",
+		Token:  "valid-token",
+	}
+
+	service := NewService(repo, auth, nil, nil, "")
+
+	err := service.ResetPassword(context.Background(), ResetPasswordInput{
+		Token:       "valid-token",
+		NewPassword: "newpassword123",
+	})
+
+	require.NoError(t, err)
+	assert.True(t, repo.updateUserPasswordCalled)
+	assert.True(t, repo.deleteUserPasswordResetTokensCalled)
+	assert.True(t, repo.deleteUserRefreshTokensCalled)
+	assert.True(t, repo.updateUserCalled) // must_change_password cleared
+	assert.False(t, repo.users["test@example.com"].MustChangePassword)
+}
+
+func TestResetPassword_InvalidToken(t *testing.T) {
+	repo := newMockRepository()
+	auth := &mockAuthenticator{}
+
+	service := NewService(repo, auth, nil, nil, "")
+
+	err := service.ResetPassword(context.Background(), ResetPasswordInput{
+		Token:       "invalid-token",
+		NewPassword: "newpassword123",
+	})
+
+	assert.ErrorIs(t, err, ErrInvalidResetToken)
+	assert.False(t, repo.updateUserPasswordCalled)
+}
+
+func TestForgotPassword_EmailSendFails(t *testing.T) {
+	repo := newMockRepository()
+	auth := &mockAuthenticator{}
+	emailSender := &mockEmailSender{err: errors.New("smtp connection refused")}
+
+	repo.users["test@example.com"] = &domain.User{
+		ID:    "user-1",
+		Email: "test@example.com",
+	}
+
+	service := NewService(repo, auth, nil, emailSender, "https://example.com")
+
+	err := service.ForgotPassword(context.Background(), "test@example.com")
+	require.NoError(t, err) // still returns nil despite email failure
+	assert.True(t, repo.savePasswordResetTokenCalled)
+	assert.True(t, emailSender.called)
+}
+
+func TestResetPassword_MustChangePasswordAlreadyFalse(t *testing.T) {
+	repo := newMockRepository()
+	auth := &mockAuthenticator{}
+
+	repo.users["test@example.com"] = &domain.User{
+		ID:                 "user-1",
+		Email:              "test@example.com",
+		MustChangePassword: false,
+		IsActive:           true,
+	}
+
+	repo.getPasswordResetTokenResult = &domain.PasswordResetToken{
+		UserID: "user-1",
+		Token:  "valid-token",
+	}
+
+	service := NewService(repo, auth, nil, nil, "")
+
+	err := service.ResetPassword(context.Background(), ResetPasswordInput{
+		Token:       "valid-token",
+		NewPassword: "newpassword123",
+	})
+
+	require.NoError(t, err)
+	assert.True(t, repo.updateUserPasswordCalled)
+	assert.True(t, repo.deleteUserPasswordResetTokensCalled)
+	assert.False(t, repo.updateUserCalled) // UpdateUser NOT called — flag was already false
 }

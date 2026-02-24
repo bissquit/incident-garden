@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: StatusPage API
   description: API for managing service statuses and incidents
-  version: 2.13.0
+  version: 2.14.0
   contact:
     name: API Support
 servers:
@@ -165,6 +165,54 @@ paths:
               description: Cleared authentication cookies (Max-Age=0)
               schema:
                 type: string
+  /api/v1/auth/forgot-password:
+    post:
+      tags: [auth]
+      summary: Request password reset
+      description: |
+        Sends a password reset link to the user's email.
+        Always returns 200 to prevent email enumeration (except when email is not configured).
+      operationId: forgotPassword
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ForgotPasswordRequest'
+      responses:
+        '200':
+          description: Reset link sent (or silently ignored if email not found)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+        '400':
+          description: Email not configured or validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/auth/reset-password:
+    post:
+      tags: [auth]
+      summary: Reset password using token
+      description: Sets a new password using a valid reset token. Token is single-use and expires after 1 hour.
+      operationId: resetPassword
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetPasswordRequest'
+      responses:
+        '204':
+          description: Password reset successful
+        '400':
+          description: Invalid or expired token, or validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/me:
     get:
       tags: [auth]
@@ -2292,3 +2340,39 @@ components:
               type: array
               items:
                 $ref: '#/components/schemas/Event'
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            message:
+              type: string
+            details:
+              type: string
+    ForgotPasswordRequest:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+    ResetPasswordRequest:
+      type: object
+      required: [token, new_password]
+      properties:
+        token:
+          type: string
+        new_password:
+          type: string
+          minLength: 8
+    MessageResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [message]
+          properties:
+            message:
+              type: string

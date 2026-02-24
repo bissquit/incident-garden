@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"time"
 
@@ -21,6 +22,8 @@ var errorMappings = []httputil.ErrorMapping{
 	{Error: ErrInvalidToken, Status: http.StatusUnauthorized},
 	{Error: ErrAccountDeactivated, Status: http.StatusForbidden},
 	{Error: ErrWrongPassword, Status: http.StatusBadRequest, Message: "wrong current password"},
+	{Error: ErrEmailNotConfigured, Status: http.StatusBadRequest, Message: "email is not configured, contact your administrator"},
+	{Error: ErrInvalidResetToken, Status: http.StatusBadRequest, Message: "invalid or expired reset token"},
 }
 
 // CookieSettings contains settings for authentication cookies.
@@ -54,6 +57,8 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 		r.Post("/login", h.Login)
 		r.Post("/refresh", h.Refresh)
 		r.Post("/logout", h.Logout)
+		r.Post("/forgot-password", h.ForgotPassword)
+		r.Post("/reset-password", h.ResetPassword)
 	})
 }
 
@@ -250,6 +255,68 @@ func (h *Handler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httputil.Success(w, http.StatusOK, user)
+}
+
+// ForgotPasswordRequest represents forgot password request body.
+type ForgotPasswordRequest struct {
+	Email string `json:"email" validate:"required,email"`
+}
+
+// ForgotPassword handles POST /auth/forgot-password.
+// Always returns 200 to prevent email enumeration, except when email is not configured (400).
+func (h *Handler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
+	var req ForgotPasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httputil.Error(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+
+	if err := h.validator.Struct(req); err != nil {
+		httputil.ValidationError(w, err)
+		return
+	}
+
+	err := h.service.ForgotPassword(r.Context(), req.Email)
+	if err != nil {
+		if errors.Is(err, ErrEmailNotConfigured) {
+			httputil.HandleError(r.Context(), w, err, errorMappings)
+			return
+		}
+		// Log but don't expose internal errors
+		ctxlog.FromContext(r.Context()).Error("forgot password error", "error", err)
+	}
+
+	httputil.Success(w, http.StatusOK, map[string]string{
+		"message": "if the email exists, a reset link has been sent",
+	})
+}
+
+// ResetPasswordRequest represents reset password request body.
+type ResetPasswordRequest struct {
+	Token       string `json:"token" validate:"required"`
+	NewPassword string `json:"new_password" validate:"required,min=8"`
+}
+
+// ResetPassword handles POST /auth/reset-password.
+func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) {
+	var req ResetPasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httputil.Error(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+
+	if err := h.validator.Struct(req); err != nil {
+		httputil.ValidationError(w, err)
+		return
+	}
+
+	err := h.service.ResetPassword(r.Context(), ResetPasswordInput(req))
+	if err != nil {
+		httputil.HandleError(r.Context(), w, err, errorMappings)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // setAuthCookies sets access_token, refresh_token, and csrf_token cookies.
