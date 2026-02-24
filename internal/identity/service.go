@@ -2,9 +2,12 @@ package identity
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/bissquit/incident-garden/internal/domain"
 	"golang.org/x/crypto/bcrypt"
@@ -19,6 +22,7 @@ var (
 	ErrInvalidResetToken  = errors.New("invalid or expired reset token")
 	ErrAccountDeactivated = errors.New("account deactivated")
 	ErrWrongPassword      = errors.New("wrong current password")
+	ErrEmailNotConfigured = errors.New("email not configured")
 )
 
 // UserCreatedHandler handles user creation events.
@@ -27,20 +31,30 @@ type UserCreatedHandler interface {
 	OnUserCreated(ctx context.Context, user *domain.User) error
 }
 
+// EmailSender sends emails directly (not through notification queue).
+// Used for password reset emails that must arrive immediately.
+type EmailSender interface {
+	SendEmail(ctx context.Context, to, subject, body string) error
+}
+
 // Service provides identity business logic.
 type Service struct {
 	repo               Repository
 	authenticator      Authenticator
 	userCreatedHandler UserCreatedHandler
+	emailSender        EmailSender // optional, nil if email not configured
+	frontendURL        string      // for constructing reset links
 }
 
 // NewService creates a new identity service.
-// userCreatedHandler is optional and can be nil.
-func NewService(repo Repository, authenticator Authenticator, userCreatedHandler UserCreatedHandler) *Service {
+// userCreatedHandler and emailSender are optional and can be nil.
+func NewService(repo Repository, authenticator Authenticator, userCreatedHandler UserCreatedHandler, emailSender EmailSender, frontendURL string) *Service {
 	return &Service{
 		repo:               repo,
 		authenticator:      authenticator,
 		userCreatedHandler: userCreatedHandler,
+		emailSender:        emailSender,
+		frontendURL:        frontendURL,
 	}
 }
 
@@ -246,4 +260,115 @@ func (s *Service) UpdateProfile(ctx context.Context, input UpdateProfileInput) (
 // ValidateToken validates access token and returns user info.
 func (s *Service) ValidateToken(ctx context.Context, token string) (string, domain.Role, error) {
 	return s.authenticator.ValidateAccessToken(ctx, token)
+}
+
+// ForgotPassword initiates password reset flow.
+// Always returns nil even if user not found (prevents email enumeration).
+// Returns ErrEmailNotConfigured if email sender is not available.
+func (s *Service) ForgotPassword(ctx context.Context, email string) error {
+	if s.emailSender == nil {
+		return ErrEmailNotConfigured
+	}
+
+	user, err := s.repo.GetUserByEmail(ctx, email)
+	if err != nil {
+		if errors.Is(err, ErrUserNotFound) {
+			return nil // silent — don't reveal if email exists
+		}
+		return fmt.Errorf("get user by email: %w", err)
+	}
+
+	// Rate limit: skip if token was created less than 5 minutes ago
+	latest, err := s.repo.GetLatestPasswordResetToken(ctx, user.ID)
+	if err != nil {
+		return fmt.Errorf("check existing token: %w", err)
+	}
+	if latest != nil && time.Since(latest.CreatedAt) < 5*time.Minute {
+		return nil // silently skip
+	}
+
+	// Generate token: 32 random bytes, hex-encoded = 64 chars
+	tokenBytes := make([]byte, 32)
+	if _, err := rand.Read(tokenBytes); err != nil {
+		return fmt.Errorf("generate token: %w", err)
+	}
+	tokenStr := hex.EncodeToString(tokenBytes)
+
+	resetToken := &domain.PasswordResetToken{
+		UserID:    user.ID,
+		Token:     tokenStr,
+		ExpiresAt: time.Now().Add(1 * time.Hour),
+	}
+
+	if err := s.repo.SavePasswordResetToken(ctx, resetToken); err != nil {
+		return fmt.Errorf("save reset token: %w", err)
+	}
+
+	// Build reset link and send email
+	resetLink := s.frontendURL + "/reset-password?token=" + tokenStr
+	subject := "Password Reset Request"
+	body := fmt.Sprintf("You requested a password reset.\n\nClick the link below to reset your password:\n%s\n\nThis link expires in 1 hour.\n\nIf you did not request this, please ignore this email.", resetLink)
+
+	if err := s.emailSender.SendEmail(ctx, user.Email, subject, body); err != nil {
+		slog.Warn("failed to send password reset email",
+			"user_id", user.ID,
+			"error", err,
+		)
+		// Don't fail — token is saved, user can retry
+	}
+
+	return nil
+}
+
+// ResetPasswordInput contains data for password reset.
+type ResetPasswordInput struct {
+	Token       string
+	NewPassword string
+}
+
+// ResetPassword resets password using a valid reset token.
+func (s *Service) ResetPassword(ctx context.Context, input ResetPasswordInput) error {
+	token, err := s.repo.GetPasswordResetToken(ctx, input.Token)
+	if err != nil {
+		return ErrInvalidResetToken
+	}
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(input.NewPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("hash password: %w", err)
+	}
+
+	if err := s.repo.UpdateUserPassword(ctx, token.UserID, string(hashedPassword)); err != nil {
+		return fmt.Errorf("update password: %w", err)
+	}
+
+	// Clear must_change_password — user proved email ownership
+	user, err := s.repo.GetUserByID(ctx, token.UserID)
+	if err == nil && user.MustChangePassword {
+		user.MustChangePassword = false
+		if err := s.repo.UpdateUser(ctx, user); err != nil {
+			slog.Warn("failed to clear must_change_password after reset",
+				"user_id", token.UserID,
+				"error", err,
+			)
+		}
+	}
+
+	// Clean up: delete used token and all user's reset tokens
+	if err := s.repo.DeleteUserPasswordResetTokens(ctx, token.UserID); err != nil {
+		slog.Warn("failed to delete password reset tokens",
+			"user_id", token.UserID,
+			"error", err,
+		)
+	}
+
+	// Invalidate all refresh tokens
+	if err := s.repo.DeleteUserRefreshTokens(ctx, token.UserID); err != nil {
+		slog.Warn("failed to invalidate refresh tokens after password reset",
+			"user_id", token.UserID,
+			"error", err,
+		)
+	}
+
+	return nil
 }

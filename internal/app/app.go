@@ -226,6 +226,21 @@ func (a *App) NotificationWorker() *notifications.Worker {
 	return a.notificationWorker
 }
 
+// identityEmailAdapter wraps email.Sender to implement identity.EmailSender.
+// Breaks circular dependency: identity module needs to send emails but cannot
+// import notifications module (which already depends on identity).
+type identityEmailAdapter struct {
+	sender *email.Sender
+}
+
+func (a *identityEmailAdapter) SendEmail(ctx context.Context, to, subject, body string) error {
+	return a.sender.Send(ctx, notifications.Notification{
+		To:      to,
+		Subject: subject,
+		Body:    body,
+	})
+}
+
 func (a *App) setupRouter(ctx context.Context) (*chi.Mux, *notifications.Worker, error) {
 	r := chi.NewRouter()
 
@@ -281,6 +296,7 @@ func (a *App) setupRouter(ctx context.Context) (*chi.Mux, *notifications.Worker,
 	var notificationsHandler *notifications.Handler
 	var notifier events.EventNotifier
 	var notificationWorker *notifications.Worker
+	var identityEmailSender identity.EmailSender
 
 	slog.Info("notifications configured",
 		"enabled", a.config.Notifications.Enabled,
@@ -304,6 +320,11 @@ func (a *App) setupRouter(ctx context.Context) (*chi.Mux, *notifications.Worker,
 
 		if !a.config.Notifications.Email.Enabled {
 			slog.Warn("email sender is disabled: email notifications and verification codes will not be sent")
+		}
+
+		// Setup identity email adapter for password reset
+		if a.config.Notifications.Email.Enabled {
+			identityEmailSender = &identityEmailAdapter{sender: emailSender}
 		}
 
 		telegramSender, err := telegram.NewSender(telegram.Config{
@@ -386,7 +407,7 @@ func (a *App) setupRouter(ctx context.Context) (*chi.Mux, *notifications.Worker,
 		AccessTokenDuration:  a.config.JWT.AccessTokenDuration,
 		RefreshTokenDuration: a.config.JWT.RefreshTokenDuration,
 	}, identityRepo)
-	identityService := identity.NewService(identityRepo, jwtAuth, notificationsService)
+	identityService := identity.NewService(identityRepo, jwtAuth, notificationsService, identityEmailSender, a.config.App.FrontendURL)
 	identityHandler := identity.NewHandler(identityService, identity.CookieSettings{
 		Secure:               a.config.Cookie.Secure,
 		Domain:               a.config.Cookie.Domain,
