@@ -23,6 +23,8 @@ var (
 	ErrAccountDeactivated = errors.New("account deactivated")
 	ErrWrongPassword      = errors.New("wrong current password")
 	ErrEmailNotConfigured = errors.New("email not configured")
+	ErrCannotModifySelf   = errors.New("cannot modify your own account")
+	ErrInvalidRole        = errors.New("invalid role")
 )
 
 // UserCreatedHandler handles user creation events.
@@ -366,6 +368,170 @@ func (s *Service) ResetPassword(ctx context.Context, input ResetPasswordInput) e
 	if err := s.repo.DeleteUserRefreshTokens(ctx, token.UserID); err != nil {
 		slog.Warn("failed to invalidate refresh tokens after password reset",
 			"user_id", token.UserID,
+			"error", err,
+		)
+	}
+
+	return nil
+}
+
+// ListUsers returns a paginated list of users.
+func (s *Service) ListUsers(ctx context.Context, filter UserFilter) ([]*domain.User, int, error) {
+	return s.repo.ListUsers(ctx, filter)
+}
+
+// AdminCreateUserInput contains data for admin user creation.
+type AdminCreateUserInput struct {
+	Email     string
+	Password  string
+	FirstName string
+	LastName  string
+	Role      domain.Role
+}
+
+// AdminCreateUser creates a new user with specified role (admin only).
+// Always sets must_change_password=true.
+func (s *Service) AdminCreateUser(ctx context.Context, input AdminCreateUserInput) (*domain.User, error) {
+	if !input.Role.IsValid() {
+		return nil, ErrInvalidRole
+	}
+
+	existing, err := s.repo.GetUserByEmail(ctx, input.Email)
+	if err != nil && !errors.Is(err, ErrUserNotFound) {
+		return nil, fmt.Errorf("check email: %w", err)
+	}
+	if existing != nil {
+		return nil, ErrEmailExists
+	}
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(input.Password), bcrypt.DefaultCost)
+	if err != nil {
+		return nil, fmt.Errorf("hash password: %w", err)
+	}
+
+	user := &domain.User{
+		Email:              input.Email,
+		PasswordHash:       string(hashedPassword),
+		FirstName:          input.FirstName,
+		LastName:           input.LastName,
+		Role:               input.Role,
+		IsActive:           true,
+		MustChangePassword: true,
+	}
+
+	if err := s.repo.CreateUser(ctx, user); err != nil {
+		return nil, err
+	}
+
+	// Create default notification channel
+	if s.userCreatedHandler != nil {
+		if err := s.userCreatedHandler.OnUserCreated(ctx, user); err != nil {
+			slog.Warn("failed to create default notification channel for admin-created user",
+				"user_id", user.ID,
+				"email", user.Email,
+				"error", err,
+			)
+		}
+	}
+
+	return user, nil
+}
+
+// AdminUpdateUserInput contains data for admin user update.
+type AdminUpdateUserInput struct {
+	UserID    string
+	Role      *domain.Role
+	IsActive  *bool
+	FirstName *string
+	LastName  *string
+}
+
+// AdminUpdateUser updates a user's role, active status, or profile (admin only).
+// Cannot modify the caller's own account.
+func (s *Service) AdminUpdateUser(ctx context.Context, adminUserID string, input AdminUpdateUserInput) (*domain.User, error) {
+	if adminUserID == input.UserID {
+		return nil, ErrCannotModifySelf
+	}
+
+	user, err := s.repo.GetUserByID(ctx, input.UserID)
+	if err != nil {
+		return nil, err
+	}
+
+	if input.Role != nil {
+		if !input.Role.IsValid() {
+			return nil, ErrInvalidRole
+		}
+		user.Role = *input.Role
+	}
+	if input.FirstName != nil {
+		user.FirstName = *input.FirstName
+	}
+	if input.LastName != nil {
+		user.LastName = *input.LastName
+	}
+
+	wasActive := user.IsActive
+	if input.IsActive != nil {
+		user.IsActive = *input.IsActive
+	}
+
+	if input.Role == nil && input.IsActive == nil && input.FirstName == nil && input.LastName == nil {
+		return user, nil
+	}
+
+	if err := s.repo.UpdateUser(ctx, user); err != nil {
+		return nil, fmt.Errorf("update user: %w", err)
+	}
+
+	// On deactivation: invalidate all refresh tokens
+	if wasActive && input.IsActive != nil && !*input.IsActive {
+		if err := s.repo.DeleteUserRefreshTokens(ctx, user.ID); err != nil {
+			slog.Warn("failed to invalidate refresh tokens after deactivation",
+				"user_id", user.ID,
+				"error", err,
+			)
+		}
+	}
+
+	return user, nil
+}
+
+// AdminResetPasswordInput contains data for admin password reset.
+type AdminResetPasswordInput struct {
+	UserID      string
+	NewPassword string
+}
+
+// AdminResetPassword sets a new password for a user (admin only).
+// Sets must_change_password=true and invalidates all refresh tokens.
+func (s *Service) AdminResetPassword(ctx context.Context, adminUserID string, input AdminResetPasswordInput) error {
+	if adminUserID == input.UserID {
+		return ErrCannotModifySelf
+	}
+
+	user, err := s.repo.GetUserByID(ctx, input.UserID)
+	if err != nil {
+		return err
+	}
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(input.NewPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("hash password: %w", err)
+	}
+
+	if err := s.repo.UpdateUserPassword(ctx, user.ID, string(hashedPassword)); err != nil {
+		return fmt.Errorf("update password: %w", err)
+	}
+
+	user.MustChangePassword = true
+	if err := s.repo.UpdateUser(ctx, user); err != nil {
+		return fmt.Errorf("set must_change_password: %w", err)
+	}
+
+	if err := s.repo.DeleteUserRefreshTokens(ctx, user.ID); err != nil {
+		slog.Warn("failed to invalidate refresh tokens after admin password reset",
+			"user_id", user.ID,
 			"error", err,
 		)
 	}

@@ -446,6 +446,7 @@ func (a *App) setupRouter(ctx context.Context) (*chi.Mux, *notifications.Worker,
 				r.Use(httputil.RequireRole(domain.RoleAdmin))
 				catalogHandler.RegisterRoutes(r)
 				eventsHandler.RegisterAdminRoutes(r)
+				identityHandler.RegisterAdminRoutes(r)
 			})
 		})
 

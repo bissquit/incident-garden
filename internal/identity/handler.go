@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/bissquit/incident-garden/internal/domain"
@@ -24,7 +25,15 @@ var errorMappings = []httputil.ErrorMapping{
 	{Error: ErrWrongPassword, Status: http.StatusBadRequest, Message: "wrong current password"},
 	{Error: ErrEmailNotConfigured, Status: http.StatusBadRequest, Message: "email is not configured, contact your administrator"},
 	{Error: ErrInvalidResetToken, Status: http.StatusBadRequest, Message: "invalid or expired reset token"},
+	{Error: ErrCannotModifySelf, Status: http.StatusConflict, Message: "cannot modify your own account"},
+	{Error: ErrInvalidRole, Status: http.StatusBadRequest, Message: "invalid role"},
 }
+
+// Pagination defaults for user listing.
+const (
+	DefaultUsersLimit = 20
+	MaxUsersLimit     = 100
+)
 
 // CookieSettings contains settings for authentication cookies.
 type CookieSettings struct {
@@ -311,6 +320,183 @@ func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 	}
 
 	err := h.service.ResetPassword(r.Context(), ResetPasswordInput(req))
+	if err != nil {
+		httputil.HandleError(r.Context(), w, err, errorMappings)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// RegisterAdminRoutes registers admin-only user management routes.
+func (h *Handler) RegisterAdminRoutes(r chi.Router) {
+	r.Route("/users", func(r chi.Router) {
+		r.Get("/", h.ListUsers)
+		r.Post("/", h.AdminCreateUser)
+		r.Get("/{id}", h.GetUser)
+		r.Patch("/{id}", h.AdminUpdateUser)
+		r.Post("/{id}/reset-password", h.AdminResetPassword)
+	})
+}
+
+// ListUsers handles GET /users.
+func (h *Handler) ListUsers(w http.ResponseWriter, r *http.Request) {
+	filter := UserFilter{
+		Limit: DefaultUsersLimit,
+	}
+
+	if roleParam := r.URL.Query().Get("role"); roleParam != "" {
+		role := domain.Role(roleParam)
+		if !role.IsValid() {
+			httputil.Error(w, http.StatusBadRequest, "invalid role filter")
+			return
+		}
+		filter.Role = &role
+	}
+
+	if l := r.URL.Query().Get("limit"); l != "" {
+		parsed, err := strconv.Atoi(l)
+		if err != nil || parsed < 1 {
+			httputil.Error(w, http.StatusBadRequest, "limit must be a positive integer")
+			return
+		}
+		if parsed > MaxUsersLimit {
+			parsed = MaxUsersLimit
+		}
+		filter.Limit = parsed
+	}
+
+	if o := r.URL.Query().Get("offset"); o != "" {
+		parsed, err := strconv.Atoi(o)
+		if err != nil || parsed < 0 {
+			httputil.Error(w, http.StatusBadRequest, "offset must be a non-negative integer")
+			return
+		}
+		filter.Offset = parsed
+	}
+
+	users, total, err := h.service.ListUsers(r.Context(), filter)
+	if err != nil {
+		httputil.HandleError(r.Context(), w, err, errorMappings)
+		return
+	}
+
+	httputil.Success(w, http.StatusOK, map[string]interface{}{
+		"users":  users,
+		"total":  total,
+		"limit":  filter.Limit,
+		"offset": filter.Offset,
+	})
+}
+
+// GetUser handles GET /users/{id}.
+func (h *Handler) GetUser(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	user, err := h.service.GetUserByID(r.Context(), id)
+	if err != nil {
+		httputil.HandleError(r.Context(), w, err, errorMappings)
+		return
+	}
+
+	httputil.Success(w, http.StatusOK, user)
+}
+
+// AdminCreateUserRequest represents admin user creation request body.
+type AdminCreateUserRequest struct {
+	Email     string      `json:"email" validate:"required,email"`
+	Password  string      `json:"password" validate:"required,min=8"`
+	FirstName string      `json:"first_name"`
+	LastName  string      `json:"last_name"`
+	Role      domain.Role `json:"role" validate:"required"`
+}
+
+// AdminCreateUser handles POST /users.
+func (h *Handler) AdminCreateUser(w http.ResponseWriter, r *http.Request) {
+	var req AdminCreateUserRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httputil.Error(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+
+	if err := h.validator.Struct(req); err != nil {
+		httputil.ValidationError(w, err)
+		return
+	}
+
+	user, err := h.service.AdminCreateUser(r.Context(), AdminCreateUserInput(req))
+	if err != nil {
+		httputil.HandleError(r.Context(), w, err, errorMappings)
+		return
+	}
+
+	httputil.Success(w, http.StatusCreated, user)
+}
+
+// AdminUpdateUserRequest represents admin user update request body.
+type AdminUpdateUserRequest struct {
+	Role      *domain.Role `json:"role"`
+	IsActive  *bool        `json:"is_active"`
+	FirstName *string      `json:"first_name" validate:"omitempty,max=100"`
+	LastName  *string      `json:"last_name" validate:"omitempty,max=100"`
+}
+
+// AdminUpdateUser handles PATCH /users/{id}.
+func (h *Handler) AdminUpdateUser(w http.ResponseWriter, r *http.Request) {
+	targetID := chi.URLParam(r, "id")
+	adminUserID := httputil.GetUserID(r.Context())
+
+	var req AdminUpdateUserRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httputil.Error(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+
+	if err := h.validator.Struct(req); err != nil {
+		httputil.ValidationError(w, err)
+		return
+	}
+
+	user, err := h.service.AdminUpdateUser(r.Context(), adminUserID, AdminUpdateUserInput{
+		UserID:    targetID,
+		Role:      req.Role,
+		IsActive:  req.IsActive,
+		FirstName: req.FirstName,
+		LastName:  req.LastName,
+	})
+	if err != nil {
+		httputil.HandleError(r.Context(), w, err, errorMappings)
+		return
+	}
+
+	httputil.Success(w, http.StatusOK, user)
+}
+
+// AdminResetPasswordRequest represents admin password reset request body.
+type AdminResetPasswordRequest struct {
+	NewPassword string `json:"new_password" validate:"required,min=8"`
+}
+
+// AdminResetPassword handles POST /users/{id}/reset-password.
+func (h *Handler) AdminResetPassword(w http.ResponseWriter, r *http.Request) {
+	targetID := chi.URLParam(r, "id")
+	adminUserID := httputil.GetUserID(r.Context())
+
+	var req AdminResetPasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httputil.Error(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+
+	if err := h.validator.Struct(req); err != nil {
+		httputil.ValidationError(w, err)
+		return
+	}
+
+	err := h.service.AdminResetPassword(r.Context(), adminUserID, AdminResetPasswordInput{
+		UserID:      targetID,
+		NewPassword: req.NewPassword,
+	})
 	if err != nil {
 		httputil.HandleError(r.Context(), w, err, errorMappings)
 		return

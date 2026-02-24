@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: StatusPage API
   description: API for managing service statuses and incidents
-  version: 2.14.0
+  version: 2.15.0
   contact:
     name: API Support
 servers:
@@ -27,6 +27,8 @@ tags:
     description: Notification subscriptions
   - name: notifications
     description: Notification system configuration
+  - name: users
+    description: Admin user management
   - name: status
     description: Public status
 paths:
@@ -280,6 +282,256 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
+  /api/v1/users:
+    get:
+      tags: [users]
+      summary: List users
+      description: Admin-only. Returns paginated list of users with optional role filter.
+      operationId: listUsers
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: role
+          in: query
+          schema:
+            type: string
+            enum: [user, operator, admin]
+          description: Filter by user role
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: Paginated list of users
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsersListResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Forbidden - admin role required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      tags: [users]
+      summary: Create a user
+      description: |
+        Admin-only. Creates a new user with specified role.
+        Sets must_change_password=true and creates a default email channel.
+      operationId: adminCreateUser
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminCreateUserRequest'
+      responses:
+        '201':
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '400':
+          description: Validation error or invalid role
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Forbidden - admin role required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Email already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/users/{id}:
+    get:
+      tags: [users]
+      summary: Get user details
+      description: Admin-only. Returns user details by ID.
+      operationId: getUser
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: User data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Forbidden - admin role required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    patch:
+      tags: [users]
+      summary: Update a user
+      description: |
+        Admin-only. Update user role, active status, or profile fields.
+        Cannot modify your own account (returns 409).
+        On deactivation, all refresh tokens are invalidated.
+      operationId: adminUpdateUser
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminUpdateUserRequest'
+      responses:
+        '200':
+          description: User updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '400':
+          description: Validation error or invalid role
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Forbidden - admin role required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Cannot modify own account
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /api/v1/users/{id}/reset-password:
+    post:
+      tags: [users]
+      summary: Reset user password
+      description: |
+        Admin-only. Sets a new password for the user.
+        Sets must_change_password=true and invalidates all refresh tokens.
+        Cannot reset your own password via this endpoint (returns 409).
+      operationId: adminResetPassword
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminResetPasswordRequest'
+      responses:
+        '204':
+          description: Password reset successful
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Forbidden - admin role required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Cannot reset own password
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /api/v1/services:
     get:
       tags: [services]
@@ -2340,6 +2592,62 @@ components:
               type: array
               items:
                 $ref: '#/components/schemas/Event'
+    AdminCreateUserRequest:
+      type: object
+      required: [email, password, role]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+        first_name:
+          type: string
+        last_name:
+          type: string
+        role:
+          type: string
+          enum: [user, operator, admin]
+    AdminUpdateUserRequest:
+      type: object
+      properties:
+        role:
+          type: string
+          enum: [user, operator, admin]
+        is_active:
+          type: boolean
+        first_name:
+          type: string
+          maxLength: 100
+        last_name:
+          type: string
+          maxLength: 100
+    AdminResetPasswordRequest:
+      type: object
+      required: [new_password]
+      properties:
+        new_password:
+          type: string
+          minLength: 8
+    UsersListResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [users, total, limit, offset]
+          properties:
+            users:
+              type: array
+              items:
+                $ref: '#/components/schemas/User'
+            total:
+              type: integer
+            limit:
+              type: integer
+            offset:
+              type: integer
     Error:
       type: object
       properties:
