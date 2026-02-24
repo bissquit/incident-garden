@@ -26,6 +26,11 @@ type mockRepository struct {
 	deleteUserPasswordResetTokensCalled bool
 	latestPasswordResetToken            *domain.PasswordResetToken
 	getPasswordResetTokenResult         *domain.PasswordResetToken
+
+	listUsersCalled bool
+	listUsersFilter UserFilter
+	listUsersResult []*domain.User
+	listUsersTotal  int
 }
 
 func newMockRepository() *mockRepository {
@@ -87,7 +92,12 @@ func (m *mockRepository) DeleteUserRefreshTokens(_ context.Context, _ string) er
 	return nil
 }
 
-func (m *mockRepository) ListUsers(_ context.Context, _ UserFilter) ([]*domain.User, int, error) {
+func (m *mockRepository) ListUsers(_ context.Context, filter UserFilter) ([]*domain.User, int, error) {
+	m.listUsersCalled = true
+	m.listUsersFilter = filter
+	if m.listUsersResult != nil {
+		return m.listUsersResult, m.listUsersTotal, nil
+	}
 	return make([]*domain.User, 0), 0, nil
 }
 
@@ -586,4 +596,239 @@ func TestResetPassword_MustChangePasswordAlreadyFalse(t *testing.T) {
 	assert.True(t, repo.updateUserPasswordCalled)
 	assert.True(t, repo.deleteUserPasswordResetTokensCalled)
 	assert.False(t, repo.updateUserCalled) // UpdateUser NOT called — flag was already false
+}
+
+func TestAdminCreateUser_Success(t *testing.T) {
+	repo := newMockRepository()
+	auth := &mockAuthenticator{}
+	handler := &mockUserCreatedHandler{}
+
+	service := NewService(repo, auth, handler, nil, "")
+
+	user, err := service.AdminCreateUser(context.Background(), AdminCreateUserInput{
+		Email:     "newuser@example.com",
+		Password:  "password123",
+		FirstName: "New",
+		LastName:  "User",
+		Role:      domain.RoleOperator,
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, "newuser@example.com", user.Email)
+	assert.Equal(t, domain.RoleOperator, user.Role)
+	assert.True(t, user.MustChangePassword)
+	assert.True(t, user.IsActive)
+	assert.True(t, handler.called)
+}
+
+func TestAdminCreateUser_InvalidRole(t *testing.T) {
+	repo := newMockRepository()
+	auth := &mockAuthenticator{}
+
+	service := NewService(repo, auth, nil, nil, "")
+
+	_, err := service.AdminCreateUser(context.Background(), AdminCreateUserInput{
+		Email:    "test@example.com",
+		Password: "password123",
+		Role:     domain.Role("superadmin"),
+	})
+
+	assert.ErrorIs(t, err, ErrInvalidRole)
+}
+
+func TestAdminCreateUser_DuplicateEmail(t *testing.T) {
+	repo := newMockRepository()
+	auth := &mockAuthenticator{}
+
+	repo.users["existing@example.com"] = &domain.User{Email: "existing@example.com"}
+
+	service := NewService(repo, auth, nil, nil, "")
+
+	_, err := service.AdminCreateUser(context.Background(), AdminCreateUserInput{
+		Email:    "existing@example.com",
+		Password: "password123",
+		Role:     domain.RoleUser,
+	})
+
+	assert.ErrorIs(t, err, ErrEmailExists)
+}
+
+func TestAdminUpdateUser_Success(t *testing.T) {
+	repo := newMockRepository()
+	auth := &mockAuthenticator{}
+
+	repo.users["target@example.com"] = &domain.User{
+		ID:       "target-1",
+		Email:    "target@example.com",
+		Role:     domain.RoleUser,
+		IsActive: true,
+		LastName: "Original",
+	}
+
+	service := NewService(repo, auth, nil, nil, "")
+
+	newRole := domain.RoleOperator
+	newFirst := "Updated"
+	user, err := service.AdminUpdateUser(context.Background(), "admin-1", AdminUpdateUserInput{
+		UserID:    "target-1",
+		Role:      &newRole,
+		FirstName: &newFirst,
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, domain.RoleOperator, user.Role)
+	assert.Equal(t, "Updated", user.FirstName)
+	assert.Equal(t, "Original", user.LastName) // unchanged
+	assert.True(t, user.IsActive)              // unchanged
+	assert.True(t, repo.updateUserCalled)
+}
+
+func TestAdminUpdateUser_SelfModification(t *testing.T) {
+	repo := newMockRepository()
+	auth := &mockAuthenticator{}
+
+	service := NewService(repo, auth, nil, nil, "")
+
+	newRole := domain.RoleUser
+	_, err := service.AdminUpdateUser(context.Background(), "admin-1", AdminUpdateUserInput{
+		UserID: "admin-1",
+		Role:   &newRole,
+	})
+
+	assert.ErrorIs(t, err, ErrCannotModifySelf)
+}
+
+func TestAdminUpdateUser_Deactivation(t *testing.T) {
+	repo := newMockRepository()
+	auth := &mockAuthenticator{}
+
+	repo.users["target@example.com"] = &domain.User{
+		ID:       "target-1",
+		Email:    "target@example.com",
+		IsActive: true,
+	}
+
+	service := NewService(repo, auth, nil, nil, "")
+
+	isActive := false
+	user, err := service.AdminUpdateUser(context.Background(), "admin-1", AdminUpdateUserInput{
+		UserID:   "target-1",
+		IsActive: &isActive,
+	})
+
+	require.NoError(t, err)
+	assert.False(t, user.IsActive)
+	assert.True(t, repo.deleteUserRefreshTokensCalled)
+}
+
+func TestAdminUpdateUser_NotFound(t *testing.T) {
+	repo := newMockRepository()
+	auth := &mockAuthenticator{}
+
+	service := NewService(repo, auth, nil, nil, "")
+
+	_, err := service.AdminUpdateUser(context.Background(), "admin-1", AdminUpdateUserInput{
+		UserID: "nonexistent",
+	})
+
+	assert.ErrorIs(t, err, ErrUserNotFound)
+}
+
+func TestAdminUpdateUser_InvalidRole(t *testing.T) {
+	repo := newMockRepository()
+	auth := &mockAuthenticator{}
+
+	repo.users["target@example.com"] = &domain.User{
+		ID:       "target-1",
+		Email:    "target@example.com",
+		IsActive: true,
+	}
+
+	service := NewService(repo, auth, nil, nil, "")
+
+	badRole := domain.Role("superadmin")
+	_, err := service.AdminUpdateUser(context.Background(), "admin-1", AdminUpdateUserInput{
+		UserID: "target-1",
+		Role:   &badRole,
+	})
+
+	assert.ErrorIs(t, err, ErrInvalidRole)
+}
+
+func TestAdminResetPassword_Success(t *testing.T) {
+	repo := newMockRepository()
+	auth := &mockAuthenticator{}
+
+	repo.users["target@example.com"] = &domain.User{
+		ID:       "target-1",
+		Email:    "target@example.com",
+		IsActive: true,
+	}
+
+	service := NewService(repo, auth, nil, nil, "")
+
+	err := service.AdminResetPassword(context.Background(), "admin-1", AdminResetPasswordInput{
+		UserID:      "target-1",
+		NewPassword: "newpassword123",
+	})
+
+	require.NoError(t, err)
+	assert.True(t, repo.updateUserPasswordCalled)
+	assert.True(t, repo.updateUserCalled)
+	assert.True(t, repo.deleteUserRefreshTokensCalled)
+	assert.True(t, repo.users["target@example.com"].MustChangePassword)
+}
+
+func TestAdminResetPassword_SelfReset(t *testing.T) {
+	repo := newMockRepository()
+	auth := &mockAuthenticator{}
+
+	service := NewService(repo, auth, nil, nil, "")
+
+	err := service.AdminResetPassword(context.Background(), "admin-1", AdminResetPasswordInput{
+		UserID:      "admin-1",
+		NewPassword: "newpassword123",
+	})
+
+	assert.ErrorIs(t, err, ErrCannotModifySelf)
+}
+
+func TestAdminResetPassword_UserNotFound(t *testing.T) {
+	repo := newMockRepository()
+	auth := &mockAuthenticator{}
+
+	service := NewService(repo, auth, nil, nil, "")
+
+	err := service.AdminResetPassword(context.Background(), "admin-1", AdminResetPasswordInput{
+		UserID:      "nonexistent",
+		NewPassword: "newpassword123",
+	})
+
+	assert.ErrorIs(t, err, ErrUserNotFound)
+}
+
+func TestListUsers_Passthrough(t *testing.T) {
+	repo := newMockRepository()
+	auth := &mockAuthenticator{}
+
+	repo.listUsersResult = []*domain.User{
+		{ID: "1", Email: "user1@example.com"},
+		{ID: "2", Email: "user2@example.com"},
+	}
+	repo.listUsersTotal = 2
+
+	service := NewService(repo, auth, nil, nil, "")
+
+	role := domain.RoleUser
+	users, total, err := service.ListUsers(context.Background(), UserFilter{
+		Role:   &role,
+		Limit:  10,
+		Offset: 0,
+	})
+
+	require.NoError(t, err)
+	assert.Len(t, users, 2)
+	assert.Equal(t, 2, total)
+	assert.True(t, repo.listUsersCalled)
+	assert.Equal(t, &role, repo.listUsersFilter.Role)
 }
