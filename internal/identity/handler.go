@@ -19,6 +19,8 @@ var errorMappings = []httputil.ErrorMapping{
 	{Error: ErrEmailExists, Status: http.StatusConflict},
 	{Error: ErrInvalidCredentials, Status: http.StatusUnauthorized},
 	{Error: ErrInvalidToken, Status: http.StatusUnauthorized},
+	{Error: ErrAccountDeactivated, Status: http.StatusForbidden},
+	{Error: ErrWrongPassword, Status: http.StatusBadRequest, Message: "wrong current password"},
 }
 
 // CookieSettings contains settings for authentication cookies.
@@ -58,6 +60,8 @@ func (h *Handler) RegisterRoutes(r chi.Router) {
 // RegisterProtectedRoutes registers routes that require authentication.
 func (h *Handler) RegisterProtectedRoutes(r chi.Router) {
 	r.Get("/me", h.Me)
+	r.Patch("/me", h.UpdateProfile)
+	r.Put("/me/password", h.ChangePassword)
 }
 
 // RegisterRequest represents registration request body.
@@ -171,6 +175,75 @@ func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 	}
 
 	user, err := h.service.GetUserByID(r.Context(), userID)
+	if err != nil {
+		httputil.HandleError(r.Context(), w, err, errorMappings)
+		return
+	}
+
+	httputil.Success(w, http.StatusOK, user)
+}
+
+// ChangePasswordRequest represents password change request body.
+type ChangePasswordRequest struct {
+	CurrentPassword string `json:"current_password" validate:"required"`
+	NewPassword     string `json:"new_password" validate:"required,min=8"`
+}
+
+// ChangePassword handles PUT /me/password.
+func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
+	userID := httputil.GetUserID(r.Context())
+
+	var req ChangePasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httputil.Error(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+
+	if err := h.validator.Struct(req); err != nil {
+		httputil.ValidationError(w, err)
+		return
+	}
+
+	err := h.service.ChangePassword(r.Context(), ChangePasswordInput{
+		UserID:          userID,
+		CurrentPassword: req.CurrentPassword,
+		NewPassword:     req.NewPassword,
+	})
+	if err != nil {
+		httputil.HandleError(r.Context(), w, err, errorMappings)
+		return
+	}
+
+	h.clearAuthCookies(w)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// UpdateProfileRequest represents profile update request body.
+type UpdateProfileRequest struct {
+	FirstName *string `json:"first_name" validate:"omitempty,max=100"`
+	LastName  *string `json:"last_name" validate:"omitempty,max=100"`
+}
+
+// UpdateProfile handles PATCH /me.
+func (h *Handler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
+	userID := httputil.GetUserID(r.Context())
+
+	var req UpdateProfileRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httputil.Error(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+
+	if err := h.validator.Struct(req); err != nil {
+		httputil.ValidationError(w, err)
+		return
+	}
+
+	user, err := h.service.UpdateProfile(r.Context(), UpdateProfileInput{
+		UserID:    userID,
+		FirstName: req.FirstName,
+		LastName:  req.LastName,
+	})
 	if err != nil {
 		httputil.HandleError(r.Context(), w, err, errorMappings)
 		return

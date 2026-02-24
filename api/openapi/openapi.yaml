@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: StatusPage API
   description: API for managing service statuses and incidents
-  version: 2.12.0
+  version: 2.13.0
   contact:
     name: API Support
 servers:
@@ -110,6 +110,8 @@ paths:
                 $ref: '#/components/schemas/LoginResponse'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
   /api/v1/auth/refresh:
     post:
       tags: [auth]
@@ -137,6 +139,8 @@ paths:
                 type: string
         '401':
           $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
   /api/v1/auth/logout:
     post:
       tags: [auth]
@@ -175,6 +179,57 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/UserResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+    patch:
+      tags: [auth]
+      summary: Update current user profile
+      operationId: updateProfile
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProfileRequest'
+      responses:
+        '200':
+          description: Profile updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+  /api/v1/me/password:
+    put:
+      tags: [auth]
+      summary: Change current user password
+      description: |
+        Changes the authenticated user's password. Requires the current password.
+        On success, all refresh tokens are invalidated and auth cookies are cleared.
+      operationId: changePassword
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+      responses:
+        '204':
+          description: Password changed. Auth cookies are cleared.
+          headers:
+            Set-Cookie:
+              description: Cleared authentication cookies (Max-Age=0)
+              schema:
+                type: string
+        '400':
+          $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/UnauthorizedError'
   /api/v1/services:
@@ -1412,13 +1467,17 @@ components:
           type: string
         role:
           $ref: '#/components/schemas/Role'
+        is_active:
+          type: boolean
+        must_change_password:
+          type: boolean
         created_at:
           type: string
           format: date-time
         updated_at:
           type: string
           format: date-time
-      required: [id, email, role, created_at, updated_at]
+      required: [id, email, role, is_active, must_change_password, created_at, updated_at]
     Service:
       type: object
       properties:
@@ -1707,6 +1766,22 @@ components:
         refresh_token:
           type: string
       required: [refresh_token]
+    ChangePasswordRequest:
+      type: object
+      properties:
+        current_password:
+          type: string
+        new_password:
+          type: string
+          minLength: 8
+      required: [current_password, new_password]
+    UpdateProfileRequest:
+      type: object
+      properties:
+        first_name:
+          type: string
+        last_name:
+          type: string
     CreateServiceRequest:
       type: object
       properties:
