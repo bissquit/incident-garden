@@ -45,7 +45,8 @@ Each module follows the pattern: `handler.go` (HTTP) → `service.go` (logic) �
 
 ```
 api/openapi/openapi.yaml           # API contract (source of truth for endpoints)
-migrations/                        # golang-migrate SQL migrations (000001–000020)
+migrations/                        # golang-migrate SQL migrations (000001–000021)
+docs/design-user-management.md     # Technical design: user management & password flows
 deployments/prometheus/            # alerts.yaml, servicemonitor.yaml
 docs/deployment.md                 # ENV vars, K8s config, Prometheus setup
 
@@ -54,21 +55,22 @@ internal/
 ├── config/config.go               # koanf-based config from ENV
 │
 ├── domain/                        # Entities, enums, domain errors (no infra)
-│   ├── user.go                    # User, Role, RefreshToken
+│   ├── user.go                    # User, Role, RefreshToken, PasswordResetToken
 │   ├── service.go                 # Service, ServiceGroup, ServiceWithEffectiveStatus, ServiceTag, ServiceStatusLogEntry
 │   ├── event.go                   # Event, EventUpdate, EventService, EventServiceChange, AffectedService, AffectedGroup
 │   ├── notification.go            # NotificationChannel, ChannelType
 │   └── template.go               # EventTemplate, TemplateData (macros: ServiceName, StartedAt, etc.)
 │
-├── identity/                      # Auth (register/login/refresh/logout), JWT, RBAC
-│   ├── handler.go                 # POST /auth/register, /login, /refresh, /logout; GET /me
-│   ├── service.go                 # CreateUser, Authenticate, RefreshTokens
+├── identity/                      # Auth, user management, password flows, JWT, RBAC
+│   ├── handler.go                 # Auth routes, /me, admin /users CRUD, password reset
+│   ├── service.go                 # Auth, user CRUD, password change/reset, admin ops
 │   ├── authenticator.go           # Authenticator interface
-│   ├── repository.go              # UserRepository, TokenRepository interfaces
+│   ├── repository.go              # Repository interface (users, tokens, password reset)
 │   ├── jwt/authenticator.go       # JWT implementation
 │   └── postgres/repository.go
 │   # Middleware: RequireAuth, RequireRole — used by all protected routes
 │   # Creates default email channel on registration via notifications.Service
+│   # EmailSender interface: direct email (not queue) for password reset
 │
 ├── catalog/                       # CRUD services/groups, M:N membership, soft delete, tags
 │   ├── handler.go                 # CRUD /services, /groups, /restore, /tags, /{slug}/events
@@ -156,6 +158,8 @@ tests/integration/                 # Integration tests (testcontainers, //go:bui
 **Events:** `events`, `event_service_changes` (audit trail with `batch_id`, `action`, `service_id`, `group_id`)
 
 **Status tracking:** `service_status_log` (source_type: manual/event/webhook, links to event_id), `v_service_effective_status` (VIEW — worst-case priority across active events)
+
+**Users:** `users` has `is_active` (bool, default true), `must_change_password` (bool, default false). `password_reset_tokens` (user_id, token, expires_at, created_at; indexed on token + user_id)
 
 **Notifications:** `notification_channels` (type: email/telegram/mattermost, `is_default`, `is_verified`), `channel_verification_codes`, `notification_queue` (async delivery with retry: pending→processing→sent/failed)
 
@@ -274,9 +278,13 @@ make test-integration    # Integration (testcontainers)
 - `GET /api/v1/groups?include_archived=bool`, `/groups/{slug}` — groups
 - `GET /api/v1/events`, `/events/{id}`, `/events/{id}/updates`, `/events/{id}/changes` — events
 - `GET /api/v1/notifications/config` — available channel types
+- `POST /api/v1/auth/forgot-password` — request password reset (always 200)
+- `POST /api/v1/auth/reset-password` — reset password with token (204)
 
 **Authenticated:**
 - `POST /api/v1/auth/register`, `/login`, `/refresh`, `/logout`; `GET /api/v1/me`
+- `PATCH /api/v1/me` — update profile (first_name, last_name)
+- `PUT /api/v1/me/password` — change own password (requires current password)
 - `GET|POST /api/v1/me/channels`; `PATCH|DELETE /api/v1/me/channels/{id}`
 - `POST /api/v1/me/channels/{id}/verify`, `/resend-code`
 - `GET /api/v1/me/subscriptions`; `PUT /api/v1/me/channels/{id}/subscriptions`
@@ -287,6 +295,11 @@ make test-integration    # Integration (testcontainers)
 - `GET /api/v1/services/{slug}/status-log?limit=N&offset=N`
 
 **Admin:**
+- `GET /api/v1/users?role=X&limit=N&offset=N` — list users (paginated)
+- `POST /api/v1/users` — admin create user (sets must_change_password=true)
+- `GET /api/v1/users/{id}` — get user details
+- `PATCH /api/v1/users/{id}` — update user (role, is_active, profile fields)
+- `POST /api/v1/users/{id}/reset-password` — admin reset password (sets must_change_password=true)
 - `POST|PATCH|DELETE /api/v1/services/{slug}`, `POST /services/{slug}/restore`
 - `GET|PUT /api/v1/services/{slug}/tags`
 - `POST|PATCH|DELETE /api/v1/groups/{slug}`, `POST /groups/{slug}/restore`
@@ -332,6 +345,20 @@ make test-integration    # Integration (testcontainers)
 - Auto-created on registration (verified, `is_default=true`). Cannot be deleted (409)
 - Skipped if `NOTIFICATIONS_EMAIL_ENABLED=false`. Duplicate email per user → 409
 
+**User Management (admin):**
+- Admin cannot modify own account (role change, deactivation, password reset → 409)
+- Deactivating a user deletes all their refresh tokens (session invalidation)
+- Admin-created users have `must_change_password=true`; frontend enforces password change on first login
+- Admin password reset sets new password + `must_change_password=true` + deletes all refresh tokens
+- No user deletion — only deactivation via PATCH (avoids cascade/orphan issues)
+
+**Password Flows:**
+- `PUT /me/password`: verifies current password, hashes new, clears `must_change_password`, deletes all refresh tokens (forces re-login)
+- `POST /auth/forgot-password`: always 200 (prevents email enumeration). Returns 400 only if email not configured. Rate-limited: 5 min between tokens per user
+- `POST /auth/reset-password`: validates token (32-byte, 1h TTL), hashes new password, clears `must_change_password`, deletes all password reset tokens for user
+- EmailSender interface in identity pkg avoids circular dep with notifications; `identityEmailAdapter` in app.go bridges them
+- Login checks `is_active` AFTER bcrypt comparison (timing oracle prevention)
+
 **Channel Types:**
 - Disabled types rejected with 400 (`ErrChannelTypeDisabled`). Mattermost always available
 - Verification failures → 422 with user-friendly message (telegram: /start needed or bot blocked; mattermost: check webhook URL)
@@ -373,15 +400,18 @@ make build / docker-build               # Build
 
 ### Done
 
-All core modules implemented: identity (auth/RBAC), catalog (services/groups, M:N, soft delete, effective status, tags, status log), events (incidents/maintenance lifecycle, composition editing, audit trail, templates), notifications (email/telegram/mattermost senders, verification, subscriptions, event integration, async queue with retry). Cloud-native: Prometheus metrics, structured logging, graceful shutdown, deployment guide.
+All core modules implemented: identity (auth/RBAC, user management, password change/reset, admin user CRUD), catalog (services/groups, M:N, soft delete, effective status, tags, status log), events (incidents/maintenance lifecycle, composition editing, audit trail, templates), notifications (email/telegram/mattermost senders, verification, subscriptions, event integration, async queue with retry). Cloud-native: Prometheus metrics, structured logging, graceful shutdown, deployment guide.
 
 ### Known Limitations
 
 - No Helm chart (see `docs/deployment.md` for K8s examples)
-- No pagination (except service events and status log)
+- No pagination (except service events, status log, and user listing)
 - No bulk operations, email batching, telegram rate limiting
 - No graceful degradation for senders, no rate limiting, no transient DB error retry
+- Integration tests for user management not yet written
 
 ### Configuration
 
 See [docs/deployment.md](./docs/deployment.md) for environment variables, K8s config, Prometheus setup.
+
+Key env vars for user management: `APP_FRONTEND_URL` (for password reset links in emails). Email sending requires `NOTIFICATIONS_ENABLED=true` + `NOTIFICATIONS_EMAIL_ENABLED=true`.
