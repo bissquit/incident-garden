@@ -34,18 +34,29 @@ func (r Role) HasPermission(required Role) bool {
 
 // User represents a user account in the system.
 type User struct {
-	ID           string    `json:"id"`
-	Email        string    `json:"email"`
-	PasswordHash string    `json:"-"`
-	FirstName    string    `json:"first_name,omitempty"`
-	LastName     string    `json:"last_name,omitempty"`
-	Role         Role      `json:"role"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	ID                 string    `json:"id"`
+	Email              string    `json:"email"`
+	PasswordHash       string    `json:"-"`
+	FirstName          string    `json:"first_name,omitempty"`
+	LastName           string    `json:"last_name,omitempty"`
+	Role               Role      `json:"role"`
+	IsActive           bool      `json:"is_active"`
+	MustChangePassword bool      `json:"must_change_password"`
+	CreatedAt          time.Time `json:"created_at"`
+	UpdatedAt          time.Time `json:"updated_at"`
 }
 
 // RefreshToken represents a refresh token stored in the database.
 type RefreshToken struct {
+	ID        string
+	UserID    string
+	Token     string
+	ExpiresAt time.Time
+	CreatedAt time.Time
+}
+
+// PasswordResetToken represents a password reset token stored in the database.
+type PasswordResetToken struct {
 	ID        string
 	UserID    string
 	Token     string
