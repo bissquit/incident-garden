@@ -2,387 +2,162 @@
 
 > Open-source self-hosted status page service. Alternative to Atlassian Statuspage, Cachet, Instatus.
 
----
-
-> **MANDATORY: Keep This File Updated**
->
-> This file is the source of truth for AI assistants working on this codebase.
-> **You MUST update CLAUDE.md when your changes affect:**
-> - Database schema (new tables, columns, constraints, views)
-> - API endpoints (new routes, changed request/response formats)
-> - Domain types (new structs in `internal/domain/`)
-> - Module interfaces (new methods in `repository.go`, `service.go`)
-> - Business rules or architectural decisions
-> - Project status (completed features, new limitations)
->
-> **Before completing any task, verify:**
-> 1. Does CODEMAP reflect current file structure and interfaces?
-> 2. Does Database Schema match actual migrations?
-> 3. Do API Endpoints match `api/openapi/openapi.yaml`?
-> 4. Does STATUS & TODO reflect what was just implemented?
->
-> Outdated documentation causes cascading errors in future AI-assisted work.
+> **MANDATORY: Keep This File Updated when changes affect:** database schema, API endpoints, domain types, module interfaces, business rules, or project status. Before completing any task, verify CODEMAP, schema, API endpoints, and STATUS sections are current.
 
 ---
 
 ## 1. PROJECT CONTEXT
 
-### What This Is
 - **Core:** Service status display + incident/maintenance management + notifications
 - **Architecture:** Modular monolith (Go), REST API-first
 - **Modules:** `identity` (auth/RBAC) → `catalog` (services/groups) → `events` (incidents/maintenance) → `notifications` (channels/dispatch)
 
 ### Tech Stack
+
 - **Go 1.25**, chi (router), pgx (PostgreSQL 16), koanf (config), slog (logging)
-- **Metrics:** prometheus/client_golang
-- **Infra:** Docker, testcontainers-go, GitHub Actions
-- **Validation:** go-playground/validator
-- **Migrations:** golang-migrate
+- prometheus/client_golang, go-playground/validator, golang-migrate
+- Docker, testcontainers-go, GitHub Actions
 
 ### Domain Concepts
 
-**Service statuses:** `operational`, `degraded`, `partial_outage`, `major_outage`, `maintenance`
-
-**Event types and transitions:**
-```
-incident:    investigating → identified → monitoring → resolved
-maintenance: scheduled → in_progress → completed
-```
-
-**Severity (incidents only):** `minor`, `major`, `critical`
-
-**Roles:** `user` → `operator` → `admin`
-
-**Template macros:** `{{.ServiceName}}`, `{{.ServiceGroupName}}`, `{{.StartedAt}}`, `{{.ResolvedAt}}`, `{{.ScheduledStart}}`, `{{.ScheduledEnd}}`
+| Concept          | Values                                                                     |
+|------------------|----------------------------------------------------------------------------|
+| Service statuses | `operational`, `degraded`, `partial_outage`, `major_outage`, `maintenance` |
+| Incident flow    | `investigating` → `identified` → `monitoring` → `resolved`                 |
+| Maintenance flow | `scheduled` → `in_progress` → `completed`                                  |
+| Severity         | `minor`, `major`, `critical`                                               |
+| Roles            | `user` → `operator` → `admin`                                              |
+| Channel types    | `email`, `telegram`, `mattermost`                                          |
 
 ### Key Architectural Decisions
 
-**M:N Services ↔ Groups:**
-- Service can belong to multiple groups simultaneously
-- Junction table: `service_group_members(service_id, group_id)`
-- API uses `group_ids: []string` instead of `group_id: *string`
+**M:N Services ↔ Groups:** Service belongs to multiple groups via `service_group_members` junction. API uses `group_ids: []string`.
 
-**Events with Groups:**
-- Events can be created by selecting groups (auto-expands to services)
-- `event_groups` stores which groups were selected
-- `event_services` stores flattened list of affected services
-- `event_service_changes` tracks all composition changes (audit trail)
+**Events with Groups:** Groups auto-expand to services at creation time. `event_groups` stores selected groups, `event_services` stores flattened services, `event_service_changes` tracks audit trail.
 
-**Soft Delete:**
-- Services and groups use `archived_at` instead of hard delete
-- Archived items hidden from lists by default (`include_archived=true` to show)
-- Cannot archive service/group with active (non-resolved) events
-- Archived items remain visible in historical events
+**Soft Delete:** Services/groups use `archived_at`. Hidden from lists by default (`include_archived=true` to show). Cannot archive with active events. Archived items remain in historical events.
 
 ---
 
 ## 2. CODEMAP
 
-### Quick Navigation
-
-| I need to...                 | Go to                                              |
-|------------------------------|---------------------------------------------------|
-| Add/modify API endpoint      | `internal/<module>/handler.go`                     |
-| Add business rule/validation | `internal/<module>/service.go`                     |
-| Change database query        | `internal/<module>/postgres/repository.go`         |
-| Add new entity               | `internal/domain/<entity>.go`                      |
-| Add database migration       | `migrations/NNNNNN_name.up.sql`                    |
-| Add shared utility           | `internal/pkg/<package>/`                          |
-| Add integration test         | `tests/integration/<module>_<domain>_test.go`      |
-| Add test helper              | `tests/integration/helpers_test.go`                |
-| Change app wiring/DI         | `internal/app/app.go`                              |
-| Modify configuration         | `internal/config/config.go`                        |
-| Update API contract          | `api/openapi/openapi.yaml`                         |
-| Check deployment/K8s config  | `docs/deployment.md`                               |
-| Modify Prometheus alerts     | `deployments/prometheus/alerts.yaml`               |
-
-### Database Schema (Key Tables)
+Each module follows the pattern: `handler.go` (HTTP) → `service.go` (logic) → `repository.go` (interface) → `postgres/repository.go` (SQL)
 
 ```
-services
-├── id, name, slug, description, status, order
-├── created_at, updated_at, archived_at (soft delete)
-└── NO group_id column (M:N via junction)
+api/openapi/openapi.yaml           # API contract (source of truth for endpoints)
+migrations/                        # golang-migrate SQL migrations (000001–000020)
+deployments/prometheus/            # alerts.yaml, servicemonitor.yaml
+docs/deployment.md                 # ENV vars, K8s config, Prometheus setup
 
-service_groups
-├── id, name, slug, description, order
-├── created_at, updated_at, archived_at (soft delete)
+internal/
+├── app/app.go                     # DI wiring, router setup, server lifecycle
+├── config/config.go               # koanf-based config from ENV
+│
+├── domain/                        # Entities, enums, domain errors (no infra)
+│   ├── user.go                    # User, Role, RefreshToken
+│   ├── service.go                 # Service, ServiceGroup, ServiceWithEffectiveStatus, ServiceTag, ServiceStatusLogEntry
+│   ├── event.go                   # Event, EventUpdate, EventService, EventServiceChange, AffectedService, AffectedGroup
+│   ├── notification.go            # NotificationChannel, ChannelType
+│   └── template.go               # EventTemplate, TemplateData (macros: ServiceName, StartedAt, etc.)
+│
+├── identity/                      # Auth (register/login/refresh/logout), JWT, RBAC
+│   ├── handler.go                 # POST /auth/register, /login, /refresh, /logout; GET /me
+│   ├── service.go                 # CreateUser, Authenticate, RefreshTokens
+│   ├── authenticator.go           # Authenticator interface
+│   ├── repository.go              # UserRepository, TokenRepository interfaces
+│   ├── jwt/authenticator.go       # JWT implementation
+│   └── postgres/repository.go
+│   # Middleware: RequireAuth, RequireRole — used by all protected routes
+│   # Creates default email channel on registration via notifications.Service
+│
+├── catalog/                       # CRUD services/groups, M:N membership, soft delete, tags
+│   ├── handler.go                 # CRUD /services, /groups, /restore, /tags, /{slug}/events
+│   ├── service.go                 # Business rules (archive checks, status updates)
+│   ├── repository.go              # M:N, soft delete, effective status, status log, validation
+│   ├── postgres/repository.go     # SQL with archived_at filtering
+│   └── service_test.go
+│   # Exposes interfaces for events module: GroupServiceResolver, CatalogServiceUpdater
+│
+├── events/                        # Incidents/maintenance lifecycle, composition changes
+│   ├── handler.go                 # CRUD /events, /updates, /changes, /templates
+│   ├── service.go                 # CreateEvent, AddUpdate (orchestrates status + services + audit)
+│   ├── resolver.go                # GroupServiceResolver, CatalogServiceUpdater, EventNotifier interfaces
+│   ├── repository.go              # Events, groups, services, changes — with Tx variants
+│   ├── template_renderer.go       # Go template execution for notifications
+│   ├── errors.go                  # ErrEventNotFound, ErrInvalidTransition, etc.
+│   ├── postgres/repository.go
+│   └── service_test.go
+│   # Depends on: catalog.Service (resolver), notifications.Notifier (EventNotifier)
+│
+├── notifications/                 # Channels, verification, subscriptions, dispatch
+│   ├── handler.go                 # CRUD /me/channels, /verify, /resend-code, /subscriptions, /config
+│   ├── service.go                 # Channel CRUD, verification, subscriptions, channel type checks
+│   ├── notifier.go                # Implements EventNotifier: queues notifications on event lifecycle
+│   ├── dispatcher.go              # Finds subscribers, sends via queue
+│   ├── worker.go                  # Background queue processor with exponential backoff retry
+│   ├── renderer.go                # Template rendering for notification messages
+│   ├── payload.go                 # NotificationPayload, EventData, EventChanges
+│   ├── queue.go                   # QueueItem, QueueStatus types
+│   ├── sender.go                  # Sender interface (Send, Type)
+│   ├── metrics.go                 # Prometheus: queue size, send duration
+│   ├── errors.go                  # ErrChannelNotFound, ErrVerificationFailed, etc.
+│   ├── repository.go              # Channels, subscriptions, event subscribers, queue ops
+│   ├── postgres/repository.go
+│   ├── email/sender.go            # SMTP sender
+│   ├── telegram/sender.go         # Telegram Bot API sender
+│   ├── mattermost/sender.go       # Mattermost webhook sender
+│   └── templates/                 # Embedded .tmpl files (email/telegram/mattermost × initial/update/resolved/completed/cancelled)
+│
+├── pkg/                           # Shared infra (no business logic)
+│   ├── httputil/                  # response.go, middleware.go, errors.go, logging.go, metrics.go
+│   ├── postgres/postgres.go       # Connect with retry + exponential backoff
+│   ├── metrics/                   # Prometheus collectors (HTTP, DB pool, Go runtime)
+│   └── ctxlog/ctxlog.go           # Context-aware slog with request_id
+│
+├── testutil/                      # Test infrastructure
+│   ├── client.go                  # HTTP test client with auth helpers
+│   ├── container.go               # testcontainers-go PostgreSQL setup
+│   ├── fixtures.go                # Test data builders
+│   └── openapi_validator.go       # Response validation against OpenAPI spec
+│
+└── version/version.go             # Build info (injected at compile time)
 
-service_group_members (M:N junction)
-├── service_id FK → services
-└── group_id FK → service_groups
-
-events
-├── id, title, type, status, severity, description
-├── started_at, resolved_at, scheduled_start_at, scheduled_end_at
-├── notify_subscribers, template_id, created_by
-└── created_at, updated_at
-
-event_services (M:N junction — services with status)
-├── event_id FK → events
-├── service_id FK → services
-├── status VARCHAR(50) NOT NULL — service status in event context
-└── updated_at TIMESTAMP NOT NULL
-
-event_groups (M:N junction — selected groups)
-├── event_id FK → events
-└── group_id FK → service_groups
-
-event_service_changes (audit trail)
-├── id, event_id, batch_id (nullable, groups operations)
-├── action ('added'|'removed')
-├── service_id (nullable), group_id (nullable)
-├── reason, created_by, created_at
-
-service_status_log (audit trail — status changes)
-├── id, service_id FK → services
-├── old_status (nullable), new_status
-├── source_type ('manual'|'event'|'webhook')
-├── event_id FK → events (nullable, ON DELETE SET NULL)
-├── reason, created_by, created_at
-└── Indexes: service_id, event_id, created_at DESC, source_type
-
-v_service_effective_status (VIEW — computed effective status)
-├── service_id, status (stored), effective_status (computed)
-├── has_active_events BOOLEAN
-└── Uses worst-case priority: major_outage > partial_outage > degraded > maintenance > operational
-
-notification_channels
-├── id, user_id FK → users, type, target
-├── is_enabled, is_verified, is_default, subscribe_to_all_services
-├── created_at, updated_at
-└── CONSTRAINT check_channel_type CHECK (type IN ('email', 'telegram', 'mattermost'))
-
-channel_subscriptions (M:N junction — channel subscribes to services)
-├── channel_id FK → notification_channels ON DELETE CASCADE
-├── service_id FK → services ON DELETE CASCADE
-├── created_at
-└── PRIMARY KEY (channel_id, service_id)
-
-event_subscribers (channels subscribed to specific event)
-├── event_id FK → events ON DELETE CASCADE
-├── channel_id FK → notification_channels ON DELETE CASCADE
-├── created_at
-└── PRIMARY KEY (event_id, channel_id)
-
-channel_verification_codes (email verification)
-├── id, channel_id FK → notification_channels ON DELETE CASCADE
-├── code VARCHAR(6), expires_at, attempts
-└── created_at
-
-notification_queue (async notification delivery with retry)
-├── id, event_id FK → events, channel_id FK → notification_channels
-├── message_type VARCHAR(20) — initial, update, resolved, completed, cancelled
-├── payload JSONB — NotificationPayload
-├── status VARCHAR(20) — pending, processing, sent, failed
-├── attempts INT, max_attempts INT, next_attempt_at
-├── last_error TEXT, created_at, updated_at, sent_at
-└── Indexes: status + next_attempt_at, event_id
+tests/integration/                 # Integration tests (testcontainers, //go:build integration)
+├── main_test.go                   # TestMain, DB setup
+├── helpers_test.go                # createTestService, createTestGroup, createTestIncident, etc.
+├── mocks_test.go                  # Mock senders for notification tests
+├── auth_test.go, rbac_test.go     # Identity module
+├── catalog_service_test.go        # Service CRUD
+├── catalog_group_test.go          # Group CRUD and membership
+├── catalog_archive_test.go        # Soft delete, restore
+├── catalog_status_test.go         # Effective status, status log
+├── catalog_service_events_test.go # GET /services/{slug}/events
+├── events_lifecycle_test.go       # Event creation, status transitions
+├── events_composition_test.go     # Add/remove services, updates
+├── events_maintenance_test.go     # Maintenance lifecycle
+├── events_delete_test.go          # Event deletion, cascade
+├── events_public_test.go          # Public endpoints
+├── notifications_channels_test.go # Channel CRUD
+├── notifications_default_channel_test.go  # Default email channel on registration
+├── notifications_subscriptions_test.go    # Subscriptions API
+├── notifications_verification_test.go     # Verification flow
+├── notifications_queue_test.go    # Queue operations, retry
+├── notifications_dispatch_test.go # Dispatcher
+├── notifications_events_test.go   # Event-notification integration
+└── notifications_email_e2e_test.go # Email E2E with Mailpit
 ```
 
-### Module: identity
+### Database Schema
 
-```
-internal/identity/
-├── handler.go           → POST /auth/register, /login, /refresh, /logout; GET /me
-├── service.go           → CreateUser, Authenticate, RefreshTokens
-├── repository.go        → Interface: UserRepository, TokenRepository
-├── authenticator.go     → Interface: Authenticator
-├── jwt/authenticator.go → JWT implementation
-└── postgres/repository.go
+**Core tables:** `services`, `service_groups` — both with soft delete (`archived_at`)
 
-Middleware: RequireAuth(next), RequireRole(roles...)
-Dependencies: domain.User, pkg/postgres, pkg/httputil, notifications.Service (as UserCreatedHandler)
-```
+**Junctions:** `service_group_members` (M:N services↔groups), `event_services` (M:N with `status`), `event_groups`, `channel_subscriptions`, `event_subscribers`
 
-### Module: catalog
+**Events:** `events`, `event_service_changes` (audit trail with `batch_id`, `action`, `service_id`, `group_id`)
 
-```
-internal/catalog/
-├── handler.go             → CRUD /services, /groups + /restore + /services/{slug}/events endpoints
-├── service.go             → CreateService, UpdateService, DeleteService (soft), RestoreService
-├── service_test.go        → Unit tests
-├── repository.go          → Interface with M:N methods + soft delete
-└── postgres/repository.go → SQL with archived_at filtering
+**Status tracking:** `service_status_log` (source_type: manual/event/webhook, links to event_id), `v_service_effective_status` (VIEW — worst-case priority across active events)
 
-Key interfaces:
-- SetServiceGroups(ctx, serviceID, groupIDs []string)
-- GetServiceGroups(ctx, serviceID) → []string
-- GetGroupServices(ctx, groupID) → []string  // Used by events module
-- SetGroupServices(ctx, groupID, serviceIDs []string)
-- ArchiveService/RestoreService
-- GetActiveEventCountForService(ctx, serviceID) → int
-- GetNonArchivedServiceCountForGroup(ctx, groupID) → int
-- GetEffectiveStatus(ctx, serviceID) → (ServiceStatus, hasActiveEvents, error)
-- GetServiceBySlugWithEffectiveStatus(ctx, slug) → *ServiceWithEffectiveStatus
-- ListServicesWithEffectiveStatus(ctx, filter) → []ServiceWithEffectiveStatus
-- SetServiceTags(ctx, serviceID, tags) / GetServiceTags(ctx, serviceID) → []ServiceTag
-- GetServiceStatus(ctx, serviceID) → ServiceStatus
-- CreateStatusLogEntry(ctx, entry) / CreateStatusLogEntryTx(ctx, tx, entry)
-- ListStatusLog(ctx, serviceID, limit, offset) → []ServiceStatusLogEntry
-- FindMissingServiceIDs(ctx, ids) → []string (validation)
-- FindMissingGroupIDs(ctx, ids) → []string (validation)
-- ValidateServicesExist(ctx, ids) → (missingIDs, error)
-- ValidateGroupsExist(ctx, ids) → (missingIDs, error)
-
-Handler interfaces:
-- EventsServiceReader (for /services/{slug}/events endpoint)
-
-Dependencies: domain.Service, domain.ServiceGroup, domain.ServiceWithEffectiveStatus, domain.ServiceStatusLogEntry, events.ServiceEventFilter, pkg/postgres
-```
-
-### Module: events
-
-```
-internal/events/
-├── handler.go             → CRUD /events + /changes endpoints
-├── service.go             → CreateEvent, AddUpdate (decomposed into helper methods)
-├── service_test.go        → Unit tests
-├── repository.go          → Interface with groups + audit methods + transaction methods
-├── resolver.go            → Interface: GroupServiceResolver, CatalogServiceUpdater (implemented by catalog.Service)
-├── template_renderer.go   → Go template execution
-├── errors.go              → ErrEventNotFound, ErrInvalidTransition, ErrEventAlreadyResolved, ErrAffectedServiceNotFound, ErrAffectedGroupNotFound...
-└── postgres/repository.go → SQL for events, groups, changes
-
-AddUpdate decomposition:
-├── processServiceChanges      → orchestrates all service modifications
-│   ├── updateExistingServiceStatuses → updates statuses of services already in event
-│   ├── addServicesToEvent     → adds new services with audit trail
-│   ├── addGroupsToEvent       → adds groups (expands to services) with audit trail
-│   │   └── associateServiceIfNotExists → shared helper for service association + logging
-│   └── removeServicesFromEvent → removes services with audit trail
-└── handleResolution           → recalculates service statuses on event resolution
-
-Key interfaces:
-- AssociateGroups(ctx, eventID, groupIDs)
-- AddGroups(ctx, eventID, groupIDs)
-- GetEventGroups(ctx, eventID) → []string
-- GetEventServices(ctx, eventID) → []EventService
-- AssociateServiceWithStatusTx(ctx, tx, eventID, serviceID, status)
-- UpdateEventServiceStatusTx(ctx, tx, eventID, serviceID, status)
-- CreateServiceChangeTx(ctx, tx, change)
-- ListServiceChanges(ctx, eventID) → []EventServiceChange
-- IsServiceInEventTx(ctx, tx, eventID, serviceID) → bool
-- RemoveServiceFromEventTx(ctx, tx, eventID, serviceID)
-- AddGroupToEventTx(ctx, tx, eventID, groupID)
-- GetEventServiceIDsTx(ctx, tx, eventID) → []string
-- HasOtherActiveEventsTx(ctx, tx, serviceID, excludeEventID) → bool
-- GetEventServiceStatusTx(ctx, tx, eventID, serviceID) → ServiceStatus
-- ListEventsByServiceID(ctx, serviceID, filter) → []*Event
-- CountEventsByServiceID(ctx, serviceID, filter) → int
-
-Service methods:
-- ListEventsByServiceID(ctx, serviceID, filter) → ([]*Event, total, error)
-- validateAffectedEntities(ctx, services, groups) → error (validates services/groups exist before transaction)
-
-Resolver interfaces:
-- GroupServiceResolver.ValidateGroupsExist(ctx, ids) → (missingIDs, error)
-- CatalogServiceUpdater.ValidateServicesExist(ctx, ids) → (missingIDs, error)
-- CatalogServiceUpdater.GetServiceName(ctx, serviceID) → (name, error)
-- EventNotifier.OnEventCreated/OnEventUpdated/OnEventResolved/OnEventCompleted/OnEventCancelled
-
-Notification integration:
-- CreateEvent calls notifier.OnEventCreated asynchronously after commit
-- AddUpdate calls notifier.OnEventUpdated/OnEventResolved/OnEventCompleted asynchronously after commit
-- DeleteEvent calls notifier.OnEventCancelled synchronously for scheduled events before deletion
-
-Dependencies: domain.Event, domain.EventService, domain.AffectedService, domain.AffectedGroup, catalog.Service (as GroupServiceResolver + CatalogServiceUpdater), notifications.Notifier (as EventNotifier), pkg/postgres
-```
-
-### Module: notifications
-
-```
-internal/notifications/
-├── handler.go             → CRUD /me/channels, GET /me/subscriptions, PUT /me/channels/{id}/subscriptions, GET /notifications/config
-├── service.go             → CreateChannel, ListUserChannels, UpdateChannel, DeleteChannel, VerifyChannel,
-│                            GetSubscriptionsMatrix, SetChannelSubscriptions, GetAvailableChannels
-├── notifier.go            → EventNotifier implementation (integration with events module)
-├── repository.go          → Interface: channel CRUD + subscriptions + event subscribers + queue
-├── dispatcher.go          → Dispatch(ctx, notification) — finds subscribers and sends
-├── queue.go               → QueueItem, QueueStatus types for notification queue
-├── worker.go              → Background worker processing queue with retry logic
-├── renderer.go            → Template rendering for notifications
-├── payload.go             → NotificationPayload, EventData, EventChanges types
-├── sender.go              → Interface: Sender
-├── metrics.go             → Prometheus metrics for notifications (queue size, send duration)
-├── errors.go              → ErrChannelNotFound, ErrChannelNotOwned, ErrChannelNotVerified, ErrServicesNotFound, ErrCannotDeleteDefaultChannel, ErrChannelTypeDisabled, ErrVerificationFailed
-├── email/sender.go        → Email sender (real SMTP)
-├── telegram/sender.go     → Telegram sender (real Bot API)
-├── mattermost/sender.go   → Mattermost sender (webhook)
-├── templates/             → Embedded notification templates (email, telegram, mattermost)
-└── postgres/repository.go
-
-Key interfaces:
-- CreateChannel, GetChannelByID, ListUserChannels, UpdateChannel, DeleteChannel
-- SetChannelSubscriptions(ctx, channelID, subscribeAll bool, serviceIDs []string)
-- GetChannelSubscriptions(ctx, channelID) → (subscribeAll, serviceIDs, error)
-- GetUserChannelsWithSubscriptions(ctx, userID) → []ChannelWithSubscriptions
-- CreateEventSubscribers(ctx, eventID, channelIDs)
-- GetEventSubscribers(ctx, eventID) → []channelID
-- AddEventSubscribers(ctx, eventID, channelIDs)
-- FindSubscribersForServices(ctx, serviceIDs) → []ChannelInfo
-- GetChannelsByIDs(ctx, ids) → []ChannelInfo
-
-Queue operations:
-- EnqueueNotification(ctx, item) / EnqueueBatch(ctx, items)
-- FetchPendingNotifications(ctx, limit) → []*QueueItem
-- MarkAsSent(ctx, id) / MarkAsFailed(ctx, id, err) / MarkForRetry(ctx, id, err, nextAttempt)
-- GetQueueStats(ctx) → *QueueStats (pending, processing, sent, failed counts)
-
-EventNotifier (implemented by Notifier):
-- OnEventCreated(ctx, event, serviceIDs) → finds subscribers, saves to event_subscribers, sends initial notification
-- OnEventUpdated(ctx, event, update, changes) → adds new subscribers for added services, sends update notification
-- OnEventResolved(ctx, event, resolution) → sends resolved notification
-- OnEventCompleted(ctx, event, resolution) → sends completed notification
-- OnEventCancelled(ctx, event) → sends cancelled notification (for scheduled maintenance deletion)
-
-Types:
-- ChannelConfig: EmailEnabled, TelegramEnabled, TelegramBotUsername
-- AvailableChannelsResponse: AvailableChannels []string, Telegram *TelegramInfo
-- TelegramInfo: BotUsername
-- ChannelInfo: ID, UserID, Type, Target, Email
-- ChannelWithSubscriptions: Channel, SubscribeToAllServices, SubscribedServiceIDs
-- SubscriptionsMatrix: Channels []ChannelWithSubscriptions
-- NotificationPayload: MessageType, Event, Changes, Resolution, EventURL, GeneratedAt
-- EventUpdateChanges: StatusFrom, StatusTo, SeverityFrom, SeverityTo, ServicesAdded, ServicesRemoved, ServicesUpdated, Reason
-
-Dependencies: domain.NotificationChannel, catalog.Service (as ServiceValidator + ServiceNameResolver), events.EventNotifier interface, pkg/postgres
-```
-
-### Shared
-
-```
-internal/domain/           → User, Service, ServiceGroup, Event, EventUpdate, EventServiceChange,
-                             Template, NotificationChannel (with SubscribeToAllServices),
-                             ServiceWithEffectiveStatus, ServiceTag, EventService,
-                             AffectedService, AffectedGroup (API input types),
-                             ServiceStatusLogEntry, StatusLogSourceType
-                             ChannelType: email, telegram, mattermost
-internal/pkg/httputil/     → response.go, middleware.go, errors.go, metrics.go (Prometheus middleware)
-internal/pkg/postgres/     → Connect with retry (exponential backoff, ConnectAttempts config)
-internal/pkg/metrics/      → Prometheus metrics (HTTPRequestDuration, DBPoolConnections)
-internal/pkg/ctxlog/       → Context-aware logging (request_id propagation)
-internal/testutil/         → HTTP test client, testcontainers setup, fixtures, OpenAPI validator
-internal/version/          → Build version info (injected at compile time)
-```
-
-### Dependency Flow
-
-```
-main.go → app.NewApp(cfg)
-            ├── postgres.Connect() (with retry + exponential backoff)
-            ├── identity:     Repository → Service → Handler + Middleware
-            ├── catalog:      Repository → Service → Handler
-            │                              ↓
-            ├── events:       Repository → Service (resolver=catalogService, notifier) → Handler
-            └── notifications: Repository → Service → Handler
-                               Repository → Dispatcher → Worker (background)
-                                              ├── email.Sender
-                                              ├── telegram.Sender
-                                              └── mattermost.Sender
-            All Handlers → chi.Router → HTTP Server (:8080)
-            Prometheus metrics → Metrics Server (:9090)
-```
+**Notifications:** `notification_channels` (type: email/telegram/mattermost, `is_default`, `is_verified`), `channel_verification_codes`, `notification_queue` (async delivery with retry: pending→processing→sent/failed)
 
 ---
 
@@ -390,9 +165,9 @@ main.go → app.NewApp(cfg)
 
 ### Algorithm for Any Task
 
-1. **Clarify:** module, endpoint/schema change, roles, backward compatibility
-2. **Contract first:** OpenAPI (`api/openapi/openapi.yaml`) or migration before code
-3. **Boundaries:** what goes to handler/service/repository/domain/pkg
+1. **Clarify:** module, endpoint/schema change, roles, backward compat
+2. **Contract first:** OpenAPI or migration before code
+3. **Boundaries:** handler/service/repository/domain/pkg (see Layer Responsibilities)
 4. **Top-down:** handler → service → repository → migrations
 5. **Errors:** wrap with context (`fmt.Errorf("...: %w", err)`)
 6. **Tests:** unit for logic, integration for DB paths
@@ -401,44 +176,16 @@ main.go → app.NewApp(cfg)
 
 ### OpenAPI Versioning
 
-OpenAPI version (`info.version` in `api/openapi/openapi.yaml`) is **independent** from application version. Update it only when API contract changes.
-
-**When to bump:**
-
-| Change Type       | Example                                             | Version Bump              |
-|-------------------|-----------------------------------------------------|---------------------------|
-| Breaking change   | Remove endpoint, remove field, change response code | **MAJOR** (1.x.0 → 2.0.0) |
-| New feature       | Add endpoint, add optional field, add enum value    | **MINOR** (1.3.0 → 1.4.0) |
-| Fix/clarification | Fix description, fix example, no behavior change    | **PATCH** (1.3.0 → 1.3.1) |
-
-**When NOT to bump:**
-- Infrastructure changes (CORS, rate limiting, internal refactoring)
-- Changes that don't affect request/response schemas
-- Bug fixes in implementation (not contract)
-
-**Checklist for API changes:**
-1. Update schema in `api/openapi/openapi.yaml`
-2. Bump `info.version` according to rules above
-3. Mention in PR description: "OpenAPI: 1.3.0 → 1.4.0"
+Version in `api/openapi/openapi.yaml` is **independent** from app version. Bump: **MAJOR** (breaking), **MINOR** (new feature), **PATCH** (fix/clarification). Don't bump for infra-only changes.
 
 ### Definition of Done (PR Checklist)
 
-- [ ] Layer boundaries: handler has no business logic; service has no SQL
-- [ ] Errors: no ignored errors; all wrapped with context
-- [ ] Contract: OpenAPI updated if API changed; migrations if schema changed
-- [ ] **OpenAPI version bumped** if contract changed (see OpenAPI Versioning)
-- [ ] **CLAUDE.md updated** if changes affect: schema, API, domain types, interfaces, or business rules
-- [ ] Tests: according to Test Matrix
-- [ ] `make lint` passes
-- [ ] `make test` / `make test-integration` passes
-- [ ] `make build` passes
-
-### Claude Interaction Modes
-
-**`[DESIGN]`** — Before coding, discuss architecture
-**`[REFACTOR]`** — Restructure existing code
-**`[DEBUG]`** — Investigate issues
-**`[REVIEW]`** — Code review
+- [ ] Layer boundaries respected (no business logic in handlers, no SQL in services)
+- [ ] Errors wrapped with context
+- [ ] OpenAPI updated + version bumped if API changed
+- [ ] CLAUDE.md updated if schema/API/domain/interfaces/rules changed
+- [ ] Tests per Test Matrix
+- [ ] `make lint && make test && make build` pass
 
 ---
 
@@ -446,14 +193,14 @@ OpenAPI version (`info.version` in `api/openapi/openapi.yaml`) is **independent*
 
 ### Layer Responsibilities
 
-| Layer      | File            | Does                                         | Does NOT            |
-|------------|-----------------|----------------------------------------------|---------------------|
-| Handler    | `handler.go`    | HTTP I/O, auth check, validation, error→HTTP | Business logic, SQL |
-| Service    | `service.go`    | Use-cases, business rules, orchestration     | SQL, HTTP concerns  |
-| Repository | `repository.go` | Interface definition                         | Implementation      |
-| Repo Impl  | `postgres/*.go` | SQL/pgx data access                          | Business decisions  |
-| Domain     | `domain/*.go`   | Entities, domain errors                      | Infrastructure      |
-| Pkg        | `pkg/*`         | Shared infra utilities                       | Business logic      |
+| Layer      | File            | Does                                     | Does NOT            |
+|------------|-----------------|------------------------------------------|---------------------|
+| Handler    | `handler.go`    | HTTP I/O, auth, validation, error→HTTP   | Business logic, SQL |
+| Service    | `service.go`    | Use-cases, business rules, orchestration | SQL, HTTP concerns  |
+| Repository | `repository.go` | Interface definition                     | Implementation      |
+| Repo Impl  | `postgres/*.go` | SQL/pgx data access                      | Business decisions  |
+| Domain     | `domain/*.go`   | Entities, domain errors                  | Infrastructure      |
+| Pkg        | `pkg/*`         | Shared infra utilities                   | Business logic      |
 
 ### Principles
 
@@ -462,308 +209,53 @@ OpenAPI version (`info.version` in `api/openapi/openapi.yaml`) is **independent*
 3. **API-first** — contract before implementation
 4. **No circular deps** between modules
 
-### Cross-Module Dependencies (Allowed)
-
-```
-events.Service depends on catalog.Service (via GroupServiceResolver interface)
-```
-
 ### Anti-patterns (DON'T)
 
-- ORM (GORM) → use pgx
-- God-objects → single responsibility
-- Ignored errors → always check and wrap
-- Hardcoded config → ENV/koanf
-- Business logic in handlers
-- Circular module dependencies
-- Features without tests
-- Skipping linters
+ORM (use pgx) · God-objects · Ignored errors · Hardcoded config (use ENV/koanf) · Business logic in handlers · Circular module deps · Features without tests · Skipping linters
 
 ---
 
 ## 5. CODE STYLE
 
-### Must Have
-
-**Error handling:**
-```go
-if err := db.Ping(ctx); err != nil {
-return fmt.Errorf("ping database: %w", err)
-}
-```
-
-**Empty slices for JSON:**
-```go
-items := make([]Item, 0)  // → [] not null
-```
-
-**Soft delete pattern:**
-```go
-// Repository
-func (r *Repository) ArchiveService(ctx context.Context, id string) error {
-query := `UPDATE services SET archived_at = NOW() WHERE id = $1 AND archived_at IS NULL`
-// ...
-}
-
-// Service layer — check business rules before archive
-func (s *Service) DeleteService(ctx context.Context, id string) error {
-activeCount, _ := s.repo.GetActiveEventCountForService(ctx, id)
-if activeCount > 0 {
-return ErrServiceHasActiveEvents
-}
-return s.repo.ArchiveService(ctx, id)
-}
-```
-
-### Linters
-
-```bash
-make lint                    # Run before every commit
-golangci-lint run --fix      # Auto-fix some issues
-```
-
-Zero tolerance — PR cannot merge with linter errors.
+- **Errors:** always check and wrap with `fmt.Errorf("context: %w", err)`
+- **Empty slices:** `make([]Item, 0)` for JSON `[]` not `null`
+- **Soft delete:** archive in repository, business rule check in service layer
+- **Linters:** `make lint` — zero tolerance, PR cannot merge with errors
 
 ---
 
 ## 6. TESTING
 
-### Strategy
+### Strategy & Matrix
 
 ```
-Unit (70%)        — pure logic, mocked deps
-Integration (25%) — service + real Postgres (testcontainers)
-E2E (5%)          — full API scenarios
+Unit (70%) — pure logic, mocked deps | Integration (25%) — real Postgres (testcontainers) | E2E (5%)
 ```
 
-### Test Matrix
-
-| Change                   | Unit       | Integration    |
-|--------------------------|------------|----------------|
-| Repository SQL           | —          | ✅ Required     |
-| Service business rules   | ✅ Required | If DB involved |
-| Handler/validation/roles | —          | ✅ Required     |
-| Soft delete logic        | —          | ✅ Required     |
-| M:N relationships        | —          | ✅ Required     |
+| Change                   | Unit     | Integration    |
+|--------------------------|----------|----------------|
+| Repository SQL           | —        | Required       |
+| Service business rules   | Required | If DB involved |
+| Handler/validation/roles | —        | Required       |
+| Soft delete / M:N        | —        | Required       |
 
 ### Commands
 
 ```bash
-make test               # All
-make test-unit          # Unit only
-make test-integration   # Integration (testcontainers)
+make test                # All
+make test-unit           # Unit only
+make test-integration    # Integration (testcontainers)
 ```
 
-### Test environment
+### Integration Test Conventions
 
-```shell
-docker compose -f deployments/docker/docker-compose-postgres.yml up -d
-# ... work ...
-docker compose -f deployments/docker/docker-compose-postgres.yml down
-docker volume rm docker_postgres_data
-```
-
-### Integration Tests Structure
-
-```
-tests/integration/
-├── main_test.go                       # TestMain, testcontainers setup
-├── helpers_test.go                    # Shared helper functions
-├── mocks_test.go                      # Mock senders for notification tests
-├── auth_test.go                       # Authentication flows
-├── rbac_test.go                       # Role-based access control
-├── catalog_service_test.go            # Service CRUD
-├── catalog_group_test.go              # Group CRUD and membership
-├── catalog_archive_test.go            # Soft delete, restore
-├── catalog_status_test.go             # Effective status, status log
-├── catalog_service_events_test.go     # GET /services/{slug}/events
-├── events_lifecycle_test.go           # Event creation, status transitions
-├── events_composition_test.go         # Add/remove services, updates
-├── events_maintenance_test.go         # Maintenance lifecycle
-├── events_delete_test.go              # Event deletion, cascade
-├── events_public_test.go              # Public endpoints, auth checks
-├── notifications_channels_test.go     # Channel CRUD
-├── notifications_subscriptions_test.go # Channel subscriptions API
-├── notifications_verification_test.go # Channel verification flow
-├── notifications_queue_test.go        # Queue operations, retry logic
-├── notifications_dispatch_test.go     # Dispatcher tests
-└── notifications_events_test.go       # Event-notification integration
-```
-
-When adding new tests, place them in the appropriate domain file. If a new domain emerges, create a new file following the pattern `<module>_<domain>_test.go`.
-
-### Integration Test Style
-
-**File header (required):**
-```go
-//go:build integration
-
-package integration
-```
-
-**Test structure (Arrange-Act-Assert):**
-```go
-func TestFeature_Scenario_ExpectedBehavior(t *testing.T) {
-    // Arrange: setup test data
-    client := newTestClient(t)
-    client.LoginAsAdmin(t)
-
-    serviceID, serviceSlug := createTestService(t, client, "test-svc")
-    t.Cleanup(func() { deleteService(t, client, serviceSlug) })
-
-    // Act: perform the action being tested
-    resp, err := client.POST("/api/v1/events", payload)
-
-    // Assert: verify results
-    require.NoError(t, err)
-    require.Equal(t, http.StatusCreated, resp.StatusCode)
-
-    var result struct {
-        Data struct {
-            ID     string `json:"id"`
-            Status string `json:"status"`
-        } `json:"data"`
-    }
-    testutil.DecodeJSON(t, resp, &result)
-    assert.NotEmpty(t, result.Data.ID)
-    assert.Equal(t, "investigating", result.Data.Status)
-}
-```
-
-**Naming convention:**
-```
-Test<Module>_<Entity>_<Action>_<Scenario>
-TestCatalog_Service_Create_WithValidData
-TestEvents_Incident_Resolve_RecalculatesStatus
-TestDeleteEvent_ActiveEvent_Forbidden
-```
-
-**require vs assert:**
-- `require` — test cannot continue without this (setup, prerequisites)
-- `assert` — verification of results (test continues on failure to show all problems)
-
-```go
-// Setup — use require (test is meaningless if this fails)
-require.NoError(t, err)
-require.Equal(t, http.StatusCreated, resp.StatusCode)
-
-// Verification — use assert (show all failures)
-assert.NotEmpty(t, result.Data.ID)
-assert.Equal(t, "investigating", result.Data.Status)
-```
-
-### Helper Functions (helpers_test.go)
-
-Use existing helpers. Do not duplicate entity creation code.
-
-```go
-// Entity creation — returns ID and slug for cleanup
-serviceID, serviceSlug := createTestService(t, client, "name")
-groupID, groupSlug := createTestGroup(t, client, "name")
-eventID := createTestIncident(t, client, "title", services, groups)
-
-// With options
-serviceID, slug := createTestService(t, client, "name",
-    withGroupIDs([]string{groupID}),
-    withStatus("degraded"))
-
-// Cleanup — use t.Cleanup for automatic resource cleanup
-t.Cleanup(func() { deleteService(t, client, serviceSlug) })
-
-// Or explicit cleanup if order matters
-defer deleteService(t, client, serviceSlug)
-
-// Status checks
-status := getServiceEffectiveStatus(t, client, serviceSlug)
-
-// Event lifecycle
-resolveEvent(t, client, eventID)
-```
-
-If a pattern repeats 3+ times, extract it to helpers_test.go.
-
-### Mandatory Assertions
-
-Never check only HTTP status code. Always decode and verify key fields.
-
-```go
-// BAD — only checks HTTP code
-resp, err := client.POST("/api/v1/services", payload)
-require.NoError(t, err)
-assert.Equal(t, http.StatusCreated, resp.StatusCode)
-resp.Body.Close()  // Data not verified!
-
-// GOOD — verifies response data
-resp, err := client.POST("/api/v1/services", payload)
-require.NoError(t, err)
-require.Equal(t, http.StatusCreated, resp.StatusCode)
-
-var result struct {
-    Data struct {
-        ID   string `json:"id"`
-        Slug string `json:"slug"`
-    } `json:"data"`
-}
-testutil.DecodeJSON(t, resp, &result)
-assert.NotEmpty(t, result.Data.ID)
-assert.Equal(t, expectedSlug, result.Data.Slug)
-```
-
-**Minimum assertions by operation:**
-
-| Operation | Required assertions |
-|-----------|---------------------|
-| POST | ID not empty, key fields match request |
-| GET | ID matches, requested entity returned |
-| GET list | Data is array, count if expected |
-| PATCH | Changed fields updated |
-| DELETE | 204 status |
-| Error | Status code, error message contains key info |
-
-### Resource Cleanup
-
-Always clean up created resources. Use t.Cleanup for automatic cleanup.
-
-```go
-// GOOD — automatic cleanup
-serviceID, slug := createTestService(t, client, "test")
-t.Cleanup(func() { deleteService(t, client, slug) })
-
-// GOOD — explicit cleanup with error handling
-func deleteService(t *testing.T, client *testutil.Client, slug string) {
-    t.Helper()
-    resp, err := client.DELETE("/api/v1/services/" + slug)
-    if err != nil {
-        t.Logf("cleanup warning: %v", err)
-        return
-    }
-    resp.Body.Close()
-}
-
-// BAD — ignored error
-client.DELETE("/api/v1/services/" + slug)
-```
-
-### Test Scenarios Coverage
-
-When adding tests for a feature, cover these scenarios:
-
-1. **Happy path** — normal successful operation
-2. **Validation errors** — invalid input (empty, wrong format)
-3. **Not found** — entity doesn't exist (404)
-4. **Conflict** — business rule violation (409)
-5. **Auth/RBAC** — unauthorized (401), forbidden (403)
-6. **Edge cases** — empty lists, boundary values
-
-Example for event deletion:
-```go
-TestDeleteEvent_ResolvedEvent_Success      // happy path
-TestDeleteEvent_ActiveEvent_Forbidden      // conflict (409)
-TestDeleteEvent_NotFound                   // not found (404)
-TestDeleteEvent_RequiresAdmin              // forbidden (403)
-TestDeleteEvent_CascadeDeletesUpdates      // edge case
-TestDeleteEvent_ServiceStatusUnchanged     // side effect verification
-```
+- Build tag: `//go:build integration` + `package integration`
+- Naming: `Test<Module>_<Entity>_<Action>_<Scenario>`
+- `require` for setup (test stops on failure), `assert` for verification (shows all failures)
+- Always decode and verify response data, not just HTTP status code
+- Use helpers from `helpers_test.go`: `createTestService`, `createTestGroup`, `createTestIncident`, `resolveEvent`, etc. with `t.Cleanup`
+- Cover: happy path, validation errors (400), not found (404), conflict (409), auth/RBAC (401/403), edge cases
+- New test files: `tests/integration/<module>_<domain>_test.go`
 
 ---
 
@@ -771,254 +263,125 @@ TestDeleteEvent_ServiceStatusUnchanged     // side effect verification
 
 ### API Endpoints
 
-**Ports:**
-- `:8080` — API, health checks
-- `:9090` — Prometheus metrics
+**Ports:** `:8080` (API + health), `:9090` (Prometheus metrics)
 
-**Infrastructure:**
-- `GET /healthz`, `/readyz` — health checks (port 8080)
-- `GET /metrics` — Prometheus metrics (port 9090)
+**Infrastructure:** `GET /healthz`, `/readyz`, `/version`, `/metrics` (port 9090), `/api/openapi.yaml`, `/docs`
 
-**Public:**
-- `GET /api/v1/status`, `/status/history` — public status
+**Public (no auth):**
+- `GET /api/v1/status`, `/status/history` — public status page
 - `GET /api/v1/services?include_archived=bool`, `/services/{slug}` — services
+- `GET /api/v1/services/{slug}/events?status=active|resolved&limit=N&offset=N` — service events (paginated)
 - `GET /api/v1/groups?include_archived=bool`, `/groups/{slug}` — groups
-- `GET /api/v1/events`, `/events/{id}` — events (read-only)
-- `GET /api/v1/events/{id}/updates` — event updates (read-only)
-- `GET /api/v1/events/{id}/changes` — event service changes (read-only)
-- `GET /api/v1/notifications/config` — available channel types and config
+- `GET /api/v1/events`, `/events/{id}`, `/events/{id}/updates`, `/events/{id}/changes` — events
+- `GET /api/v1/notifications/config` — available channel types
 
-**Auth (any authenticated):**
-- `POST /api/v1/auth/register`, `/login`, `/refresh`, `/logout`
-- `GET /api/v1/me`
-- `GET|POST|PATCH|DELETE /api/v1/me/channels`
-- `GET /api/v1/me/subscriptions` — subscriptions matrix (all channels with their settings)
-- `PUT /api/v1/me/channels/{id}/subscriptions` — set channel subscriptions (requires verified channel)
+**Authenticated:**
+- `POST /api/v1/auth/register`, `/login`, `/refresh`, `/logout`; `GET /api/v1/me`
+- `GET|POST /api/v1/me/channels`; `PATCH|DELETE /api/v1/me/channels/{id}`
+- `POST /api/v1/me/channels/{id}/verify`, `/resend-code`
+- `GET /api/v1/me/subscriptions`; `PUT /api/v1/me/channels/{id}/subscriptions`
 
 **Operator+:**
 - `POST /api/v1/events` — create (accepts `affected_services` + `affected_groups` with explicit statuses)
-- `POST /api/v1/events/{id}/updates` — add status updates + manage services (add/update/remove)
-  - `service_updates`: update statuses of existing services in event
-  - `add_services`: add new services with specified statuses
-  - `add_groups`: add groups (expand to services) with specified status
-  - `remove_service_ids`: remove services from event
-  - On `resolved`/`completed`: recalculates stored status for affected services
-- `GET /api/v1/services/{slug}/status-log?limit=N&offset=N` — service status change history
-
-**Public (no auth):**
-- `GET /api/v1/services/{slug}/events?status=active|resolved&limit=N&offset=N` — events for a service
-  - Returns events with pagination (total, limit, offset)
-  - `status=active` filters to non-resolved/completed events
-  - `status=resolved` filters to resolved/completed events
-  - Events sorted: active first, then by created_at DESC
+- `POST /api/v1/events/{id}/updates` — status update + manage services (`service_updates`, `add_services`, `add_groups`, `remove_service_ids`)
+- `GET /api/v1/services/{slug}/status-log?limit=N&offset=N`
 
 **Admin:**
-- `DELETE /api/v1/events/{id}` — deletes event (only resolved/completed events can be deleted, returns 409 for active events)
-- `POST|GET|DELETE /api/v1/templates`
-- `POST /api/v1/templates/{slug}/preview`
-- `POST|PATCH|DELETE /api/v1/services`, `/groups` — soft delete on DELETE
-- `POST /api/v1/services/{slug}/restore`, `/groups/{slug}/restore`
+- `POST|PATCH|DELETE /api/v1/services/{slug}`, `POST /services/{slug}/restore`
+- `GET|PUT /api/v1/services/{slug}/tags`
+- `POST|PATCH|DELETE /api/v1/groups/{slug}`, `POST /groups/{slug}/restore`
+- `POST|GET /api/v1/templates`, `GET|DELETE /api/v1/templates/{slug}`, `POST /templates/{slug}/preview`
+- `DELETE /api/v1/events/{id}` — only resolved/completed (409 for active)
 
-### API Response Contract
+### Response Contract
 
 ```json
 { "data": { ... } }                                    // Success
-{ "error": { "message": "..." } }                      // Error
-{ "error": { "message": "...", "details": "..." } }    // Validation
+{ "error": { "message": "...", "details": "..." } }    // Error
 ```
 
 ### Key Business Rules
 
-**Soft Delete:**
-- DELETE returns 409 if service/group has active events (status not resolved/completed)
-- Archived items excluded from listings unless `include_archived=true`
-- Archived items remain in historical event data
+**Effective Status:**
+- Operator specifies status per service/group: `{service_id, status}`, `{group_id, status}`
+- Explicit service status overrides group-derived (priority: service > group)
+- Effective = worst-case from ACTIVE events. Priority: `major_outage` > `partial_outage` > `degraded` > `maintenance` > `operational`
+- Scheduled maintenance does NOT affect effective status until `in_progress`
+- Computed via `v_service_effective_status` view; no active events → stored status
 
-**Event Creation with Groups:**
-- `group_ids` in request → system resolves to `service_ids` at creation time
-- Both `group_ids` and expanded `service_ids` stored
-- Duplicate services (in multiple groups or explicit) deduplicated
-
-**Affected Entities Validation:**
-- Before creating event or adding services/groups via update, system validates all IDs exist
-- Non-existent service_id returns 400 with message: "affected service not found: <id>"
-- Non-existent group_id returns 400 with message: "affected group not found: <id>"
-- Archived services/groups are treated as non-existent (cannot be used in new events)
-
-**Event Composition Changes (via AddUpdate):**
-- All service management is done through `POST /events/{id}/updates`
-- Adding services/groups records to `event_service_changes`
-- Removing services records to `event_service_changes`
-- Full audit trail with `batch_id`, `reason`, `created_by`, `created_at`
-- Cannot update resolved events (returns 409 Conflict)
-
-**Stored Status Recalculation:**
-- When event is resolved/completed, affected services' stored status is recalculated
-- If service has no other active events, status is set to `operational`
-- If service has other active events, stored status remains unchanged (effective status computed from remaining events)
-
-**Effective Status (Service Status in Events):**
-- When creating events, operator specifies status for each service/group via `affected_services` and `affected_groups`
-- Each `affected_service` contains `{service_id, status}`, each `affected_group` contains `{group_id, status}`
-- Explicit service status overrides group-derived status (priority: service > group)
-- Service's effective status = worst-case from ACTIVE events (not resolved, completed, or scheduled)
-- **Scheduled maintenance does NOT affect effective_status until it transitions to in_progress**
-- Priority: `major_outage` > `partial_outage` > `degraded` > `maintenance` > `operational`
-- Computed via `v_service_effective_status` view, accessible via `GetEffectiveStatus()` and `ListServicesWithEffectiveStatus()`
-- If no active events, effective status = stored service status
-
-**Status After Event Resolution:**
-- When event is resolved/completed and service has no other active events, stored_status is set to `operational`
+**Event Resolution:**
+- On resolved/completed: services with no other active events → stored status set to `operational`
+- Services with other active events → unchanged (effective status from remaining events)
 - Manual status changes during active events are overwritten by this behavior
-- To maintain a non-operational status after resolution, set it manually after the event is closed
+
+**Event Composition (via POST /events/{id}/updates):**
+- All service management through updates endpoint
+- Changes recorded in `event_service_changes` with `batch_id`, `reason`, `created_by`
+- Cannot update resolved events (409). Validates all IDs exist before transaction
+- Non-existent IDs → 400: "affected service/group not found: \<id\>". Archived = non-existent
+
+**Event Deletion (admin only):**
+- Only resolved/completed (409 for active). CASCADE: event_services, groups, updates, changes
+- Status log entries referencing event deleted. Service statuses NOT changed
 
 **Service Status Audit Log:**
-- Every service status change is recorded in `service_status_log`
-- Sources: `manual` (PATCH /services), `event` (event creation/update/resolution), `webhook` (future)
-- Records old_status (nullable for initial), new_status, source_type, event_id (if applicable), reason
-- Accessible via `GET /services/{slug}/status-log` (requires operator+ role)
-- Supports pagination with limit/offset
-- Status log entries are deleted when the referenced event is deleted
-
-**Event Deletion:**
-- Only resolved/completed events can be deleted (active events return 409 Conflict)
-- Requires admin role
-- CASCADE deletes: event_services, event_groups, event_updates, event_service_changes
-- Status log entries referencing the event are deleted explicitly
-- Service statuses are NOT changed (event was already resolved)
+- Every status change recorded in `service_status_log` (manual/event/webhook source)
+- `GET /services/{slug}/status-log` (operator+), paginated
 
 **Default Email Channel:**
-- Upon registration, user automatically receives a verified email channel marked as `is_default=true`
-- This channel uses the registration email address
-- Default channels cannot be deleted (returns 409 Conflict)
-- User can immediately configure subscriptions without additional verification
-- Additional email addresses still require verification via 6-digit code
-- Duplicate email channels (same user + same target) are rejected with 409 Conflict
-- If email notifications are disabled (`NOTIFICATIONS_EMAIL_ENABLED=false`), default channel creation is skipped
+- Auto-created on registration (verified, `is_default=true`). Cannot be deleted (409)
+- Skipped if `NOTIFICATIONS_EMAIL_ENABLED=false`. Duplicate email per user → 409
 
-**Channel Type Availability:**
-- `CreateChannel` rejects disabled channel types with 400 Bad Request (`ErrChannelTypeDisabled`)
-- Email and Telegram availability controlled by `NOTIFICATIONS_EMAIL_ENABLED` / `NOTIFICATIONS_TELEGRAM_ENABLED`
-- Mattermost is always available (webhook URL is set per-channel by user)
-- `GET /api/v1/notifications/config` returns currently available channel types (public endpoint)
-
-**Channel Verification Errors:**
-- Telegram/Mattermost verification failures return 422 Unprocessable Entity (`ErrVerificationFailed`) with user-friendly message
-- Telegram "chat not found" → user must send /start to the bot first
-- Telegram "bot was blocked" → user must unblock the bot
-- Mattermost → check webhook URL
-- Error is classified in `classifyVerificationError()` in `service.go`
+**Channel Types:**
+- Disabled types rejected with 400 (`ErrChannelTypeDisabled`). Mattermost always available
+- Verification failures → 422 with user-friendly message (telegram: /start needed or bot blocked; mattermost: check webhook URL)
 
 ### Enums
 
 ```
-roles:           user, operator, admin
-channel_types:   email, telegram, mattermost
-service_status:  operational, degraded, partial_outage, major_outage, maintenance
-event_type:      incident, maintenance
-event_status:    investigating, identified, monitoring, resolved (incident)
-                 scheduled, in_progress, completed (maintenance)
-severity:        minor, major, critical
-change_action:   added, removed
+roles:            user, operator, admin
+channel_types:    email, telegram, mattermost
+service_status:   operational, degraded, partial_outage, major_outage, maintenance
+event_type:       incident, maintenance
+event_status:     investigating, identified, monitoring, resolved (incident)
+                  scheduled, in_progress, completed (maintenance)
+severity:         minor, major, critical
+change_action:    added, removed
 status_log_source: manual, event, webhook
-message_type:    initial, update, resolved, completed, cancelled
-queue_status:    pending, processing, sent, failed
+message_type:     initial, update, resolved, completed, cancelled
+queue_status:     pending, processing, sent, failed
 ```
 
-### Test Users (from migrations)
+### Test Users
 
 ```
-admin@example.com    / admin123  / admin
-operator@example.com / admin123  / operator
-user@example.com     / user123   / user
+admin@example.com / admin123 / admin  |  operator@example.com / admin123 / operator  |  user@example.com / user123 / user
 ```
 
 ### Commands
 
 ```bash
-# Dev
-make docker-up          # Start PostgreSQL
-make dev                # Run app (hot-reload)
-
-# Quality
-make lint               # Linters
-make test               # All tests
-make test-integration   # Integration only
-
-# DB
-make migrate-up
-make migrate-down
-make migrate-create NAME=xxx
-
-# Build
-make build
-make docker-build
+make docker-up / dev                    # Start PostgreSQL / Run app
+make lint / test / test-integration     # Quality
+make migrate-up / migrate-down / migrate-create NAME=xxx  # DB
+make build / docker-build               # Build
 ```
 
 ---
 
 ## 8. STATUS & TODO
 
-### Current State
+### Done
 
-✅ **Done:**
-- Infrastructure, Database, Identity, Catalog, Events, CI/CD
-- M:N Services ↔ Groups relationship
-- Events with group selection (auto-expand to services)
-- Event composition editing with audit trail
-- Soft delete for services and groups
-- Service status tracking within events (affected_services/affected_groups with explicit statuses)
-- Effective status computation (v_service_effective_status view)
-- Service status audit log (manual changes, event-driven changes, with full history)
-- Integration tests (100+, organized by domain)
-- **Cloud-native:**
-  - Prometheus metrics (HTTP latency, DB pool, Go runtime) on separate port :9090
-  - Structured logging with request_id propagation (ctxlog)
-  - DB connection retry with exponential backoff
-  - HTTP server timeouts (ReadHeaderTimeout, IdleTimeout)
-  - Graceful shutdown for both API and metrics servers
-  - Prometheus alerts (`deployments/prometheus/alerts.yaml`)
-  - Deployment guide (`docs/deployment.md`)
-- **Notifications:**
-  - Real Email sender (SMTP)
-  - Real Telegram sender (Bot API)
-  - Mattermost sender (Webhooks)
-  - Channel verification flow (email codes, telegram/mattermost test messages)
-  - Channel subscriptions API (subscribe to all or specific services)
-  - Event subscribers (fixed on event creation, new subscribers added when services added)
-  - **Event-Notification integration:** notifications sent on event create/update/resolve/complete/cancel
-  - **Notification queue with retry:** async delivery via `notification_queue` table, background worker with exponential backoff
+All core modules implemented: identity (auth/RBAC), catalog (services/groups, M:N, soft delete, effective status, tags, status log), events (incidents/maintenance lifecycle, composition editing, audit trail, templates), notifications (email/telegram/mattermost senders, verification, subscriptions, event integration, async queue with retry). Cloud-native: Prometheus metrics, structured logging, graceful shutdown, deployment guide.
 
 ### Known Limitations
 
-**Missing:**
-- Helm chart (templates empty, see `docs/deployment.md` for K8s examples)
-- Pagination
-- Bulk operations
-- Email batching (BCC groups for bulk sending)
+- No Helm chart (see `docs/deployment.md` for K8s examples)
+- No pagination (except service events and status log)
+- No bulk operations, email batching, telegram rate limiting
+- No graceful degradation for senders, no rate limiting, no transient DB error retry
 
-**Tech Debt:**
-- No graceful degradation for senders
-- No rate limiting
-- No transient DB error retry (startup retry only)
+### Configuration
 
-### Deployment & Configuration
-
-See [docs/deployment.md](./docs/deployment.md) for:
-- Environment variables (full list with defaults)
-- Kubernetes configuration (probes, resources, secrets)
-- Prometheus ServiceMonitor (`deployments/prometheus/servicemonitor.yaml`)
-- Prometheus alerts (`deployments/prometheus/alerts.yaml`)
-
-**New notification ENV variables:**
-- `NOTIFICATIONS_BASE_URL` — Base URL for event links in notifications (e.g., https://status.example.com)
-- `NOTIFICATIONS_TELEGRAM_API_URL` — Custom Telegram Bot API URL template (default: `https://api.telegram.org/bot%s/sendMessage`)
-- `NOTIFICATIONS_TELEGRAM_BOT_USERNAME` — Telegram bot username for deep links (e.g., `YourStatusBot`)
-- `NOTIFICATIONS_WORKER_NUM_WORKERS` — Number of concurrent notification workers (default: `5`)
-- `NOTIFICATIONS_WORKER_BATCH_SIZE` — Items per queue fetch (default: `100`)
-- `NOTIFICATIONS_WORKER_POLL_INTERVAL` — Queue polling interval (default: `5s`)
-
-### Next Up
-
-- [ ] Email batching (BCC groups for bulk sending)
-- [ ] Telegram rate limiting (25 msg/sec)
+See [docs/deployment.md](./docs/deployment.md) for environment variables, K8s config, Prometheus setup.

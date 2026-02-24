@@ -1,220 +1,182 @@
-# :deciduous_tree: IncidentGarden
+# IncidentGarden
 
-Hi, dude! You're reading the only paragraph written by a human. The rest is created by AI, even a name of the project.
+Open-source incident communication platform for service status pages.
+A self-hosted alternative to Atlassian Statuspage and PagerDuty Status Page.
 
-## About the Project
+[![CI](https://github.com/bissquit/incident-garden/actions/workflows/ci.yml/badge.svg)](https://github.com/bissquit/incident-garden/actions/workflows/ci.yml)
+[![Go](https://img.shields.io/badge/Go-1.25-00ADD8?logo=go)](https://go.dev)
+[![OpenAPI](https://img.shields.io/badge/OpenAPI-v2.12.0-6BA539?logo=openapiinitiative)](./api/openapi/openapi.yaml)
+[![License](https://img.shields.io/badge/License-AGPL_3.0-blue.svg)](./LICENSE)
 
-IncidentGarden is a simple and lightweight cloud-native service for managing status pages and incidents. An alternative to Atlassian Statuspage, Cachet, and Instatus, but with a focus on simplicity and self-hosting.
+<p align="center">
+  <img src="docs/screenshots/main-page.png" alt="IncidentGarden Status Page" width="800">
+</p>
 
-### Key Features
+> UI is provided by [Garden UI](https://github.com/bissquit/garden-ui) — a separate frontend project built on top of the IncidentGarden API.
 
-- 📊 Service status display (operational, degraded, partial_outage, major_outage, maintenance)
-- 🚨 Incident management with timeline updates
-- 👥 RBAC: user → operator → admin
-- 🔔 Notification subscriptions (Email, Telegram)
-- 🔌 REST API first (web interface is a separate project)
+## Why IncidentGarden
+
+The open-source status page landscape is split: monitoring tools (Uptime Kuma, Gatus) detect problems but don't help communicate them to users. Static pages (cState, Upptime) display status but lack incident management. Commercial platforms (Statuspage, BetterStack) do both — for $99-1499/month.
+
+IncidentGarden fills the gap: a **full incident communication lifecycle** in an open-source, self-hosted package.
+
+- **Incident lifecycle with audit trail** — not just open/close, but `investigating` > `identified` > `monitoring` > `resolved`, with every service change tracked
+- **Effective status auto-computed** — worst-case across all active events, per service. No manual status juggling
+- **Subscriber notifications** — users subscribe to specific services and get notified via Email, Telegram, or Mattermost. Not just admin alerts — user-facing communication
+- **Production-ready from day one** — Prometheus metrics, pre-built alerts, Kubernetes probes, structured logging, graceful shutdown. No "add monitoring later"
+
+## Not a Monitoring Tool
+
+IncidentGarden is an incident communication platform, not an uptime monitor. It handles what happens **after** an issue is detected: status tracking, timeline updates, and subscriber notifications.
+
+Pair it with your existing monitoring stack — Prometheus, Uptime Kuma, Grafana, or any tool that detects problems. IncidentGarden handles the communication.
+
+## Features
+
+**Status Page**
+- Public status page with real-time service statuses
+- Service groups with M:N membership
+- 5 status levels: `operational`, `degraded`, `partial_outage`, `major_outage`, `maintenance`
+- Status history and audit log
+
+**Incident & Maintenance Management**
+- Full incident lifecycle: `investigating` > `identified` > `monitoring` > `resolved`
+- Scheduled maintenance: `scheduled` > `in_progress` > `completed`
+- Severity levels: `minor`, `major`, `critical`
+- Per-incident affected services with granular status overrides
+- Add/remove services on the fly during an active incident
+- Event templates for consistent communication
+- Complete audit trail of every change (who, when, what)
+
+**Notifications**
+- 3 channels: Email (SMTP), Telegram (Bot API), Mattermost (webhooks)
+- Per-service subscriptions — users choose what they care about
+- Channel verification (email codes, Telegram /start, Mattermost test message)
+- Async delivery queue with retry mechanism
+- Default email channel auto-created on registration
+
+**Access Control**
+- Three roles: `user` (subscribe) > `operator` (manage incidents) > `admin` (full control)
+- JWT authentication with refresh tokens
+
+**Operations**
+- Prometheus metrics on `/metrics` (port 9090)
+- Pre-configured alerts: error rate, latency, DB pool, memory, goroutine leaks
+- Health (`/healthz`) and readiness (`/readyz`) probes
+- Structured JSON logging via slog
+- Graceful shutdown
 
 ## Quick Start
 
-### Requirements
-
-- Go 1.22+
-- Docker & Docker Compose
-- Make
-
-### Installation
+Requirements: Docker and Docker Compose.
 
 ```bash
 git clone https://github.com/bissquit/incident-garden.git
 cd incident-garden
-```
-
-### Local Development
-
-```bash
-# Show available commands
-make help
-
-# Option 1: Full stack with Docker (PostgreSQL + migrations + app)
-make docker-build    # Build image
-make docker-up       # Start stack
-
-# Option 2: Only PostgreSQL with Docker, app locally
-make docker-postgres # Start only PostgreSQL
-make dev             # Run app with hot-reload
-
-# View logs
-make docker-logs
-```
-
-## Project Structure
-
-```
-├── cmd/statuspage/          # Application entry point
-├── internal/                # Internal code
-│   ├── app/                 # Application initialization
-│   ├── config/              # Configuration
-│   ├── domain/              # Domain entities
-│   ├── identity/            # Authentication and RBAC
-│   ├── catalog/             # Service management
-│   ├── incidents/           # Incident management
-│   ├── notifications/       # Notifications
-│   └── pkg/                 # Common utilities
-├── api/openapi/             # OpenAPI specification
-├── migrations/              # Database migrations
-└── deployments/             # Docker and Helm charts
-```
-
-## Development
-
-### Make Commands
-
-```bash
-make test           # Run all tests
-make test-unit      # Unit tests only
-make test-int       # Integration tests only
-make lint           # Run linters
-make build          # Build binary
-```
-
-### Migrations
-
-```bash
-make migrate-up                       # Apply migrations
-make migrate-down                     # Rollback migration
-make migrate-create NAME=add_users    # Create new migration
-```
-
-## 🐳 Docker
-
-### Quick Start
-
-1. Copy `.env.example` to `.env` and configure:
-```bash
 cp .env.example .env
-# Edit .env - IMPORTANT: change JWT_SECRET_KEY and POSTGRES_PASSWORD
-# Set POSTGRES_PORT if needed (default: 5432)
+make docker-build && make docker-up
 ```
 
-2. Build and start:
-```bash
-make docker-build    # Build image
-make docker-up       # Start full stack (PostgreSQL + migrations + app)
-```
-
-3. Verify:
-```bash
-# Health check
-curl http://localhost:8080/healthz
-
-# API
-curl http://localhost:8080/api/v1/status
-
-# View logs
-make docker-logs
-```
-
-### Docker Commands
+Verify it's running:
 
 ```bash
-# Full stack
-make docker-build    # Build Docker image
-make docker-up       # Start full stack (PostgreSQL + migrations + app)
-make docker-down     # Stop full stack
-make docker-logs     # Show logs
-make docker-ps       # Show container status
-make docker-restart  # Restart application
-
-# PostgreSQL only (for local development)
-make docker-postgres # Start only PostgreSQL on POSTGRES_PORT (default: 5432)
-
-# Registry
-make docker-push     # Push image to GitHub Container Registry
+curl http://localhost:8080/healthz       # OK
+curl http://localhost:8080/api/v1/status  # system status JSON
 ```
 
-### Using Pre-built Image
+Interactive API docs are available at http://localhost:8080/docs, OpenAPI spec at http://localhost:8080/api/openapi.yaml.
 
-Pull from GitHub Container Registry:
+For the full visual experience, set up [Garden UI](https://github.com/bissquit/garden-ui) — a frontend that connects to the IncidentGarden API.
+
+### Pre-built Images
+
 ```bash
 docker pull ghcr.io/bissquit/incident-garden:latest
 ```
 
-Or specify in `.env`:
-```bash
-IMAGE_NAME=ghcr.io/bissquit/incident-garden
-IMAGE_TAG=v1.0.0
-```
+Available for `amd64` and `arm64`.
 
-### Configuration
+### Test Users (Development Only)
 
-Environment variables in `.env`:
-- `POSTGRES_PORT` - PostgreSQL host port (default: 5432)
-- `APP_PORT` - Application host port (default: 8080)
-- `IMAGE_NAME` - Docker image name (default: statuspage)
-- `IMAGE_TAG` - Docker image tag (default: latest)
-- `JWT_SECRET_KEY` - **Required**, min 32 characters
-- `POSTGRES_PASSWORD` - **Change in production**
+| Email | Password | Role |
+|---|---|---|
+| admin@example.com | admin123 | admin |
+| operator@example.com | admin123 | operator |
+| user@example.com | user123 | user |
 
-**Note:** All Docker Compose commands explicitly use `.env` file from project root via `--env-file .env` flag.
+## API-First Architecture
+
+IncidentGarden is designed as an API-first platform. The backend is a standalone product — Garden UI is one client, but you can build your own.
+
+- **OpenAPI 3.0 specification** — versioned independently from the application
+- **Spec served at runtime** — `GET /api/openapi.yaml` always returns the current contract
+- **Interactive docs** — Swagger UI at `/docs`
+- **Consistent response format** — `{"data": {...}}` for success, `{"error": {"message": "..."}}` for errors
+
+Build on top of it: custom dashboards, CLI tools, ChatOps bots, Grafana panels, CI/CD integrations.
+
+## Comparison
+
+IncidentGarden vs projects in the same niche — incident communication platforms (not monitoring tools):
+
+|                               | IncidentGarden                 | Cachet v3              | OpenStatus |
+|-------------------------------|--------------------------------|------------------------|------------|
+| Project status                | Active                         | Stalled (1 maintainer) | Active     |
+| Incident lifecycle            | Full (4 states + audit trail)  | Basic                  | Basic      |
+| RBAC                          | user / operator / admin        | Partial                | No         |
+| Subscriber notifications      | Email, Telegram, Mattermost    | Email only             | Email      |
+| Per-service subscriptions     | Yes                            | No                     | No         |
+| Event templates               | Yes                            | Yes (Twig)             | No         |
+| Affected services per incident | Multiple, editable on the fly  | 1 component            | Multiple   |
+| API contract                  | OpenAPI 3.0, versioned (v2.12) | Yes                    | Yes        |
+| Self-host complexity          | Go binary + PostgreSQL         | PHP + Laravel + DB     | 6 services |
+| License                       | AGPL-3.0                       | BSD-3                  | AGPL-3.0   |
+
+> Uptime Kuma, Gatus, and similar tools are **monitoring solutions**, not incident communication platforms. They complement IncidentGarden rather than compete with it.
+
+## Tech Stack
+
+| Part        | Tool/Technologie                |
+|-------------|---------------------------------|
+| Language    | Go 1.25                         |
+| HTTP Router | chi                             |
+| Database    | PostgreSQL 16                   |
+| Migrations  | golang-migrate                  |
+| Logging     | slog (stdlib)                   |
+| Metrics     | Prometheus                      |
+| CI/CD       | GitHub Actions, GoReleaser      |
+| Containers  | Docker (Alpine 3.19, multi-arch) |
 
 ## Documentation
 
-### Deployment
+- [Deployment Guide](./docs/deployment.md) — environment variables, Kubernetes manifests, Prometheus setup
+- [OpenAPI Specification](./api/openapi/openapi.yaml) — full API contract
+- [Changelog](./CHANGELOG.md) — release history
 
-Production deployment guide with environment variables, Kubernetes probes, and configuration:
-- [Deployment Guide](./docs/deployment.md)
+## Development
 
-### API Documentation
+```bash
+# Local development (PostgreSQL in Docker, app with hot-reload)
+make docker-postgres
+make dev
 
-Full REST API documentation is available in [docs/api/](./docs/api/):
+# Quality checks
+make lint
+make test
+make test-integration
 
-- [Overview and basics](./docs/api/README.md)
-- [Authentication](./docs/api/01-auth.md)
-- [Service catalog](./docs/api/02-catalog.md)
-- [Events (incidents and scheduled maintenance)](./docs/api/03-events.md)
-- [Event templates](./docs/api/04-templates.md)
-- [Notifications](./docs/api/05-notifications.md)
-- [Public endpoints](./docs/api/06-public-status.md)
+# Database migrations
+make migrate-up
+make migrate-down
+make migrate-create NAME=add_something
+```
 
-### Test Users
-
-By default, test users are created in the system:
-
-| Email                | Password  | Role     | Description                   |
-|----------------------|-----------|----------|-------------------------------|
-| admin@example.com    | admin123  | admin    | Full access to all features   |
-| operator@example.com | admin123  | operator | Incident and event management |
-| user@example.com     | user123   | user     | Basic user                    |
-
-**⚠️ IMPORTANT:** For development and testing only!
-
-### Architecture
-
-Detailed documentation on architecture, principles, and roadmap is available in [CLAUDE.md](./CLAUDE.md).
-
-## Technologies
-
-- **Language**: Go 1.22+
-- **HTTP Router**: chi
-- **Database**: PostgreSQL 15+
-- **Migrations**: golang-migrate
-- **Logging**: slog (stdlib)
-- **Metrics**: Prometheus
-
-## CI/CD
-
-The project uses GitHub Actions for automation:
-
-- **Lint**: code checking with golangci-lint
-- **Test**: running unit and integration tests with PostgreSQL
-- **Build**: binary build and successful compilation check
-
-CI configuration is available in [.github/workflows/ci.yml](./.github/workflows/ci.yml)
-
-## License
-
-Apache License 2.0
+See `make help` for all available commands.
 
 ## Contributing
 
-Any contributions are welcome! Please create issues and pull requests.
+Contributions are welcome. Please create issues and pull requests.
+
+## License
+
+[GNU Affero General Public License v3.0](./LICENSE)
