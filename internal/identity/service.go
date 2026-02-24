@@ -16,6 +16,7 @@ var (
 	ErrEmailExists        = errors.New("email already exists")
 	ErrInvalidCredentials = errors.New("invalid credentials")
 	ErrInvalidToken       = errors.New("invalid token")
+	ErrInvalidResetToken  = errors.New("invalid or expired reset token")
 )
 
 // UserCreatedHandler handles user creation events.
@@ -65,11 +66,13 @@ func (s *Service) Register(ctx context.Context, input RegisterInput) (*domain.Us
 	}
 
 	user := &domain.User{
-		Email:        input.Email,
-		PasswordHash: string(hashedPassword),
-		FirstName:    input.FirstName,
-		LastName:     input.LastName,
-		Role:         domain.RoleUser,
+		Email:              input.Email,
+		PasswordHash:       string(hashedPassword),
+		FirstName:          input.FirstName,
+		LastName:           input.LastName,
+		Role:               domain.RoleUser,
+		IsActive:           true,
+		MustChangePassword: false,
 	}
 
 	if err := s.repo.CreateUser(ctx, user); err != nil {

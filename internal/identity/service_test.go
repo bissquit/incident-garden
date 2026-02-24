@@ -71,6 +71,34 @@ func (m *mockRepository) DeleteUserRefreshTokens(_ context.Context, _ string) er
 	return nil
 }
 
+func (m *mockRepository) ListUsers(_ context.Context, _ UserFilter) ([]*domain.User, int, error) {
+	return make([]*domain.User, 0), 0, nil
+}
+
+func (m *mockRepository) UpdateUserPassword(_ context.Context, _ string, _ string) error {
+	return nil
+}
+
+func (m *mockRepository) SavePasswordResetToken(_ context.Context, _ *domain.PasswordResetToken) error {
+	return nil
+}
+
+func (m *mockRepository) GetPasswordResetToken(_ context.Context, _ string) (*domain.PasswordResetToken, error) {
+	return nil, ErrInvalidResetToken
+}
+
+func (m *mockRepository) GetLatestPasswordResetToken(_ context.Context, _ string) (*domain.PasswordResetToken, error) {
+	return nil, nil
+}
+
+func (m *mockRepository) DeletePasswordResetToken(_ context.Context, _ string) error {
+	return nil
+}
+
+func (m *mockRepository) DeleteUserPasswordResetTokens(_ context.Context, _ string) error {
+	return nil
+}
+
 // mockAuthenticator implements Authenticator for testing.
 type mockAuthenticator struct{}
 

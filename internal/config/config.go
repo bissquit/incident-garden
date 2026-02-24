@@ -21,7 +21,13 @@ type Config struct {
 	JWT           JWTConfig
 	CORS          CORSConfig
 	Cookie        CookieConfig
+	App           AppConfig
 	Notifications NotificationsConfig
+}
+
+// AppConfig contains general application settings.
+type AppConfig struct {
+	FrontendURL string // Base URL for frontend app (e.g., https://status.example.com)
 }
 
 // CORSConfig contains CORS settings.
@@ -161,6 +167,9 @@ func Load() (*Config, error) {
 		Cookie: CookieConfig{
 			Secure: k.Bool("COOKIE_SECURE"),
 			Domain: k.String("COOKIE_DOMAIN"),
+		},
+		App: AppConfig{
+			FrontendURL: k.String("APP_FRONTEND_URL"),
 		},
 		Notifications: NotificationsConfig{
 			Enabled: !k.Exists("NOTIFICATIONS_ENABLED") || k.Bool("NOTIFICATIONS_ENABLED"),
