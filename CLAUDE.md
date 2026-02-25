@@ -408,7 +408,7 @@ All core modules implemented: identity (auth/RBAC, user management, password cha
 - No pagination (except service events, status log, and user listing)
 - No bulk operations, email batching, telegram rate limiting
 - No graceful degradation for senders, no rate limiting, no transient DB error retry
-- Integration tests for user management not yet written
+- No integration tests for forgot-password happy path (requires email E2E setup)
 
 ### Configuration
 
