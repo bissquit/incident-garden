@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.0](https://github.com/bissquit/incident-garden/compare/v2.2.0...v2.3.0) (2026-03-01)
+
+
+### Features
+
+* **identity:** add admin user management endpoints ([6121ba9](https://github.com/bissquit/incident-garden/commit/6121ba913ae39dac963fbb954752a38de57c8629))
+* **identity:** add forgot/reset password flow ([72e01f5](https://github.com/bissquit/incident-garden/commit/72e01f5899ea1159c7a976eac2db9fd981d35ec9))
+* **identity:** add password change, profile update and account deactivation checks ([0125e61](https://github.com/bissquit/incident-garden/commit/0125e6165d4d50b383393d87f11e5a9f2cdb0e95))
+* **identity:** user management foundation — migration, domain, repository ([34d7bfb](https://github.com/bissquit/incident-garden/commit/34d7bfb5d5a20fca932b71d22211c5776a17ce44))
+
 ## [2.2.0](https://github.com/bissquit/incident-garden/compare/v2.1.0...v2.2.0) (2026-02-22)
 
 
